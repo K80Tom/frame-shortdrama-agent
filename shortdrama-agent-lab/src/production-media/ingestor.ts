@@ -67,7 +67,10 @@ export class PinnedHttpsMediaFetcher implements PinnedMediaFetcher {
           headers: { accept: 'video/mp4', 'user-agent': 'OHAO-local-media/1' },
           // Pin the TLS socket to the checked address. The URL hostname remains
           // unchanged, so certificate validation and SNI still use the provider host.
-          lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
+          // The all-form array is used because the classic (err, address, family)
+          // callback shape breaks with ERR_INVALID_IP_ADDRESS on Node 22 whenever
+          // the request options do not pin an address family.
+          lookup: (_hostname, _options, callback) => callback(null, [{ address: target.address, family: target.family }]),
         }, response => {
           const status = response.statusCode;
           const headers = normalizeHeaders(response);

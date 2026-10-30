@@ -226,7 +226,7 @@ export interface StoredProductionRun extends CreateProductionRun {
   outbox: OutboxEvent[];
 }
 
-const CREATE_KEYS: Array<keyof CreateProductionRun> = ['projectId', 'scriptVersionId', 'ratio', 'targetDurationSec',
+export const CREATE_KEYS: Array<keyof CreateProductionRun> = ['projectId', 'scriptVersionId', 'ratio', 'targetDurationSec',
   'visualStyle', 'qualityPreset', 'automationMode', 'candidateLimit', 'directorPolicy', 'budgetMicros', 'currency',
   'allowPaid', 'clientRequestId'];
 const safeId = /^[A-Za-z][A-Za-z0-9_-]{2,127}$/u;
@@ -268,14 +268,23 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
   };
 }
 
-export type ProductionAction = { type: 'pause' } | { type: 'resume' } | { type: 'retryTask'; taskId: string; reason: string };
+export type ProductionAction = { type: 'pause' } | { type: 'resume' }
+  | { type: 'raiseBudget'; budgetMicros: number; reason: string }
+  | { type: 'retryTask'; taskId: string; reason: string; force?: boolean };
 export function parseProductionAction(value: unknown): ProductionAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('操作请求不正确。');
   const input = value as Record<string, unknown>;
   if ((input.type === 'pause' || input.type === 'resume') && Object.keys(input).length === 1) return { type: input.type };
-  if (input.type === 'retryTask' && Object.keys(input).every(key => ['type', 'taskId', 'reason'].includes(key))
+  if (input.type === 'raiseBudget' && Object.keys(input).every(key => ['type', 'budgetMicros', 'reason'].includes(key))
     && Object.keys(input).length >= 2) {
-    return { type: 'retryTask', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false) };
+    const budgetMicros = Number(input.budgetMicros);
+    if (!Number.isFinite(budgetMicros) || !Number.isInteger(budgetMicros) || budgetMicros <= 0) return invalid('操作请求不正确。');
+    return { type: 'raiseBudget', budgetMicros, reason: safeText(input.reason ?? '', 1000, false) };
+  }
+  if (input.type === 'retryTask' && Object.keys(input).every(key => ['type', 'taskId', 'reason', 'force'].includes(key))
+    && Object.keys(input).length >= 2) {
+    return { type: 'retryTask', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false),
+      force: input.force === true };
   }
   return invalid('操作请求不正确。');
 }

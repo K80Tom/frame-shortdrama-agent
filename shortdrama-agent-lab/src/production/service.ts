@@ -79,9 +79,9 @@ export class ProductionService {
   }
 
   async action(id: string, value: unknown) {
-    const run = await this.requireRun(parseProductionRunId(id)); const action = parseProductionAction(value);
+    let run = await this.requireRun(parseProductionRunId(id)); const action = parseProductionAction(value);
     if (terminal.has(run.status)) conflict('PRODUCTION_RUN_TERMINAL', '已结束的生产运行不能再更改。');
-    const at = this.timestamp();
+    let at = this.timestamp();
     if (action.type === 'pause') {
       if (run.pausedAt) return publicProductionRun(run);
       run.pausedAt = at;
@@ -99,16 +99,65 @@ export class ProductionService {
     }
     if (action.type === 'resume') {
       if (!run.pausedAt && run.status !== 'pausedBudget') return publicProductionRun(run);
-      run.pausedAt = null; this.promoteReady(run); this.refreshRunStatus(run);
+      run.pausedAt = null;
+      // Without this reset refreshRunStatus keeps the pausedBudget label forever
+      // (it early-returns on it), and the ticker would skip the run for good.
+      if (run.status === 'pausedBudget') run.status = 'queued';
+      this.promoteReady(run); this.refreshRunStatus(run);
       return publicProductionRun(await this.save(run, 'production.run.resumed', {}));
     }
-    const task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
+    if (action.type === 'raiseBudget') {
+      if (action.budgetMicros <= run.budgetMicros) {
+        conflict('PRODUCTION_BUDGET_NOT_RAISED', '新预算必须高于当前预算。');
+      }
+      const previousBudgetMicros = run.budgetMicros;
+      run.budgetMicros = action.budgetMicros;
+      for (const task of run.tasks.filter(item => item.status === 'waitingHuman'
+        && item.blockingReason?.code === 'PRODUCTION_BUDGET_EXCEEDED')) {
+        task.status = 'pending'; task.blockingReason = null; task.version++; task.updatedAt = at;
+      }
+      for (const issue of run.issues.filter(item => item.code === 'PRODUCTION_BUDGET_EXCEEDED' && item.status === 'open')) {
+        issue.status = 'resolved'; issue.resolvedAt = at;
+      }
+      run.pausedAt = null;
+      if (run.status === 'pausedBudget') run.status = 'queued';
+      this.promoteReady(run); this.refreshRunStatus(run);
+      return publicProductionRun(await this.save(run, 'production.run.budget_raised',
+        { budgetMicros: run.budgetMicros, previousBudgetMicros }));
+    }
+    let task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
     if (!['waitingHuman', 'failed', 'reconciling', 'invalidated'].includes(task.status)) {
       conflict('PRODUCTION_TASK_NOT_RETRYABLE', '当前任务状态不能重试。');
     }
     const operation = this.activeOperation(run, task.id);
-    if (operation) conflict('PRODUCTION_EXTERNAL_OPERATION_UNKNOWN', '外部付费操作尚未明确结束，不能创建第二次提交。');
-    if (task.attemptCount >= task.maxAttempts) conflict('PRODUCTION_RETRY_LIMIT', '该任务已达重试上限。');
+    if (operation) {
+      if (task.status !== 'waitingHuman' || operation.status !== 'unknown') {
+        conflict('PRODUCTION_EXTERNAL_OPERATION_UNKNOWN', '外部付费操作尚未明确结束，不能创建第二次提交。');
+      }
+      // A human-authorized retry is also reconciliation authority: query the
+      // original external operation first; only a definitive outcome unlocks
+      // the second submission, otherwise the double-charge guard still applies.
+      await this.reconcile(run, task);
+      run = await this.requireRun(run.id);
+      task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
+      if (this.activeOperation(run, task.id)) {
+        conflict('PRODUCTION_EXTERNAL_OPERATION_UNKNOWN', '原外部付费操作对账后仍无确定结果，不能创建第二次提交。');
+      }
+      if (!['waitingHuman', 'failed', 'reconciling', 'invalidated'].includes(task.status)) {
+        // Reconciliation already resolved the task (completed or waiting at a
+        // checkpoint); no second submission is needed.
+        return publicProductionRun(run);
+      }
+      at = this.timestamp();
+    }
+    if (task.attemptCount >= task.maxAttempts && action.force !== true) {
+      conflict('PRODUCTION_RETRY_LIMIT', '该任务已达重试上限。');
+    }
+    if (action.force === true && task.attemptCount >= task.maxAttempts) {
+      // Explicit operator override: raise the per-task ceiling so the scheduler
+      // gate (which re-checks attemptCount >= maxAttempts) also lets it run.
+      task.maxAttempts = task.attemptCount + 1;
+    }
     this.invalidateFrom(run, task.id, at);
     task.status = task.dependencies.every(id => dependencyDone(run.tasks.find(item => item.id === id)!)) ? 'ready' : 'pending';
     task.blockingReason = null; task.version++; task.updatedAt = at;

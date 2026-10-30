@@ -197,6 +197,8 @@ export interface BreakdownRepository {
   completeModelCall(input: {
     modelCallId: string; providerRequestId: string | null;
     usage: ModelCallUsage | null; endedAt: string;
+    /** Raw paid response payload, persisted for post-mortem (ledger only). */
+    response: unknown;
   }): Promise<ModelCallRecord>;
   failModelCall(input: {
     modelCallId: string; providerRequestId: string | null;
@@ -716,13 +718,15 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
   async completeModelCall(input: {
     modelCallId: string; providerRequestId: string | null;
     usage: ModelCallUsage | null; endedAt: string;
+    response: unknown;
   }): Promise<ModelCallRecord> {
     const saved = await this.database.query<ModelCallRow>(`
       UPDATE model_calls SET status = 'succeeded', provider_request_id = $2,
-        usage_json = $3::jsonb, error_json = NULL, ended_at = $4
+        usage_json = $3::jsonb, error_json = NULL, ended_at = $4, response_json = $5::jsonb
       WHERE id = $1 AND status = 'submitted' RETURNING *
     `, [input.modelCallId, input.providerRequestId,
-      input.usage === null ? null : JSON.stringify(input.usage), input.endedAt]);
+      input.usage === null ? null : JSON.stringify(input.usage), input.endedAt,
+      input.response === undefined || input.response === null ? null : JSON.stringify(input.response)]);
     if (!saved.rows[0]) throw conflict("MODEL_CALL_NOT_SUBMITTED", "模型调用没有处于已提交状态。");
     return toModelCall(saved.rows[0]);
   }
@@ -1044,7 +1048,11 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
   async completeModelCall(input: {
     modelCallId: string; providerRequestId: string | null;
     usage: ModelCallUsage | null; endedAt: string;
+    response: unknown;
   }): Promise<ModelCallRecord> {
+    // The in-memory fixture keeps the ledger shape only; raw response
+    // persistence is a SQL-ledger concern (see migration 017).
+    void input.response;
     const call = this.requireModelCall(input.modelCallId);
     if (call.status !== "submitted") throw conflict("MODEL_CALL_NOT_SUBMITTED", "模型调用没有处于已提交状态。");
     call.status = "succeeded";

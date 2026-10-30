@@ -78,7 +78,9 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       requirements: { language: 'zh-CN', visualStyle: run.visualStyle, aspectRatio: run.ratio,
         targetDurationSeconds: { min: Math.max(1, run.targetDurationSec - 10), max: run.targetDurationSec + 10 } },
       maxModelCalls: run.qualityPreset === 'quality' ? 3 : run.qualityPreset === 'balanced' ? 2 : 1,
-      maxOutputTokens: 16_384, mode: 'checkpoints', humanCheckpoints: ['candidatePlanReview'],
+      // Structured facts with per-field provenance run 15k+ tokens for a 60s
+      // script; the connection profile still applies its own hard ceiling.
+      maxOutputTokens: run.qualityPreset === 'fast' ? 16_384 : 32_768, mode: 'checkpoints', humanCheckpoints: ['candidatePlanReview'],
     });
     return { state: 'waitingExternal', providerTaskId: draft.id };
   }

@@ -263,6 +263,36 @@ test('provider ID is retained across polling and terminal video output completes
   assert.ok(f.queries.every(query => query.providerTaskId === 'provider_task_1'));
 });
 
+test('a query response with the bare task id completes a run stored with a model-prefixed id', async t => {
+  // The submit endpoint answers "model-prefix:task-id" while the query endpoint
+  // answers with the bare task id. Both refer to the same provider task and
+  // must reconcile instead of failing the taskId equality guard.
+  const f = await fixture(t, {
+    submit: async () => ({ state: 'submitted', task: providerTask({ taskId: 'doubao-seedance-2.5:cgt-20261030201948-96b94' }) }),
+    query: async () => successfulTask({ taskId: 'cgt-20261030201948-96b94' }),
+  });
+  const run = await f.service.create(input());
+  await f.service.tick();
+  assert.equal((await f.stored(run)).status, 'generating');
+  await f.service.tick();
+  assert.equal((await f.stored(run)).status, 'completed');
+  assert.equal((await f.stored(run)).providerTaskId, 'doubao-seedance-2.5:cgt-20261030201948-96b94');
+  assert.deepEqual((await f.stored(run)).result, { videoUrl: VIDEO_URL });
+  assert.equal(f.submits.length, 1);
+  assert.equal(f.queries.length, 1);
+});
+
+test('a query response for a different task id is still rejected', async t => {
+  const f = await fixture(t, { query: async () => successfulTask({ taskId: 'cgt-completely-different' }) });
+  const run = await f.service.create(input());
+  await f.service.tick();
+  await f.service.tick();
+  const saved = await f.stored(run);
+  assert.equal(saved.status, 'unknown');
+  assert.equal(saved.error.code, 'VIDEO_TASK_RESPONSE_INVALID');
+  assert.equal(f.submits.length, 1);
+});
+
 test('a provider can return immediate terminal success without an extra poll', async t => {
   const f = await fixture(t, { submit: async () => ({ state: 'submitted', task: successfulTask() }) });
   const run = await f.service.create(input());

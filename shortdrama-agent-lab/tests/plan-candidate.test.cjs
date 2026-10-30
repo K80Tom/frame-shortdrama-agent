@@ -168,6 +168,27 @@ test('P0.3 local HTTP contract saves and reads candidates without calling a mode
   }
 });
 
+test('chapter headings are structural and do not require scene assignment', async () => {
+  const { service } = fixture();
+  const project = await service.createProject({ title: '章节标题测试' });
+  const script = await service.createScriptVersion(project.id, {
+    rawText: '　　第一章：突如其来的穿越\r\n第1场 医院走廊 夜 内\r\n林晚推门进入。\r\n林晚：你终于来了。🙂\r\n顾沉：我知道。\r\n',
+  });
+  const run = await service.createDraftRun(project.id, {
+    requirements: { language: '中文', visualStyle: '真人拟真', aspectRatio: '9:16' },
+    maxModelCalls: 1,
+    maxOutputTokens: 4096,
+  });
+  // The candidate covers the scene fully but never cites the chapter heading:
+  // previously the heading was misread as a dialogue turn (it contains a
+  // full-width colon) and blocked adoption with DIALOGUE_MISSING plus
+  // SOURCE_SPAN_UNASSIGNED.
+  const plan = await service.createExtractFactsCandidate(run.id, candidate(script));
+  const passed = await service.checkPlan(plan.id);
+  assert.equal(passed.check.result, 'passed');
+  assert.deepEqual(passed.issues, []);
+});
+
 test('P0.5 records blocking issues and adopts only a checked current-script candidate', async () => {
   const { repository, service } = fixture();
   const { project, script, run } = await prepared(service);

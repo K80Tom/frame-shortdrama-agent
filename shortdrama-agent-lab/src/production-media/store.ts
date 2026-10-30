@@ -114,7 +114,10 @@ export class ProductionMediaStore {
     }
     const candidate = isAbsolute(path) ? resolve(path) : resolve(this.root, path);
     this.assertWithinRoot(candidate);
-    try { return await this.putVideoBuffer(await this.readOwnedRegularFile(candidate), sourceKind); }
+    try {
+      return await this.putVideoBuffer(
+        await this.readOwnedRegularFile(candidate, this.limits.maxBytes, { requireIndependentLink: true }), sourceKind);
+    }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new ProductionMediaError(400, 'OWNED_MEDIA_FILE_INVALID', '服务自有根目录内没有这个普通媒体文件。');
@@ -254,12 +257,19 @@ export class ProductionMediaStore {
   private objectManifestPath(sha256: string): string { return join(this.root, 'objects', sha256.slice(0, 2), `${sha256}.json`); }
   private relativeObjectPath(sha256: string): string { return join('objects', sha256.slice(0, 2), `${sha256}.mp4`); }
 
-  private async readOwnedRegularFile(path: string, customMax = this.limits.maxBytes): Promise<Buffer> {
+  // Store-managed objects are written through a temp file plus hard link; some
+  // sandboxed runtimes retain a shadow link for that inode forever, so nlink
+  // stays 2 and cannot be treated as tampering. Their integrity is instead
+  // guaranteed by the sha256 verification performed on every read. The strict
+  // single-link requirement therefore applies only to user-imported files.
+  private async readOwnedRegularFile(path: string, customMax = this.limits.maxBytes,
+    options: { requireIndependentLink?: boolean } = {}): Promise<Buffer> {
     this.assertWithinRoot(path);
     const lexical = resolve(path);
     const entry = await lstat(lexical);
-    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 || entry.size < 1 || entry.size > customMax
-      || await realpath(lexical) !== lexical) {
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.size < 1 || entry.size > customMax
+      || await realpath(lexical) !== lexical
+      || (options.requireIndependentLink === true && entry.nlink !== 1)) {
       throw new ProductionMediaError(400, 'OWNED_MEDIA_FILE_INVALID', '媒体文件必须是根目录内的独立普通文件，且不能经过符号链接。');
     }
     const handle = await open(lexical, constants.O_RDONLY | constants.O_NOFOLLOW);

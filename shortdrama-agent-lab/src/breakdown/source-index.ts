@@ -528,7 +528,7 @@ function looksLikeHeading(value: string): boolean {
   // Most screenplay headings carry a descriptive suffix (for example
   // “第十二场 医院走廊 夜 内”), so heading markers deliberately match a
   // prefix rather than requiring the whole line to end immediately after it.
-  return /^(?:第[0-9一二三四五六七八九十百千〇零两]+(?:场|幕|集)(?:\s|[：:，,]|$)|(?:场景|场次|地点|时间)\s*[：:]|(?:INT|EXT)\.?\b)/iu.test(value)
+  return /^(?:第[0-9一二三四五六七八九十百千〇零两]+(?:场|幕|集|章)(?:\s|[：:，,]|$)|(?:场景|场次|地点|时间)\s*[：:]|(?:INT|EXT)\.?\b)/iu.test(value)
     || /^【[^】]{1,160}】$/u.test(value);
 }
 

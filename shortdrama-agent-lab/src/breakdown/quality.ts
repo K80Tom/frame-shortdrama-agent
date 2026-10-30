@@ -93,6 +93,9 @@ export function inspectExtractFactsPlan(plan: PlanRevisionRecord, sourceIndex: S
   }
   for (const span of sourceIndex.spans) {
     if (span.kind === "titleCandidate") continue;
+    // Chapter headings are structural markers (第X章), not scene content:
+    // they anchor sections but no scene is expected to claim them.
+    if (span.kind === "headingCandidate" && /^第[0-9一二三四五六七八九十百千〇零两]+章/u.test(span.quote.trim())) continue;
     const sourceRef = refForSpan(sourceIndex, span);
     if (!content.scenes.some((scene) => scene.sourceRefs.some((ref) => contains(ref, sourceRef)))) {
       add("SOURCE_SPAN_UNASSIGNED", "这段剧本原文没有归属任何场次。", [sourceRef]);

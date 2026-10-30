@@ -38,6 +38,9 @@ export class MaasStageModelAdapter implements StageModelAdapter {
       model: input.model,
       messages: [{ role: "system", content: payload.systemPrompt }, messages[0]],
       ...(input.reasoningEffort !== "model-default" ? { reasoningEffort: input.reasoningEffort } : {}),
+      // Mirrors the novel chain: upstream reasoning once drained the whole
+      // output budget, so MAAS thinking is disabled for the bounded call.
+      thinking: "disabled",
       maxOutputTokens: input.maxOutputTokens,
       allowPaid: true,
     });

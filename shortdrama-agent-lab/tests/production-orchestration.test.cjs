@@ -245,6 +245,31 @@ test('budget reservation pauses before a paid executor call', async () => {
   assert.equal(run.inbox.find(issue => issue.code === 'PRODUCTION_BUDGET_EXCEEDED').estimatedAdditionalCostMicros, 1_000_000);
 });
 
+test('raiseBudget unlocks a budget-paused run in place without re-paying finished stages', async () => {
+  const paid = executor('breakdown', { state: 'succeeded' }, { estimateCostMicros: 2_000_000, requiresPaid: true, provider: 'test' });
+  const { service } = await make({ executors: [paid] }); const created = await service.create(input({ budgetMicros: 1_000_000 }));
+  await service.tick(created.id); await service.tick(created.id);
+  let run = await service.get(created.id);
+  assert.equal(run.status, 'pausedBudget');
+  assert.equal(run.tasks.find(task => task.stage === 'breakdown').status, 'waitingHuman');
+  assert.equal(paid.calls(), 0);
+  assert.ok(run.inbox.some(issue => issue.code === 'PRODUCTION_BUDGET_EXCEEDED' && issue.status === 'open'));
+
+  await assert.rejects(service.action(created.id, { type: 'raiseBudget', budgetMicros: 1_000_000, reason: 'no' }),
+    error => error.code === 'PRODUCTION_BUDGET_NOT_RAISED');
+
+  run = await service.action(created.id, { type: 'raiseBudget', budgetMicros: 5_000_000, reason: '继续授权' });
+  assert.equal(run.status, 'running');
+  assert.equal(run.tasks.find(task => task.stage === 'breakdown').status, 'ready');
+  assert.equal(run.summary.budget.limitMicros, 5_000_000);
+
+  await service.tick(created.id); await service.tick(created.id); await service.tick(created.id);
+  run = await service.get(created.id);
+  assert.equal(run.tasks.find(task => task.stage === 'breakdown').status, 'succeeded');
+  assert.equal(paid.calls(), 1);
+  assert.ok(run.inbox.every(issue => issue.code !== 'PRODUCTION_BUDGET_EXCEEDED' || issue.status === 'resolved'));
+});
+
 test('an external submission is never submitted twice and missing reconciliation becomes human work', async () => {
   const paid = executor('breakdown', { state: 'waitingExternal', providerTaskId: 'provider-1' },
     { estimateCostMicros: 100, requiresPaid: true, provider: 'test-provider' });
@@ -346,6 +371,32 @@ test('resolveIssue cannot bypass capability, checkpoint, quality, candidate, unk
   run = await service.get(run.id);
   assert.equal(run.tasks.find(item => item.id === task.id).status, 'waitingHuman');
   assert.equal(run.inbox.find(item => item.id === issue.id).status, 'open');
+});
+
+test('retryTask force overrides an exhausted attempt limit after an infrastructure fix', async () => {
+  const flaky = executor('breakdown', (_context, calls) => calls >= 3 ? { state: 'succeeded' } : {
+    state: 'blocked', issue: { code: 'PROVIDER_VIDEO_LOCALIZATION_FAILED', message: '远程视频下载失败。' },
+  });
+  const { service } = await make({ executors: [flaky] });
+  const created = await service.create(input({ clientRequestId: 'force-retry' }));
+  await service.tick(created.id);
+  await service.tick(created.id);
+  await service.action(created.id, { type: 'retryTask', taskId: created.tasks.find(task => task.stage === 'breakdown').id, reason: '第一次重试' });
+  await service.tick(created.id);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(task.attemptCount, 2);
+  assert.equal(task.maxAttempts, 2);
+  await assert.rejects(service.action(created.id, { type: 'retryTask', taskId: task.id, reason: '不再付费重试' }),
+    error => error.code === 'PRODUCTION_RETRY_LIMIT');
+  run = await service.action(created.id, { type: 'retryTask', taskId: task.id, reason: '基础设施已修复，强制重试', force: true });
+  const forced = run.tasks.find(item => item.id === task.id);
+  assert.equal(forced.status, 'ready');
+  assert.equal(forced.maxAttempts, 3);
+  await service.tick(created.id); run = await service.get(created.id);
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'succeeded');
+  assert.equal(flaky.calls(), 3);
 });
 
 test('scheduler blocks a ready task whose durable attempt limit is already exhausted', async () => {
@@ -575,4 +626,45 @@ test('an uncertain paid result retains its reservation and blocks a second submi
   await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '再试一次' }),
     error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
   assert.equal(uncertain.calls(), 1);
+});
+
+test('a manual retry reconciles a definitively failed external operation and resubmits', async () => {
+  const script = [];
+  const reconciling = {
+    stage: 'breakdown',
+    calls: () => script.filter(item => item.kind === 'execute').length,
+    async prepare({ task }) { return { executor: 'test-reconcile/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { script.push({ kind: 'execute' });
+      return script.filter(item => item.kind === 'execute').length === 1
+        ? { state: 'waitingExternal', providerTaskId: 'draft-run-1' }
+        : { state: 'succeeded', actualCostMicros: 60 }; },
+    async reconcile(_context, operation) { script.push({ kind: 'reconcile', providerTaskId: operation.providerTaskId });
+      return script.filter(item => item.kind === 'reconcile').length === 1
+        ? { state: 'waitingHuman', operationUnknown: true,
+            issue: { code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '付费请求超时，需要人工对账。', severity: 'error' } }
+        : { state: 'failed', code: 'BREAKDOWN_RUN_FAILED', message: '原拆解执行已确认失败。', retryable: false }; },
+  };
+  const { service } = await make({ executors: [reconciling] });
+  const created = await service.create(input({ clientRequestId: 'retry-reconciles-failed-op' }));
+  await service.tick(created.id);
+  await service.tick(created.id);
+  await service.tick(created.id);
+  let run = await service.get(created.id); let task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'waitingHuman'); assert.equal(task.blockingReason.code, 'MODEL_EXECUTION_UNKNOWN');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.externalOperations[0].providerTaskId, 'draft-run-1');
+  assert.equal(run.summary.budget.reservedMicros, 100); assert.equal(run.summary.budget.spentMicros, 0);
+  run = await service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '人工确认原调用已失败后重试' });
+  task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(script.filter(item => item.kind === 'reconcile').length, 2);
+  assert.equal(run.externalOperations[0].status, 'failed');
+  assert.equal(task.status, 'ready');
+  await ticks(service);
+  run = await service.get(created.id); task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'succeeded');
+  assert.equal(run.externalOperations.length, 2);
+  assert.equal(run.externalOperations[1].status, 'succeeded');
+  assert.equal(run.summary.budget.spentMicros, 60);
+  assert.equal(run.summary.budget.reservedMicros, 0);
 });

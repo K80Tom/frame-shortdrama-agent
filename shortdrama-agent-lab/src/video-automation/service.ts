@@ -159,7 +159,8 @@ export class VideoAutomationService {
     try { return await operation; } finally { this.queries.delete(run.id); }
   }
   private async applyTask(run: StoredVideoRun, task: SeedanceTask): Promise<StoredVideoRun> {
-    if (!task || !validTaskId(task.taskId) || task.taskId !== run.providerTaskId || typeof task.status !== 'string') {
+    const storedTaskId = run.providerTaskId ?? '';
+    if (!task || !validTaskId(task.taskId) || !sameProviderTask(task.taskId, storedTaskId) || typeof task.status !== 'string') {
       throw new VideoAutomationError(502, 'VIDEO_TASK_RESPONSE_INVALID', '供应商返回了不匹配或无效的任务信息；保留原任务 ID。');
     }
     const status = task.status.toLowerCase();
@@ -197,4 +198,20 @@ export class VideoAutomationService {
 }
 function validTaskId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(value);
+}
+
+/**
+ * The gateway is inconsistent about task IDs: the submit response can return
+ * "model-prefix:task-id" while the query response returns the bare task id.
+ * Accept the bare id when it is the exact ":suffix" of the stored id, so the
+ * same provider task is recognized across both formats. Anything else stays a
+ * mismatch — the guard against applying another task's result is preserved.
+ */
+function sameProviderTask(responseTaskId: string, storedTaskId: string): boolean {
+  if (responseTaskId === storedTaskId) return true;
+  if (!storedTaskId) return false;
+  const separator = storedTaskId.lastIndexOf(':');
+  if (separator <= 0 || separator === storedTaskId.length - 1) return false;
+  return responseTaskId === storedTaskId.slice(separator + 1)
+    && validTaskId(responseTaskId);
 }

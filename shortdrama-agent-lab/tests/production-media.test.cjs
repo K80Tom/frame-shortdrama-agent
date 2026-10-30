@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
-const { mkdtemp, mkdir, readFile, realpath, rm, symlink, unlink, writeFile } = require('node:fs/promises');
+const { link, mkdtemp, mkdir, readFile, realpath, rm, symlink, unlink, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const {
@@ -88,6 +88,31 @@ test('owned-file import rejects remote URLs, traversal, symlinks, hardlinks, and
   const { link } = require('node:fs/promises');
   await link(file, secondName);
   await assert.rejects(f.store.importOwnedVideo(file), rejectsCode('OWNED_MEDIA_FILE_INVALID'));
+});
+
+test('store-managed objects tolerate an ambient extra hard link while imports still reject aliases', async t => {
+  const f = await fixture(t, { clip: probe() });
+  const media = await f.store.putVideoBuffer(Buffer.from('clip'));
+  const owned = await f.store.getVideo(media.id);
+  // Sandboxed runtimes can retain a shadow hard link for the store's own
+  // temp-plus-link write, leaving nlink at 2 forever. Store-managed objects
+  // must stay readable in that state; their integrity is hash-verified.
+  const shadow = join(f.root, 'tmp', `shadow-${media.sha256}.mp4`);
+  await link(owned.absolutePath, shadow);
+  assert.equal((await f.store.content(media.id)).bytes.toString(), 'clip');
+  const again = await f.store.putVideoBuffer(Buffer.from('clip'), 'providerDownload');
+  assert.equal(again.id, media.id);
+
+  const incoming = join(f.root, 'incoming');
+  await mkdir(incoming);
+  const file = join(incoming, 'imported.mp4');
+  await writeFile(file, 'distinct-import-content');
+  const alias = join(incoming, 'alias.mp4');
+  await link(file, alias);
+  await assert.rejects(f.store.importOwnedVideo(file), rejectsCode('OWNED_MEDIA_FILE_INVALID'));
+  await unlink(alias);
+  assert.equal((await f.store.importOwnedVideo(file)).sourceKind, 'ownedFile');
+  await unlink(shadow);
 });
 
 test('stored objects fail closed after content tampering and unknown IDs are explicit', async t => {
@@ -285,8 +310,10 @@ test('default HTTPS fetcher pins the socket lookup and never enables an agent re
   assert.equal(result.body.toString(), 'video');
   assert.equal(invocation.options.agent, false);
   let pinned;
-  invocation.options.lookup('media.provider.example', {}, (_error, address, family) => { pinned = { address, family }; });
-  assert.deepEqual(pinned, { address: '93.184.216.34', family: 4 });
+  invocation.options.lookup('media.provider.example', {}, (_error, list) => { pinned = list; });
+  // The all-form array is required: the classic (err, address, family) callback
+  // raises ERR_INVALID_IP_ADDRESS on Node 22 without a pinned request family.
+  assert.deepEqual(pinned, [{ address: '93.184.216.34', family: 4 }]);
 });
 
 test('timeline composition uses only validated local objects, saves a manifest, and is idempotent', async t => {

@@ -1,5 +1,5 @@
 import type { PostgresDatabase } from '../db/client';
-import { ProductionError, sameProductionRequest, type StoredProductionRun } from './contracts';
+import { CREATE_KEYS, ProductionError, type StoredProductionRun } from './contracts';
 
 export interface ProductionRepository {
   list(): Promise<StoredProductionRun[]>;
@@ -27,8 +27,13 @@ function validateStored(value: unknown): StoredProductionRun {
   return clone(run);
 }
 function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean {
+  // budgetMicros is deliberately excluded here: the only sanctioned in-place
+  // mutation is the audited 'raiseBudget' action (outbox: production.run.budget_raised).
+  // Create-time request matching still compares it, so reusing a clientRequestId
+  // with a different budget keeps failing with PRODUCTION_REQUEST_REUSED.
+  const frozen = CREATE_KEYS.filter(key => key !== 'budgetMicros');
   return a.id === b.id && a.createdAt === b.createdAt && a.workflowVersion === b.workflowVersion
-    && sameProductionRequest(a, b);
+    && frozen.every(key => a[key] === b[key]);
 }
 
 export class MemoryProductionRepository implements ProductionRepository {
