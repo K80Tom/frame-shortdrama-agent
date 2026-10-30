@@ -24,7 +24,7 @@
 
 </div>
 
-[![OHAO 自动制作总控：一键创建整集生产运行](shortdrama-agent-lab/docs/media/automation.png)](shortdrama-agent-lab/docs/media/automation.png)
+[![OHAO 自动制作总控：直出版 / 抽卡版两条制作流程](shortdrama-agent-lab/docs/media/automation.png)](shortdrama-agent-lab/docs/media/automation.png)
 
 OHAO 的核心不是再增加一个“文生视频”按钮，而是把剧本拆解、资产准备、分镜、镜头生成、复核、返修和合片连接成一次完整的生产运行。每一步都有状态和输入，失败可以停在具体节点；刷新页面或重启服务后，可以从 PostgreSQL 保存的进度继续。
 

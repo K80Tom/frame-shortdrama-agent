@@ -10,8 +10,8 @@
 | [projects.png](projects.png) | 1440 × 900 | 简洁的项目目录、搜索筛选与网格卡片。 |
 | [assets.png](assets.png) | 1440 × 900 | 个人资产库、分类导航和新建资产入口。 |
 | [plugins.png](plugins.png) | 1440 × 900 | 内置插件与创作工具目录。 |
-| [automation.png](automation.png) | 1440 × 1024 | 整集自动制作的新建运行页面，展示策略、候选数、3D、预算与付费授权。 |
-| [automation-tour.png](automation-tour.png) | 1440 × 900 | 自动制作流程概览与各节点联动说明。 |
+| [automation.png](automation.png) | 1280 × 960 | 整集自动制作的新建运行页面，展示直出版 / 抽卡版两条制作流程、策略、3D、预算与付费授权。 |
+| [automation-tour.png](automation-tour.png) | 1280 × 960 | 直出版运行总控：阶段条与阶段卡显示候选抽卡按需跳过。 |
 
 旧的 [workspace.png](workspace.png) 和 [director.png](director.png) 是 1440 × 960 的 FRAME 历史界面截图，仅用于版本记录，不作为当前 OHAO 界面展示。
 

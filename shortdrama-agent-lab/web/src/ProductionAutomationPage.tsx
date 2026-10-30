@@ -143,7 +143,7 @@ function StageFlowRail({ run, view, current, onStage, onMatrix }: { run: Product
       {index > 0 && <span aria-hidden className={`pa-rail-link ${run.stages[index - 1].state === 'succeeded' ? 'done' : ''}`} />}
       <button className={`pa-rail-node is-${stage.state}${view === stage.key ? ' is-here' : ''}${current === stage.key && stage.state !== 'succeeded' && stage.state !== 'skipped' ? ' is-current' : ''}`} onClick={() => onStage(stage.key)} aria-current={view === stage.key ? 'step' : undefined}>
         <span className="pa-rail-dot">{stage.state === 'succeeded' ? <Check size={13} /> : stage.state === 'running' ? <LoaderCircle size={13} className="pa-spin" /> : stage.state === 'needsAttention' ? <AlertCircle size={13} /> : stage.state === 'skipped' ? <MoreHorizontal size={13} /> : <span className="pa-rail-number">{String(index + 1).padStart(2, '0')}</span>}</span>
-        <span className="pa-rail-copy"><strong>{stage.label}</strong><small>{stage.total > 0 ? `${Math.min(stage.completed, stage.total)} / ${stage.total}` : stageStateLabels[stage.state] ?? stage.state}</small></span>
+        <span className="pa-rail-copy"><strong>{stage.label}</strong><small>{stage.state === 'skipped' ? '按需跳过' : stage.total > 0 ? `${Math.min(stage.completed, stage.total)} / ${stage.total}` : stageStateLabels[stage.state] ?? stage.state}</small></span>
         {stage.needsAttention > 0 && <b>{stage.needsAttention}</b>}
       </button>
     </Fragment>)}
@@ -161,7 +161,7 @@ function StageCard({ stage, index, onOpen }: { stage: ProductionStage; index: nu
     <div className="pa-stagecard-top"><span>{String(index + 1).padStart(2, '0')}</span><i>{stageStateLabels[stage.state] ?? stage.state}</i></div>
     <strong>{stage.label}</strong>
     <div className="pa-stagecard-bar" aria-hidden><i style={{ width: `${pct}%` }} /></div>
-    <small>{stage.total > 0 ? `${Math.min(stage.completed, stage.total)} / ${stage.total} 个节点` : stageStateLabels[stage.state] ?? stage.state}{stage.needsAttention > 0 ? ` · ${stage.needsAttention} 项待处理` : ''}</small>
+    <small>{stage.state === 'skipped' ? '按需跳过：本流程不执行这一阶段' : stage.total > 0 ? `${Math.min(stage.completed, stage.total)} / ${stage.total} 个节点` : stageStateLabels[stage.state] ?? stage.state}{stage.needsAttention > 0 ? ` · ${stage.needsAttention} 项待处理` : ''}</small>
   </button>;
 }
 
