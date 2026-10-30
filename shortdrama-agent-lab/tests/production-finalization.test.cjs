@@ -10,7 +10,7 @@ const mediaB = `media_${'b'.repeat(64)}`;
 const input = {
   projectId: 'project_0123456789abcdef0123456789abcdef',
   scriptVersionId: 'script_0123456789abcdef0123456789abcdef', ratio: '9:16', targetDurationSec: 8,
-  visualStyle: '真人写实', qualityPreset: 'balanced', automationMode: 'auto', candidateLimit: 2,
+  visualStyle: '真人写实', qualityPreset: 'balanced', automationMode: 'auto', candidatePolicy: 'gacha', candidateLimit: 2,
   directorPolicy: 'auto', budgetMicros: 20_000_000, currency: 'CNY', allowPaid: true,
   clientRequestId: 'finalization-test',
 };
@@ -57,6 +57,17 @@ test('candidate aggregation only exposes verified local videos and recommends th
   const blocked = await new CandidateProductionExecutor(store()).execute(context(value, candidate));
   assert.equal(blocked.state, 'blocked');
   assert.equal(blocked.issue.code, 'LOCAL_VIDEO_CANDIDATES_MISSING');
+});
+
+test('direct flow reviews the shot video without requiring any candidate set', async () => {
+  const value = run();
+  const video = task(value, 'video');
+  const review = task(value, 'review', [video.id]);
+  value.tasks.push(video, review);
+  value.artifacts.push(artifact(value, video.id, 'partifact_direct', mediaA));
+  const outcome = await new ReviewProductionExecutor(store()).execute(context(value, review));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(outcome.qualityChecks[0].result, 'pass');
 });
 
 test('shot review records a failed check and expands an explicit bounded repair subgraph', async () => {

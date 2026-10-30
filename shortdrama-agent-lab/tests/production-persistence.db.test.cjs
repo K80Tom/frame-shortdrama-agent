@@ -29,7 +29,7 @@ if (!process.env.DATABASE_URL) {
       const run = compileProductionRun({
         projectId: project.id, scriptVersionId: script.id, ratio: '9:16', targetDurationSec: 60,
         visualStyle: '离线数据库集成测试', qualityPreset: 'balanced', automationMode: 'auto',
-        candidateLimit: 2, directorPolicy: 'auto', budgetMicros: 10_000_000, currency: 'CNY',
+        candidatePolicy: 'gacha', candidateLimit: 2, directorPolicy: 'auto', budgetMicros: 10_000_000, currency: 'CNY',
         allowPaid: true, clientRequestId: `production-db-${randomUUID()}`,
       }, now);
       const repository = new PostgresProductionRepository(database);

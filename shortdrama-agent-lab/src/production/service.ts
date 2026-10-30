@@ -290,7 +290,7 @@ export class ProductionService {
       task.blockingReason = { code: 'PRODUCTION_BUDGET_EXCEEDED', message: '预留费用将超过本次运行的已授权预算。' };
       this.addIssue(run, task, { code: 'PRODUCTION_BUDGET_EXCEEDED', title: '预算不足', message: task.blockingReason.message,
         severity: 'error', estimatedAdditionalCostMicros: prepared.estimateCostMicros - available,
-        recommendedActions: ['创建新的运行并授权更高预算', '减少候选数或质量档位'] }, at);
+        recommendedActions: ['创建新的运行并授权更高预算', '改用直出版或减少每镜候选数、降低质量档位'] }, at);
       run.status = 'pausedBudget'; await this.save(run, 'production.run.budget_paused', { taskId: task.id }); return;
     }
     const at = this.timestamp(); const attemptId = productionId('pattempt');

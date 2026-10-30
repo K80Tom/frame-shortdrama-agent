@@ -57,7 +57,7 @@ function project() {
 }
 function production(overrides = {}) {
   return compileProductionRun({ projectId: PROJECT, scriptVersionId: SCRIPT, ratio: '9:16', targetDurationSec: 60,
-    visualStyle: '写实雨夜，冷色电影感', qualityPreset: 'balanced', automationMode: 'auto', candidateLimit: 2,
+    visualStyle: '写实雨夜，冷色电影感', qualityPreset: 'balanced', automationMode: 'auto', candidatePolicy: 'gacha', candidateLimit: 2,
     directorPolicy: 'auto', budgetMicros: 20_000_000, currency: 'CNY', allowPaid: true,
     clientRequestId: 'asset-director-test', ...overrides }, '2026-10-23T00:00:00.000Z', `production_${'5'.repeat(32)}`);
 }

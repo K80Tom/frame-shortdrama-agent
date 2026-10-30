@@ -79,7 +79,13 @@ function selectedShotArtifact(run: Readonly<StoredProductionRun>, shotId: string
   const sets = run.candidateSets.filter(set => set.scope.kind === 'shot' && set.scope.id === shotId
     && set.status === 'selected' && set.selectedCandidateId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const set = sets.at(-1); const selected = set?.candidates.find(candidate => candidate.id === set.selectedCandidateId);
-  return selected?.artifactId ? run.artifacts.find(artifact => artifact.id === selected.artifactId && artifact.status === 'current') ?? null : null;
+  const chosen = selected?.artifactId ? run.artifacts.find(artifact => artifact.id === selected.artifactId && artifact.status === 'current') ?? null : null;
+  if (chosen) return chosen;
+  // 直出版没有候选组：镜头视频任务产出的本地视频就是采用项。
+  const videoTasks = new Set(run.tasks.filter(task => task.stage === 'video' && task.scope.kind === 'shot'
+    && task.scope.id === shotId).map(task => task.id));
+  return run.artifacts.filter(artifact => videoTasks.has(artifact.taskId) && artifact.status === 'current'
+    && artifact.kind === 'video').sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1) ?? null;
 }
 
 function storyboardShot(run: Readonly<StoredProductionRun>, shotId: string): Record<string, unknown> | null {

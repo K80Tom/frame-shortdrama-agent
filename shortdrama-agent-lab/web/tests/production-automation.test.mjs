@@ -10,7 +10,7 @@ function snapshot(version = 2) {
   return {
     id: 'production_1234567890abcdef1234567890abcdef', clientRequestId: 'client_12345678', projectId: 'project_demo', scriptVersionId: 'script_demo',
     status: 'waitingHuman', version, ratio: '9:16', targetDurationSec: 90, visualStyle: '现实主义', qualityPreset: 'balanced',
-    automationMode: 'checkpoints', candidateLimit: 2, directorPolicy: 'auto', pausedAt: null,
+    automationMode: 'checkpoints', candidatePolicy: 'gacha', candidateLimit: 2, directorPolicy: 'auto', pausedAt: null,
     createdAt: '2026-10-23T00:00:00.000Z', updatedAt: '2026-10-23T00:01:00.000Z',
     summary: { tasks: { completed: 1, total: 10, running: 0, waitingHuman: 1, failed: 0 }, shots: { completed: 0, total: 0 }, issues: { open: 1, total: 1 }, budget: { limitMicros: 50_000_000, reservedMicros: 0, spentMicros: 0, currency: 'CNY' } },
     stages: [{ key: 'prepare', label: '输入与生产预检', state: 'succeeded', completed: 1, total: 1, needsAttention: 0 }, { key: 'breakdown', label: '剧本拆解', state: 'needsAttention', completed: 0, total: 1, needsAttention: 1 }],
@@ -29,13 +29,22 @@ test('create body freezes the production policy and omits the UI-only yuan field
   assert.equal(body.budgetMicros, 36_000_000);
   assert.equal(body.allowPaid, true);
   assert.equal(body.currency, 'CNY');
+  assert.equal(body.candidatePolicy, 'direct');
+  assert.equal(body.candidateLimit, 1);
   assert.equal('budgetYuan' in body, false);
-  assert.deepEqual(Object.keys(body).sort(), ['allowPaid', 'automationMode', 'budgetMicros', 'candidateLimit', 'clientRequestId', 'currency', 'directorPolicy', 'projectId', 'qualityPreset', 'ratio', 'scriptVersionId', 'targetDurationSec', 'visualStyle'].sort());
+  assert.deepEqual(Object.keys(body).sort(), ['allowPaid', 'automationMode', 'budgetMicros', 'candidateLimit', 'candidatePolicy', 'clientRequestId', 'currency', 'directorPolicy', 'projectId', 'qualityPreset', 'ratio', 'scriptVersionId', 'targetDurationSec', 'visualStyle'].sort());
+});
+
+test('gacha flow keeps multiple candidates in the create body', () => {
+  const body = production.productionCreateBody({ ...production.defaultProductionForm, projectId: 'project_demo', scriptVersionId: 'script_demo', candidatePolicy: 'gacha', candidateLimit: 3 }, 'client_12345678');
+  assert.equal(body.candidatePolicy, 'gacha');
+  assert.equal(body.candidateLimit, 3);
 });
 
 test('public production snapshot preserves server counts, attention and durable provenance', () => {
   const run = production.parseProductionRun(snapshot());
   assert.equal(run.status, 'waitingHuman');
+  assert.equal(run.candidatePolicy, 'gacha');
   assert.equal(run.summary.tasks.completed, 1);
   assert.equal(run.stages[1].state, 'needsAttention');
   assert.equal(run.tasks[0].blockingReason.code, 'EXECUTOR_UNAVAILABLE');
@@ -96,8 +105,11 @@ test('newer run versions win while a stale poll cannot roll the UI back', () => 
 
 test('validation blocks missing immutable inputs and out-of-contract limits', () => {
   assert.match(production.validateProductionForm(production.defaultProductionForm), /项目/);
-  assert.match(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'p', scriptVersionId: 's', candidateLimit: 5 }), /1–4/);
+  assert.match(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'p', scriptVersionId: 's', candidatePolicy: 'direct', candidateLimit: 2 }), /直出版/);
+  assert.match(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'p', scriptVersionId: 's', candidatePolicy: 'gacha', candidateLimit: 1 }), /2–4/);
+  assert.match(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'p', scriptVersionId: 's', candidatePolicy: 'gacha', candidateLimit: 5 }), /2–4/);
   assert.equal(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'project_demo', scriptVersionId: 'script_demo' }), '');
+  assert.equal(production.validateProductionForm({ ...production.defaultProductionForm, projectId: 'project_demo', scriptVersionId: 'script_demo', candidatePolicy: 'gacha', candidateLimit: 3 }), '');
 });
 
 test('automation/video remains a separate advanced single-shot route', async () => {

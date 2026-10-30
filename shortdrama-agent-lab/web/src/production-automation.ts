@@ -13,6 +13,7 @@ export type ProductionForm = {
   visualStyle: string;
   qualityPreset: 'fast' | 'balanced' | 'quality';
   automationMode: 'auto' | 'checkpoints' | 'coDirector';
+  candidatePolicy: 'direct' | 'gacha';
   candidateLimit: number;
   directorPolicy: 'auto' | 'always' | 'never';
   budgetYuan: number;
@@ -21,7 +22,7 @@ export type ProductionForm = {
 export const defaultProductionForm: ProductionForm = {
   projectId: '', scriptVersionId: '', ratio: '9:16', targetDurationSec: 90,
   visualStyle: '现实主义电影感，人物自然表演，统一光影与色彩', qualityPreset: 'balanced',
-  automationMode: 'auto', candidateLimit: 2, directorPolicy: 'auto', budgetYuan: 50,
+  automationMode: 'auto', candidatePolicy: 'direct', candidateLimit: 1, directorPolicy: 'auto', budgetYuan: 50,
 };
 
 export type ProjectOption = { id: string; title: string; currentScriptVersionId: string | null };
@@ -58,7 +59,7 @@ export type ProductionSummary = {
 export type ProductionRun = {
   id: string; clientRequestId: string; projectId: string; scriptVersionId: string; status: ProductionRunStatus; version: number;
   projectTitle?: string; ratio?: string; targetDurationSec?: number; visualStyle?: string; qualityPreset?: string;
-  automationMode?: string; candidateLimit?: number; directorPolicy?: string; createdAt: string; updatedAt: string; pausedAt: string | null;
+  automationMode?: string; candidatePolicy?: string; candidateLimit?: number; directorPolicy?: string; createdAt: string; updatedAt: string; pausedAt: string | null;
   summary: ProductionSummary; stages: ProductionStage[]; tasks: ProductionTask[]; issues: ProductionIssue[];
   candidateSets: ProductionCandidateSet[]; artifacts: ProductionArtifact[]; qualityChecks: ProductionQualityCheck[];
   reviews: ProductionReview[]; timeline: ProductionTimelineItem[]; delivery: ProductionDelivery;
@@ -152,6 +153,7 @@ export function parseProductionRun(value: unknown): ProductionRun {
     ...(text(row.projectTitle) ? { projectTitle: text(row.projectTitle) } : {}), ...(text(row.ratio) ? { ratio: text(row.ratio) } : {}),
     ...(number(row.targetDurationSec, -1) >= 0 ? { targetDurationSec: number(row.targetDurationSec) } : {}), ...(text(row.visualStyle) ? { visualStyle: text(row.visualStyle) } : {}),
     ...(text(row.qualityPreset) ? { qualityPreset: text(row.qualityPreset) } : {}), ...(text(row.automationMode) ? { automationMode: text(row.automationMode) } : {}),
+    ...(text(row.candidatePolicy) ? { candidatePolicy: text(row.candidatePolicy) } : {}),
     ...(number(row.candidateLimit, -1) >= 0 ? { candidateLimit: number(row.candidateLimit) } : {}), ...(text(row.directorPolicy) ? { directorPolicy: text(row.directorPolicy) } : {}),
     createdAt: text(row.createdAt), updatedAt: text(row.updatedAt), pausedAt: nullableText(row.pausedAt),
     summary: { tasks: taskCounts as ProductionSummary['tasks'], shots: shotCounts as ProductionSummary['shots'], issues: issueCounts as ProductionSummary['issues'],
@@ -180,7 +182,9 @@ export function validateProductionForm(form: ProductionForm) {
   if (!form.projectId || !form.scriptVersionId) return '请选择已有剧本项目和剧本版本。';
   if (!form.visualStyle.trim() || form.visualStyle.trim().length > 500) return '请填写 1–500 字的视觉风格。';
   if (!Number.isInteger(form.targetDurationSec) || form.targetDurationSec < 15 || form.targetDurationSec > 900) return '目标时长须为 15–900 秒。';
-  if (!Number.isInteger(form.candidateLimit) || form.candidateLimit < 1 || form.candidateLimit > 4) return '每镜候选须为 1–4 个。';
+  if (!['direct', 'gacha'].includes(form.candidatePolicy)) return '请选择直出版或抽卡版流程。';
+  if (form.candidatePolicy === 'direct' && form.candidateLimit !== 1) return '直出版每镜只生成 1 条视频。';
+  if (form.candidatePolicy === 'gacha' && (!Number.isInteger(form.candidateLimit) || form.candidateLimit < 2 || form.candidateLimit > 4)) return '抽卡版每镜候选须为 2–4 个。';
   if (!Number.isFinite(form.budgetYuan) || form.budgetYuan < 0 || form.budgetYuan > 1_000_000) return '预算上限格式不正确。';
   return '';
 }

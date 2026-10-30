@@ -10,7 +10,7 @@ const input = (changes = {}) => ({
   projectId: 'project_0123456789abcdef0123456789abcdef',
   scriptVersionId: 'script_0123456789abcdef0123456789abcdef',
   ratio: '9:16', targetDurationSec: 90, visualStyle: '现实主义悬疑，冷色雨夜',
-  qualityPreset: 'balanced', automationMode: 'auto', candidateLimit: 2,
+  qualityPreset: 'balanced', automationMode: 'auto', candidatePolicy: 'gacha', candidateLimit: 2,
   directorPolicy: 'auto', budgetMicros: 50_000_000, currency: 'CNY', allowPaid: true,
   clientRequestId: 'production-click-1', ...changes,
 });
@@ -667,4 +667,22 @@ test('a manual retry reconciles a definitively failed external operation and res
   assert.equal(run.externalOperations[1].status, 'succeeded');
   assert.equal(run.summary.budget.spentMicros, 60);
   assert.equal(run.summary.budget.reservedMicros, 0);
+});
+test('direct candidate policy skips the gacha stage and re-routes review to the video stage', async () => {
+  const { service } = await make();
+  const run = await service.create(input({ candidatePolicy: 'direct', candidateLimit: 1, clientRequestId: 'production-direct-1' }));
+  const stageTask = key => run.tasks.find(task => task.stage === key && task.scope.kind === 'episode');
+  const candidates = stageTask('candidates');
+  assert.equal(candidates.status, 'skipped');
+  assert.equal(candidates.blockingReason.code, 'CANDIDATE_POLICY_DISABLED');
+  assert.deepEqual(stageTask('review').dependencies, [stageTask('video').id]);
+  assert.deepEqual(stageTask('video').dependencies, [stageTask('director').id]);
+});
+
+test('direct and gacha flows enforce their own candidate limits at creation time', async () => {
+  const { service } = await make();
+  const invalid = /创建参数不完整或超出限制/;
+  await assert.rejects(service.create(input({ candidatePolicy: 'direct', candidateLimit: 2 })), invalid);
+  await assert.rejects(service.create(input({ candidatePolicy: 'gacha', candidateLimit: 1 })), invalid);
+  await assert.rejects(service.create(input({ candidatePolicy: 'random', candidateLimit: 1 })), invalid);
 });

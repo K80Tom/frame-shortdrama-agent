@@ -11,7 +11,7 @@ const request = (changes = {}) => ({
   projectId: 'project_0123456789abcdef0123456789abcdef',
   scriptVersionId: 'script_0123456789abcdef0123456789abcdef',
   ratio: '9:16', targetDurationSec: 90, visualStyle: '冷色现实主义', qualityPreset: 'balanced',
-  automationMode: 'auto', candidateLimit: 2, directorPolicy: 'auto', budgetMicros: 10_000_000,
+  automationMode: 'auto', candidatePolicy: 'gacha', candidateLimit: 2, directorPolicy: 'auto', budgetMicros: 10_000_000,
   currency: 'CNY', allowPaid: true, clientRequestId: 'runtime-test', ...changes,
 });
 
@@ -115,6 +115,29 @@ test('storyboard auto mode adopts as agent and expands every real shot and candi
   }
 });
 
+test('storyboard direct policy expands exactly one video per shot with no gacha task', async () => {
+  const board = storyboardRevision();
+  const project = { id: board.projectId, currentScriptVersionId: board.scriptVersionId,
+    activePlanRevisionId: board.sourcePlanRevisionId, activeStoryboardRevisionId: null };
+  const adopted = [];
+  const breakdown = { async getProject() { return { ...project }; } };
+  const storyboards = { async get() { return board; }, async generate() { return board; },
+    async adopt(_project, revision, expected, actor = 'user') { adopted.push({ revision, expected, actor }); project.activeStoryboardRevisionId = revision; } };
+  const run = runFor({ directorPolicy: 'never', candidatePolicy: 'direct', candidateLimit: 1, clientRequestId: 'storyboard-direct' });
+  const executor = new StoryboardProductionExecutor(breakdown, storyboards, { estimateCostMicros: 300 });
+  const outcome = await executor.execute(context(run, 'storyboard'));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(outcome.spawnTasks.filter(task => task.stage === 'candidates').length, 0);
+  assert.equal(outcome.spawnTasks.filter(task => task.stage === 'video').length, board.shots.length);
+  for (const shot of board.shots) {
+    const videos = outcome.spawnTasks.filter(task => task.stage === 'video' && task.scope.id === shot.id);
+    const review = outcome.spawnTasks.find(task => task.stage === 'review' && task.scope.id === shot.id);
+    assert.equal(videos.length, 1);
+    assert.equal(videos[0].label.endsWith('视频'), true);
+    assert.deepEqual(review.dependsOn, [videos[0].key]);
+  }
+});
+
 test('storyboard checkpoint adopts only through the user review hook', async () => {
   const board = storyboardRevision(); const adopted = [];
   const project = { id: board.projectId, currentScriptVersionId: board.scriptVersionId,
@@ -168,7 +191,7 @@ const ASSET_ONE = `asset_${'a'.repeat(32)}`;
 const ASSET_TWO = `asset_${'b'.repeat(32)}`;
 
 function videoFixture() {
-  const board = storyboardRevision(); const run = runFor({ candidateLimit: 2, clientRequestId: 'video-runtime' });
+  const board = storyboardRevision(); const run = runFor({ candidatePolicy: 'gacha', candidateLimit: 2, clientRequestId: 'video-runtime' });
   const base = run.tasks.find(item => item.stage === 'video');
   const task = { ...base, id: 'ptask_video_candidate_1', label: '场 1 · 镜 1 视频候选 2', scope: { kind: 'shot', id: board.shots[0].id },
     inputManifest: [...base.inputManifest, { kind: 'dynamicScope', id: board.shots[0].id,

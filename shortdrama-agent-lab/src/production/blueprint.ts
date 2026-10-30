@@ -31,14 +31,17 @@ export function compileProductionRun(input: CreateProductionRun, now: string, id
   const taskIds = Object.fromEntries(productionStageOrder.map(stage => [stage, productionId('ptask')])) as Record<ProductionStage, string>;
   const tasks: ProductionTask[] = productionStageOrder.map((stage, index) => {
     const skippedDirector = stage === 'director' && input.directorPolicy === 'never';
+    const skippedCandidates = stage === 'candidates' && input.candidatePolicy === 'direct';
     return {
       id: taskIds[stage], runId: id, stage, label: productionStageLabels[stage], scope: { kind: 'episode', id: null },
-      status: skippedDirector ? 'skipped' : index === 0 ? 'ready' : 'pending',
-      dependencies: index === 0 ? [] : stage === 'video' && input.directorPolicy === 'never'
-        ? [taskIds.storyboard, taskIds.director]
+      status: skippedDirector || skippedCandidates ? 'skipped' : index === 0 ? 'ready' : 'pending',
+      dependencies: index === 0 ? []
+        : stage === 'video' && input.directorPolicy === 'never' ? [taskIds.storyboard, taskIds.director]
+        : stage === 'review' && input.candidatePolicy === 'direct' ? [taskIds.video]
         : [taskIds[productionStageOrder[index - 1]!]],
       attemptCount: 0, maxAttempts: stage === 'prepare' ? 1 : maxAttempts(input), version: 0,
-      blockingReason: skippedDirector ? { code: 'DIRECTOR_POLICY_DISABLED', message: '本次运行已选择不使用 3D 预演。' } : null,
+      blockingReason: skippedDirector ? { code: 'DIRECTOR_POLICY_DISABLED', message: '本次运行已选择不使用 3D 预演。' }
+        : skippedCandidates ? { code: 'CANDIDATE_POLICY_DISABLED', message: '本次运行选择了直出版：每镜直接生成 1 条视频，跳过候选抽卡与选优。' } : null,
       inputManifest: [
         { kind: 'script', id: input.scriptVersionId, revisionId: input.scriptVersionId, digest: requestDigest },
         { kind: 'productionPolicy', id, revisionId: PRODUCTION_WORKFLOW_VERSION, digest: requestDigest },
@@ -46,9 +49,10 @@ export function compileProductionRun(input: CreateProductionRun, now: string, id
       createdAt: now, updatedAt: now,
     };
   });
-  // Skipping the optional director task must not make the following task ready
-  // until the storyboard dependency has genuinely completed. Readiness is
-  // promoted by the scheduler after every durable transition.
+  // Skipping an optional stage (3D 导演预演 / 候选抽卡) must not make the next
+  // stage ready before its real upstream work has completed: the dependency is
+  // re-routed to the nearest stage that actually produces the required input.
+  // Readiness is promoted by the scheduler after every durable transition.
   return {
     ...structuredClone(input), id, workflowVersion: PRODUCTION_WORKFLOW_VERSION,
     status: 'queued', version: 0, pausedAt: null, createdAt: now, updatedAt: now,

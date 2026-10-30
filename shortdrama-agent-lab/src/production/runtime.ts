@@ -237,24 +237,28 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
         cameraMovement: shot.design.cameraMovement, visualDescription: shot.design.visualDescription })) } };
   }
   private shotTasks(run: StoredProductionRun, board: StoryboardRevision): SpawnTaskDraft[] {
+    // 直出版：每镜只生成 1 条视频，不建候选组，也不产生抽卡任务；复核直接依赖这条视频。
+    const direct = run.candidatePolicy === 'direct';
     return board.shots.flatMap((shot, index) => {
       const prefix = `shot-${index + 1}-${shot.id}`;
       const label = `场 ${shot.sceneId} · 镜 ${shot.order}`;
       const assetKey = `${prefix}-assets`;
       const directorKey = `${prefix}-director`;
       const videoDependency = run.directorPolicy === 'never' ? assetKey : directorKey;
-      const videoKeys = Array.from({ length: run.candidateLimit }, (_, candidateIndex) => `${prefix}-video-candidate-${candidateIndex}`);
+      const videoKeys = direct ? [`${prefix}-video`]
+        : Array.from({ length: run.candidateLimit }, (_, candidateIndex) => `${prefix}-video-candidate-${candidateIndex}`);
       const tasks: SpawnTaskDraft[] = [
         { key: assetKey, stage: 'assets', label: `${label} 资产引用`, scope: { kind: 'shot', id: shot.id } },
       ];
       if (run.directorPolicy !== 'never') tasks.push({ key: directorKey, stage: 'director', label: `${label} 3D 预演`,
         scope: { kind: 'shot', id: shot.id }, dependsOn: [assetKey] });
       videoKeys.forEach((key, candidateIndex) => tasks.push({ key, stage: 'video',
-        label: `${label} 视频候选 ${candidateIndex + 1}`, scope: { kind: 'shot', id: shot.id }, dependsOn: [videoDependency] }));
-      tasks.push({ key: `${prefix}-candidates`, stage: 'candidates', label: `${label} 抽卡`,
+        label: direct ? `${label} 视频` : `${label} 视频候选 ${candidateIndex + 1}`,
+        scope: { kind: 'shot', id: shot.id }, dependsOn: [videoDependency] }));
+      if (!direct) tasks.push({ key: `${prefix}-candidates`, stage: 'candidates', label: `${label} 抽卡`,
         scope: { kind: 'shot', id: shot.id }, dependsOn: videoKeys });
       tasks.push({ key: `${prefix}-review`, stage: 'review', label: `${label} 复核`,
-        scope: { kind: 'shot', id: shot.id }, dependsOn: [`${prefix}-candidates`] });
+        scope: { kind: 'shot', id: shot.id }, dependsOn: [direct ? videoKeys[0]! : `${prefix}-candidates`] });
       return tasks;
     });
   }

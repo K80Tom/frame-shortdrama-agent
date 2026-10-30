@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowUpRight, Boxes, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleDot, Eye, Film, Gauge, Inbox, LayoutGrid, LoaderCircle, MoreHorizontal, Pause, Play, RefreshCw,
-  RotateCcw, Settings2, ShieldCheck, Sparkles, WalletCards, WandSparkles, Layers3, X,
+  RotateCcw, Settings2, ShieldCheck, Sparkles, WalletCards, WandSparkles, Layers3, X, Zap, Dices,
 } from 'lucide-react';
 import {
   defaultProductionForm, mergeProductionRuns, money, parseProductionRun, parseProductionRuns, parseProjectOptions,
@@ -99,7 +99,17 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
         <label className="pa-wide"><span>视觉风格</span><textarea aria-label="自动制作视觉风格" maxLength={500} value={form.visualStyle} onChange={event => onChange({ visualStyle: event.target.value })} /></label>
         <label><span>生产策略</span><select aria-label="生产策略" value={form.qualityPreset} onChange={event => onChange({ qualityPreset: event.target.value as ProductionForm['qualityPreset'] })}><option value="fast">快速试片</option><option value="balanced">均衡制作</option><option value="quality">高质量</option></select></label>
         <label><span>自动化模式</span><select aria-label="自动化模式" value={form.automationMode} onChange={event => onChange({ automationMode: event.target.value as ProductionForm['automationMode'] })}><option value="auto">全自动</option><option value="checkpoints">关键节点确认</option><option value="coDirector">共同导演</option></select></label>
-        <label><span>每镜候选</span><select aria-label="每镜候选数量" value={form.candidateLimit} onChange={event => onChange({ candidateLimit: Number(event.target.value) })}>{[1, 2, 3, 4].map(value => <option value={value} key={value}>{value} 个</option>)}</select></label>
+        <div className="pa-wide pa-flow-picker" role="radiogroup" aria-label="制作流程">
+          <button type="button" className={`pa-flow ${form.candidatePolicy === 'direct' ? 'is-active' : ''}`} aria-pressed={form.candidatePolicy === 'direct'} onClick={() => onChange({ candidatePolicy: 'direct', candidateLimit: 1 })}>
+            <span className="pa-flow-head"><Zap size={15} />直出版<small>最省费用</small></span>
+            <p>每镜直接生成 1 条视频，跳过抽卡与选优；任务更少、花费最低。</p>
+          </button>
+          <button type="button" className={`pa-flow ${form.candidatePolicy === 'gacha' ? 'is-active' : ''}`} aria-pressed={form.candidatePolicy === 'gacha'} onClick={() => onChange({ candidatePolicy: 'gacha', candidateLimit: Math.max(2, form.candidateLimit) })}>
+            <span className="pa-flow-head"><Dices size={15} />抽卡版<small>多候选选优</small></span>
+            <p>每镜生成 2–4 条候选后统一选优；质量更稳，视频费用按候选数成倍。</p>
+          </button>
+        </div>
+        {form.candidatePolicy === 'gacha' && <label><span>每镜候选</span><select aria-label="每镜候选数量" value={form.candidateLimit} onChange={event => onChange({ candidateLimit: Number(event.target.value) })}>{[2, 3, 4].map(value => <option value={value} key={value}>{value} 个</option>)}</select></label>}
         <label><span>3D 预演</span><select aria-label="3D 预演策略" value={form.directorPolicy} onChange={event => onChange({ directorPolicy: event.target.value as ProductionForm['directorPolicy'] })}><option value="auto">按需判断</option><option value="always">全部预演</option><option value="never">暂不使用</option></select></label>
         <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选与返修共用此上限</small></div></label>
       </div>
@@ -109,7 +119,7 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
     </section>
     <section className="pa-preview-card" aria-labelledby="pa-preview-title">
       <div className="pa-card-head"><div><span>PRODUCTION PLAN</span><h2 id="pa-preview-title">一条可接管的制作链</h2></div><Layers3 size={20} /></div>
-      <ol className="pa-create-stages">{createStages.map((label, index) => <li key={label}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{label}</strong><p>{index === 3 ? '复杂镜头按策略进入；普通镜头可跳过' : index === 5 ? `每镜最多 ${form.candidateLimit} 个候选` : index === 8 ? '完成本地技术校验后形成可交付成片' : '创建后由真实任务状态驱动'}</p></div></li>)}</ol>
+      <ol className="pa-create-stages">{createStages.map((label, index) => <li key={label}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{index === 5 && form.candidatePolicy === 'direct' ? '视频直出' : label}</strong><p>{index === 3 ? '复杂镜头按策略进入；普通镜头可跳过' : index === 5 ? (form.candidatePolicy === 'direct' ? '直出版：每镜 1 条视频直接生成，跳过抽卡' : `抽卡版：每镜最多 ${form.candidateLimit} 个候选`) : index === 8 ? '完成本地技术校验后形成可交付成片' : '创建后由真实任务状态驱动'}</p></div></li>)}</ol>
       <div className="pa-preview-note"><ShieldCheck size={17} /><p>剧本版本、策略和预算会在运行创建时冻结。局部失败只暂停相关依赖，可从具体节点继续。</p></div>
     </section>
   </div>;
@@ -438,7 +448,7 @@ function StageView({ run, stageKey, selectedTaskId, busy, onBack, onStage, onTas
         <button className="pa-back" onClick={onBack}><ArrowLeft size={13} />返回总览</button>
         <p className="pa-stagehero-kicker"><span>STAGE {String(index + 1).padStart(2, '0')}</span><i className={`pa-stagehero-state is-${stage.state}`}>{statusIcon(stage.state === 'succeeded' ? 'succeeded' : stage.state === 'running' ? 'running' : stage.state === 'needsAttention' ? 'needsAttention' : stage.state === 'skipped' ? 'skipped' : 'pending')} {stageStateLabels[stage.state] ?? stage.state}</i></p>
         <h1 id="pa-stagehero-title">{stage.label}</h1>
-        <p className="pa-stagehero-desc">{stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。'}</p>
+        <p className="pa-stagehero-desc">{stage.state === 'skipped' ? tasks.find(task => task.blockingReason?.message)?.blockingReason?.message ?? stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。' : stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。'}</p>
         <div className="pa-stagehero-metrics">
           <span><strong>{tasks.length}</strong><small>节点</small></span>
           <span><strong>{tasks.filter(task => task.status === 'succeeded' || task.status === 'skipped').length}</strong><small>已完成</small></span>
@@ -528,7 +538,7 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
   return <div className="pa-dashboard">
     <header className="pa-run-head">
       <div>
-        <div className="pa-run-kicker"><span className={`pa-live pa-live-${run.status}`} />{runLabels[run.status] || run.status}<span>·</span><span>{run.ratio || '画幅已冻结'}</span><span>·</span><span>{run.stages.find(stage => stage.key === current)?.label ?? ''}</span></div>
+        <div className="pa-run-kicker"><span className={`pa-live pa-live-${run.status}`} />{runLabels[run.status] || run.status}<span>·</span><span>{run.ratio || '画幅已冻结'}</span>{run.candidatePolicy ? <><span>·</span><span>{run.candidatePolicy === 'direct' ? '直出版' : '抽卡版'}</span></> : null}<span>·</span><span>{run.stages.find(stage => stage.key === current)?.label ?? ''}</span></div>
         <h1>{runTitle(run, projects)}</h1>
         <p>整集自动制作 · 剧本版本 {run.scriptVersionId.slice(-8)} · {run.summary.tasks.completed} / {run.summary.tasks.total} 个节点已完成</p>
       </div>

@@ -15,6 +15,7 @@ export type ProductionTaskStatus = 'pending' | 'ready' | 'running' | 'waitingExt
 export type AutomationMode = 'auto' | 'checkpoints' | 'coDirector';
 export type QualityPreset = 'fast' | 'balanced' | 'quality';
 export type DirectorPolicy = 'auto' | 'always' | 'never';
+export type CandidatePolicy = 'direct' | 'gacha';
 export type TaskScope = { kind: 'episode'; id: null } | { kind: 'scene' | 'shot' | 'asset'; id: string };
 
 export class ProductionError extends Error {
@@ -31,6 +32,7 @@ export interface CreateProductionRun {
   visualStyle: string;
   qualityPreset: QualityPreset;
   automationMode: AutomationMode;
+  candidatePolicy: CandidatePolicy;
   candidateLimit: number;
   directorPolicy: DirectorPolicy;
   budgetMicros: number;
@@ -227,7 +229,7 @@ export interface StoredProductionRun extends CreateProductionRun {
 }
 
 export const CREATE_KEYS: Array<keyof CreateProductionRun> = ['projectId', 'scriptVersionId', 'ratio', 'targetDurationSec',
-  'visualStyle', 'qualityPreset', 'automationMode', 'candidateLimit', 'directorPolicy', 'budgetMicros', 'currency',
+  'visualStyle', 'qualityPreset', 'automationMode', 'candidatePolicy', 'candidateLimit', 'directorPolicy', 'budgetMicros', 'currency',
   'allowPaid', 'clientRequestId'];
 const safeId = /^[A-Za-z][A-Za-z0-9_-]{2,127}$/u;
 
@@ -254,7 +256,10 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
     || !Number.isInteger(input.targetDurationSec) || Number(input.targetDurationSec) < 15 || Number(input.targetDurationSec) > 900
     || !['fast', 'balanced', 'quality'].includes(input.qualityPreset as string)
     || !['auto', 'checkpoints', 'coDirector'].includes(input.automationMode as string)
+    || !['direct', 'gacha'].includes(input.candidatePolicy as string)
     || !Number.isInteger(input.candidateLimit) || Number(input.candidateLimit) < 1 || Number(input.candidateLimit) > 4
+    || (input.candidatePolicy === 'direct' && Number(input.candidateLimit) !== 1)
+    || (input.candidatePolicy === 'gacha' && Number(input.candidateLimit) < 2)
     || !['auto', 'always', 'never'].includes(input.directorPolicy as string)
     || !Number.isSafeInteger(input.budgetMicros) || Number(input.budgetMicros) < 0 || Number(input.budgetMicros) > 1_000_000_000_000
     || typeof input.currency !== 'string' || !/^[A-Z]{3}$/u.test(input.currency)
@@ -263,6 +268,7 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
     projectId, scriptVersionId, ratio: input.ratio as CreateProductionRun['ratio'],
     targetDurationSec: Number(input.targetDurationSec), visualStyle: safeText(input.visualStyle, 1000),
     qualityPreset: input.qualityPreset as QualityPreset, automationMode: input.automationMode as AutomationMode,
+    candidatePolicy: input.candidatePolicy as CandidatePolicy,
     candidateLimit: Number(input.candidateLimit), directorPolicy: input.directorPolicy as DirectorPolicy,
     budgetMicros: Number(input.budgetMicros), currency: input.currency, allowPaid: true, clientRequestId,
   };

@@ -33,6 +33,19 @@
 .pa-create-stages strong{display:block;padding-top:2px;color:#cdc6b7;font-size:11px;font-weight:500}.pa-create-stages p{margin:5px 0 0;color:#79766f;font-size:9px;line-height:1.6}
 .pa-preview-note{display:flex;gap:9px;margin-top:12px;padding:14px;border:1px solid #f18b6218;border-radius:8px;background:#f18b6205;color:#b39b7d}.pa-preview-note svg{flex:0 0 auto}.pa-preview-note p{margin:0;font-size:10px;line-height:1.8}
 
+/* ── 制作流程选择：直出版 / 抽卡版 ── */
+.pa-flow-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pa-flow{position:relative;display:grid;gap:7px;padding:14px 15px;border:1px solid #ffffff14;border-radius:10px;background:#141413;color:#9d988e;cursor:pointer;text-align:left;font:inherit;transition:border-color .18s,background .18s,box-shadow .18s}
+.pa-flow:hover{border-color:#f18b6236;background:#181713}
+.pa-flow.is-active{border-color:#f18b6299;background:#f18b620d;box-shadow:0 0 0 1px #f18b6226,0 6px 22px #f18b620f}
+.pa-flow.is-active::before{content:'';position:absolute;inset:0;border-radius:10px;pointer-events:none;background:linear-gradient(120deg,#f18b6214,transparent 46%)}
+.pa-flow-head{position:relative;display:flex;align-items:center;gap:7px;color:#e7ded0;font-size:12.5px;font-weight:600}
+.pa-flow-head svg{color:#c5a67f}
+.pa-flow.is-active .pa-flow-head svg{color:#f18b62}
+.pa-flow-head small{margin-left:auto;padding:2px 7px;border:1px solid #ffffff1c;border-radius:999px;color:#918c81;font-size:9px;font-weight:500}
+.pa-flow.is-active .pa-flow-head small{border-color:#f18b6255;color:#f1ad8b}
+.pa-flow p{position:relative;margin:0;color:#86827a;font-size:10px;line-height:1.75}
+
 /* ── 运行头部 ── */
 .pa-dashboard{display:grid;gap:0}
 .pa-run-head{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin:2px 0 18px}

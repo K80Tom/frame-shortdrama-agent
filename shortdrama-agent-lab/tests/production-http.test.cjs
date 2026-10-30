@@ -20,7 +20,7 @@ function request() {
     visualStyle: '写实电影感',
     qualityPreset: 'balanced',
     automationMode: 'auto',
-    candidateLimit: 2,
+    candidatePolicy: 'gacha', candidateLimit: 2,
     directorPolicy: 'auto',
     budgetMicros: 50_000_000,
     currency: 'CNY',
