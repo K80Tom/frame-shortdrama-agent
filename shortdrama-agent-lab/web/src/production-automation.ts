@@ -45,7 +45,7 @@ export type ProductionCandidateSet = {
   candidates: ProductionCandidate[];
 };
 export type ProductionTimelineItem = { id: string; type: string; message: string; createdAt: string; taskId?: string };
-export type ProductionArtifact = { id: string; kind: string; label: string; url?: string; taskId?: string };
+export type ProductionArtifact = { id: string; kind: string; label: string; url?: string; taskId?: string; metadata?: Record<string, unknown> };
 export type ProductionQualityCheck = { id: string; taskId: string; level: string; label: string; result: 'pass' | 'fail' | 'uncertain'; issues: string[] };
 export type ProductionReview = { id: string; taskId: string; decision: string; candidateId?: string; feedback?: string; createdAt: string };
 export type ProductionDelivery = { status: string; videoUrl?: string; message?: string } | null;
@@ -82,6 +82,12 @@ function safeLink(value: unknown) {
   if (typeof value !== 'string') return undefined;
   if (/^\/api\/[A-Za-z0-9_?&=/%.-]+$/u.test(value)) return value;
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : undefined; } catch { return undefined; }
+}
+function jsonSafe(value: unknown): unknown {
+  if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return value;
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, jsonSafe(item)]));
+  return undefined;
 }
 
 export function parseProjectOptions(value: unknown): ProjectOption[] {
@@ -152,7 +158,7 @@ export function parseProductionRun(value: unknown): ProductionRun {
       budget: { limitMicros: Math.max(0, number(budget.limitMicros)), reservedMicros: Math.max(0, number(budget.reservedMicros)), spentMicros: Math.max(0, number(budget.spentMicros)), currency: text(budget.currency, 'CNY') } },
     stages: list(row.stages).map(parseStage).filter(Boolean) as ProductionStage[], tasks: list(row.tasks).map(parseTask).filter(Boolean) as ProductionTask[],
     issues: list(row.issues).map(parseIssue).filter(Boolean) as ProductionIssue[], candidateSets: list(row.candidateSets).map(parseCandidateSet).filter(Boolean) as ProductionCandidateSet[],
-    artifacts: list(row.artifacts).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; return [{ id: text(item.id), kind: text(item.kind), label: text(item.title, text(item.kind, '产物')), ...(safeLink(item.uri) ? { url: safeLink(item.uri) } : {}), ...(text(item.taskId) ? { taskId: text(item.taskId) } : {}) }]; }),
+    artifacts: list(row.artifacts).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; const metadata = jsonSafe(item.metadata); return [{ id: text(item.id), kind: text(item.kind), label: text(item.title, text(item.kind, '产物')), ...(safeLink(item.uri) ? { url: safeLink(item.uri) } : {}), ...(text(item.taskId) ? { taskId: text(item.taskId) } : {}), ...(metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata) && Object.keys(metadata).length > 0 ? { metadata: metadata as Record<string, unknown> } : {}) }]; }),
     qualityChecks: list(row.qualityChecks).flatMap(value => { const item = record(value); if (!item || !text(item.id) || !text(item.taskId)) return []; const result = enumValue(item.result, ['pass', 'fail', 'uncertain'] as const, 'uncertain'); return [{ id: text(item.id), taskId: text(item.taskId), level: text(item.level), label: text(item.summary, '质量检查'), result, issues: list(item.issues).filter(value => typeof value === 'string') as string[] }]; }),
     reviews: list(row.reviews).flatMap(value => { const item = record(value); if (!item || !text(item.id) || !text(item.taskId)) return []; return [{ id: text(item.id), taskId: text(item.taskId), decision: text(item.decision), ...(text(item.candidateId) ? { candidateId: text(item.candidateId) } : {}), ...(text(item.feedback) ? { feedback: text(item.feedback) } : {}), createdAt: text(item.createdAt) }]; }),
     timeline: list(row.outbox).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; const type = text(item.type); return [{ id: text(item.id), type, message: productionEventLabel(type), createdAt: text(item.createdAt) }]; }),

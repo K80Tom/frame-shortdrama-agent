@@ -1,0 +1,68 @@
+/* LibTV 风格环境层：深色底 + 紫蓝极光 + 网格纹理 + 暗角 + 点击涟漪 + 玻璃弹窗。 */
+
+/* ── 环境背景板 ── */
+:root { background: #0b0b0e; }
+
+.ambient-backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ambient-aurora { position: absolute; border-radius: 50%; filter: blur(110px); will-change: transform; }
+.ambient-aurora.a1 { width: 48vw; height: 48vw; top: -20vw; right: -12vw; opacity: .55;
+  background: radial-gradient(circle at 38% 38%, #7c5cff52, #4f7cff2b 46%, transparent 70%);
+  animation: ambient-drift-a 26s ease-in-out infinite alternate; }
+.ambient-aurora.a2 { width: 42vw; height: 42vw; bottom: -16vw; left: -10vw; opacity: .5;
+  background: radial-gradient(circle at 60% 60%, #3d5afe38, #9f7bff1d 50%, transparent 72%);
+  animation: ambient-drift-b 34s ease-in-out infinite alternate; }
+.ambient-aurora.a3 { width: 30vw; height: 30vw; top: 34%; left: 36%; opacity: .4;
+  background: radial-gradient(circle, #12b8a824, transparent 64%);
+  animation: ambient-drift-c 42s ease-in-out infinite alternate; }
+.ambient-grid { position: absolute; inset: 0;
+  background-image: linear-gradient(#ffffff07 1px, transparent 1px), linear-gradient(90deg, #ffffff07 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 74%);
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 74%); }
+.ambient-vignette { position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 42%, transparent 52%, #0505078c 100%); }
+
+@keyframes ambient-drift-a { from { transform: translate3d(-6%, -4%, 0) scale(1); } to { transform: translate3d(5%, 8%, 0) scale(1.14); } }
+@keyframes ambient-drift-b { from { transform: translate3d(5%, 3%, 0) scale(1.06); } to { transform: translate3d(-6%, -6%, 0) scale(.94); } }
+@keyframes ambient-drift-c { from { transform: translate3d(-3%, 4%, 0); } to { transform: translate3d(4%, -3%, 0); } }
+
+/* 壳层让光晕透出：侧栏与顶栏改为磨砂玻璃。 */
+.sidebar { background: rgba(16, 16, 20, .84); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.topbar { background: rgba(12, 12, 16, .74); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+
+/* ── 点击涟漪反馈 ── */
+.ambient-clickfx { position: fixed; inset: 0; z-index: 5000; overflow: hidden; pointer-events: none; }
+.ambient-ripple { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  border: 1.5px solid #a48fffc9;
+  box-shadow: 0 0 20px #7c5cff59, inset 0 0 9px #7c5cff38;
+  animation: ambient-ripple .62s cubic-bezier(.22, .61, .36, 1) forwards; }
+.ambient-ripple::after { content: ''; position: absolute; inset: 24%; border-radius: 50%;
+  background: radial-gradient(circle, #cab9ff8f, transparent 70%); }
+@keyframes ambient-ripple {
+  0% { transform: scale(.25); opacity: .95; }
+  70% { opacity: .5; }
+  100% { transform: scale(3.1); opacity: 0; }
+}
+
+/* ── 玻璃质感弹窗（LibTV 卡片语言）── */
+.pa-modal { position: relative; border: 1px solid #ffffff1c; border-radius: 16px;
+  background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .015) 130px), #16161b;
+  box-shadow: 0 32px 96px #000000b0, inset 0 0 0 1px #ffffff06;
+  animation: ambient-modal-in .22s cubic-bezier(.22, .61, .36, 1) both; }
+.pa-modal::before { content: ''; position: absolute; top: 0; left: 26px; right: 26px; height: 1px;
+  background: linear-gradient(90deg, transparent, #a48bff7a 22%, #6ea8ff7a 55%, transparent); }
+.pa-modal-backdrop { background: #0a0a0ed4; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+.modal { border: 1px solid #ffffff1c; border-radius: 15px;
+  background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .015) 110px), #17171c;
+  box-shadow: 0 32px 96px #000000b0, inset 0 0 0 1px #ffffff06;
+  animation: ambient-modal-in .22s cubic-bezier(.22, .61, .36, 1) both; }
+
+@keyframes ambient-modal-in { from { opacity: 0; transform: translateY(10px) scale(.975); } to { opacity: 1; transform: none; } }
+
+/* ── 动效弱化 ── */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-aurora { animation: none; }
+  .ambient-ripple { display: none; }
+  .pa-modal, .modal { animation: none; }
+}

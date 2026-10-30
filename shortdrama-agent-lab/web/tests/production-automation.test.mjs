@@ -55,6 +55,24 @@ test('retry eligibility stops exactly at the server-provided attempt limit', () 
   assert.equal(production.productionTaskCanRetry(task), false);
 });
 
+test('artifact metadata survives parsing so node outputs can render breakdown, images and shots', () => {
+  const value = snapshot();
+  value.tasks[0].status = 'succeeded';
+  value.artifacts = [
+    { id: 'partifact_plan', runId: 'production_1234567890abcdef1234567890abcdef', taskId: 'ptask_123', kind: 'text', title: '已采用的剧本拆解', uri: null, sha256: null, metadata: { planRevisionId: 'plan_demo', adopted: true, scenes: 2, characters: 3 }, status: 'current', createdAt: '2026-10-23T00:01:00.000Z' },
+    { id: 'partifact_image', runId: 'production_1234567890abcdef1234567890abcdef', taskId: 'ptask_123', kind: 'image', title: '人物·萧炎', uri: '/api/assets/asset_demo/content', sha256: 'a'.repeat(64), metadata: { model: 'demo-image-model', generated: true }, status: 'current', createdAt: '2026-10-23T00:01:00.000Z' },
+    { id: 'partifact_board', runId: 'production_1234567890abcdef1234567890abcdef', taskId: 'ptask_123', kind: 'text', title: '已采用的分镜', uri: null, sha256: null, metadata: { storyboardRevisionId: 'board_demo', adopted: false, shots: [{ id: 'shot_1', sceneId: 'scene_1', order: 1, durationMs: 3200, shotSize: '中景', cameraMovement: '固定', visualDescription: '夜巷中人物对峙' }] }, status: 'current', createdAt: '2026-10-23T00:01:00.000Z' },
+    { id: 'partifact_bare', runId: 'production_1234567890abcdef1234567890abcdef', taskId: 'ptask_123', kind: 'report', title: '预检报告', uri: null, sha256: null, metadata: {}, status: 'current', createdAt: '2026-10-23T00:01:00.000Z' },
+  ];
+  const run = production.parseProductionRun(value);
+  assert.equal(run.artifacts[0].metadata.planRevisionId, 'plan_demo');
+  assert.equal(run.artifacts[0].metadata.adopted, true);
+  assert.equal(run.artifacts[1].url, '/api/assets/asset_demo/content');
+  assert.equal(run.artifacts[1].metadata.model, 'demo-image-model');
+  assert.equal(run.artifacts[2].metadata.shots[0].visualDescription, '夜巷中人物对峙');
+  assert.equal(run.artifacts[3].metadata, undefined, 'empty metadata objects stay absent');
+});
+
 test('review, compose and delivery copy describe only implemented technical checks', () => {
   const value = snapshot();
   value.stages.push(

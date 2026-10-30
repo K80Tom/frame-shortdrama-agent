@@ -15,6 +15,7 @@ import ModelConnections from './ModelConnections';
 import VideoAutomationPage from './VideoAutomationPage';
 import ProductionAutomationPage from './ProductionAutomationPage';
 import { applyHashNavigation } from './navigation-guard';
+import { AmbientFX } from './ambient';
 
 const DirectorWorkspace = lazy(() => import('./director/DirectorWorkspace'));
 
@@ -100,6 +101,7 @@ export default function App() {
   const props = { draft, setDraft, save, go, notify };
   const current = commands.find(item => item.id === route.page)!;
   return <div className="app-shell">
+    <AmbientFX />
     <a className="skip-link" href="#main-content" onClick={e => { e.preventDefault(); document.getElementById('main-content')?.focus(); document.getElementById('main-content')?.scrollIntoView(); }}>跳到主要内容</a>
     {mobileNav && <button className="nav-backdrop" onClick={() => setMobileNav(false)} aria-label="关闭导航菜单" />}
     <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`} aria-label="主导航"><div className="sidebar-brand"><Brand /><button className="icon-button mobile-only" onClick={() => setMobileNav(false)} aria-label="收起导航"><X size={19} /></button></div>
