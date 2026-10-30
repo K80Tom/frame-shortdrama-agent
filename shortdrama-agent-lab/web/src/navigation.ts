@@ -1,4 +1,4 @@
-import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Puzzle, Settings2, Workflow } from 'lucide-react';
+import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Puzzle, Settings2, Sparkles, Workflow } from 'lucide-react';
 import type { Page } from './model';
 
 export const workspaceNavigation = [
@@ -9,6 +9,7 @@ export const workspaceNavigation = [
 ];
 export const creationNavigation = [
   { id: 'automation' as Page, label: '自动成片', en: 'Production Automation', icon: Film },
+  { id: 'evolution' as Page, label: '自进化', en: 'Evolution', icon: Sparkles },
   { id: 'novel' as Page, label: '小说拆解', en: 'Novel', icon: BookOpen },
   { id: 'production' as Page, label: '剧本拆解', en: 'Production', icon: FileText },
   { id: 'storyboard' as Page, label: '分镜工作台', en: 'Storyboard', icon: Clapperboard },

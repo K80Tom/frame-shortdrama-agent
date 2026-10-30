@@ -14,6 +14,7 @@ import NovelBreakdown from './NovelBreakdown';
 import ModelConnections from './ModelConnections';
 import VideoAutomationPage from './VideoAutomationPage';
 import ProductionAutomationPage from './ProductionAutomationPage';
+import EvolutionPage from './EvolutionPage';
 import { applyHashNavigation } from './navigation-guard';
 import { AmbientFX } from './ambient';
 
@@ -118,6 +119,7 @@ export default function App() {
         {route.page === 'automation' && (route.resourceId === 'video'
           ? <VideoAutomationPage onUnsavedChange={reportAutomationUnsaved} />
           : <ProductionAutomationPage onUnsavedChange={reportAutomationUnsaved} />)}
+        {route.page === 'evolution' && <EvolutionPage go={go} />}
         {route.page === 'production' && <ProductionPage initialProjectId={route.resourceId} onUnsavedChange={reportProductionUnsaved} />}
         {route.page === 'novel' && <NovelBreakdown initialNovelId={route.resourceId} importRequest={novelImportRequest} onUnsavedChange={reportNovelUnsaved} />}
         {route.page === 'script' && <ScriptPage {...props} />}
