@@ -28,8 +28,9 @@ import {
   CandidateProductionExecutor, ComposeProductionExecutor, DeliveryProductionExecutor, ReviewProductionExecutor,
 } from './production/finalization';
 import {
-  BoundedProcessRunner, FfprobeVideoProber, ProductionMediaIngestor, ProductionMediaStore, TimelineComposer,
+  BoundedProcessRunner, FfprobeVideoProber, FrameAssessor, ProductionMediaIngestor, ProductionMediaStore, TimelineComposer,
 } from './production-media';
+import { ModelClient } from './models/client';
 
 // The upstream APIs do not return a settled monetary charge. These values are
 // deliberately conservative run-budget accounting ceilings, denominated in
@@ -61,7 +62,8 @@ async function main() {
     resolve('outputs/private/production-media'),
     new FfprobeVideoProber(mediaRunner),
   );
-  const productionMediaIngestor = new ProductionMediaIngestor(productionMediaStore);
+  const productionMediaIngestor = new ProductionMediaIngestor(productionMediaStore,
+    undefined, undefined, { allowIntranetMediaSources: config.mediaAllowIntranetSources ?? false });
   const timelineComposer = new TimelineComposer(productionMediaStore, mediaRunner);
   await productionMediaStore.initialize();
   if (databaseConfig) {
@@ -101,6 +103,7 @@ async function main() {
       if (await database.hasMigrations(['015', '016'])
         && breakdownService instanceof BreakdownService && stageRunner && storyboardService
         && assetService && videoAutomationService) {
+        const breakdown = breakdownService;
         productionService = new ProductionService(new PostgresProductionRepository(database), {
           sourceCatalog: breakdownService,
           executors: [
@@ -116,7 +119,16 @@ async function main() {
               { estimateCostMicros: PRODUCTION_COST_CEILINGS.video, mediaIngestor: productionMediaIngestor }),
             new CandidateProductionExecutor(productionMediaStore),
             new ReviewProductionExecutor(productionMediaStore),
-            new ComposeProductionExecutor(timelineComposer),
+            new ComposeProductionExecutor(timelineComposer, {
+              resolveProjectTitle: projectId => breakdown.getProject(projectId).then(project => project.title),
+              // 合成前的镜头抽帧评估：默认开启，可用 OHAO_FRAME_ASSESSMENT=0 关闭；
+              // 评估器内部任何失败都会降级为“无剪辑指令”，不会阻塞已付费的成片。
+              ...(process.env.OHAO_FRAME_ASSESSMENT === '0' ? {} : {
+                assessFrames: new FrameAssessor(productionMediaStore, mediaRunner,
+                  { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
+                  'ffmpeg', { framesPerShot: 2 }),
+              }),
+            }),
             new DeliveryProductionExecutor(productionMediaStore),
           ],
         });

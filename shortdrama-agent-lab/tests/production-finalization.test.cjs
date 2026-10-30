@@ -97,11 +97,18 @@ test('compose uses storyboard order and selected local candidates', async () => 
       status: 'selected', createdAt: now }] });
   let received;
   const composer = { async compose(request) { received = request; return { id: `timeline_${'c'.repeat(64)}`,
+    composition: { strategy: 'ffmpeg-auto-edit', edit: { titleCardText: request.edit.titleCardText,
+      endCardText: request.edit.endCardText, transitionSeconds: request.edit.transitionSeconds } },
     output: { id: mediaB, sha256: mediaB.slice(6), probe: { durationSeconds: 8, width: 1080, height: 1920,
       hasAudio: true } } }; } };
   const outcome = await new ComposeProductionExecutor(composer).execute(context(value, compose));
   assert.equal(outcome.state, 'succeeded');
   assert.deepEqual(received.videoIds, [mediaA]);
+  assert.equal(received.edit.titleCardText, '整集自动制作成片');
+  assert.equal(received.edit.transitionSeconds, 0.4);
+  assert.equal(outcome.artifacts[0].title, '整集自动剪辑成片');
+  assert.equal(outcome.artifacts[0].metadata.autoEdit, true);
+  assert.equal(outcome.qualityChecks[0].ruleVersion, 'local-auto-edit/1');
   assert.equal(outcome.artifacts[0].uri, `/api/production-media/${mediaB}`);
   assert.equal(outcome.timeline.durationSec, 8);
 });
@@ -128,4 +135,52 @@ test('delivery blocks a technically valid timeline that misses the frozen target
   assert.equal(outcome.issue.code, 'DELIVERY_CHECK_FAILED');
   assert.match(outcome.issue.message, /冻结目标 90s/);
   assert.equal(outcome.qualityChecks[0].result, 'fail');
+});
+
+test('compose runs the frame assessment first and passes clip directives', async () => {
+  const value = run(); const compose = { ...value.tasks.find(item => item.stage === 'compose'), status: 'running' };
+  const selectedArtifact = artifact(value, 'ptask_candidates_source', 'partifact_selected', mediaA);
+  value.artifacts.push(selectedArtifact);
+  value.candidateSets.push({ id: 'pcset_one', runId: value.id, taskId: 'ptask_candidates_source', kind: 'video',
+    scope: { kind: 'shot', id: 'shot_one' }, status: 'selected', selectedCandidateId: 'pcandidate_one', createdAt: now,
+    candidates: [{ id: 'pcandidate_one', artifactId: selectedArtifact.id, label: 'A', summary: '', score: 1,
+      status: 'selected', createdAt: now }] });
+  let received; let assessed = 0;
+  const composer = { async compose(request) { received = request; return { id: `timeline_${'c'.repeat(64)}`,
+    composition: { strategy: 'ffmpeg-auto-edit', edit: { titleCardText: request.edit.titleCardText,
+      endCardText: request.edit.endCardText, transitionSeconds: request.edit.transitionSeconds } },
+    output: { id: mediaB, sha256: mediaB.slice(6), probe: { durationSeconds: 8, width: 1080, height: 1920, hasAudio: true } } }; } };
+  const assessor = { async assess(inputs) { assessed++;
+    assert.equal(inputs.length, 1); assert.equal(inputs[0].mediaId, mediaA); assert.equal(inputs[0].shotId, 'shot_one');
+    return { shots: [{ shotId: 'shot_one', verdict: 'weak', scores: { identity: 3, anatomy: 4, action: 2, quality: 4 },
+      issues: ['动作拖沓'], advice: { action: 'trim', speedFactor: 1, trimSeconds: 5, reason: '裁掉静滞尾段' } }],
+    summary: { pass: 0, weak: 1, reject: 0, recommendedTrim: 1, recommendedSpeedup: 0, recommendedDrop: 0 } }; } };
+  const outcome = await new ComposeProductionExecutor(composer, { assessFrames: assessor }).execute(context(value, compose));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(assessed, 1);
+  assert.deepEqual(received.edit.clipDirectives, [{ videoId: mediaA, action: 'trim', trimSeconds: 5 }]);
+  assert.equal(received.edit.targetSeconds, 8);
+  assert.equal(outcome.artifacts.some(item => item.key === 'frame-review'), true);
+  assert.equal(outcome.artifacts[0].metadata.frameAssessment, 'applied');
+});
+
+test('a failing frame assessment degrades to a plain compose instead of blocking delivery', async () => {
+  const value = run(); const compose = { ...value.tasks.find(item => item.stage === 'compose'), status: 'running' };
+  const selectedArtifact = artifact(value, 'ptask_candidates_source', 'partifact_selected', mediaA);
+  value.artifacts.push(selectedArtifact);
+  value.candidateSets.push({ id: 'pcset_one', runId: value.id, taskId: 'ptask_candidates_source', kind: 'video',
+    scope: { kind: 'shot', id: 'shot_one' }, status: 'selected', selectedCandidateId: 'pcandidate_one', createdAt: now,
+    candidates: [{ id: 'pcandidate_one', artifactId: selectedArtifact.id, label: 'A', summary: '', score: 1,
+      status: 'selected', createdAt: now }] });
+  let received;
+  const composer = { async compose(request) { received = request; return { id: `timeline_${'c'.repeat(64)}`,
+    composition: { strategy: 'ffmpeg-auto-edit', edit: { titleCardText: request.edit.titleCardText,
+      endCardText: request.edit.endCardText, transitionSeconds: request.edit.transitionSeconds } },
+    output: { id: mediaB, sha256: mediaB.slice(6), probe: { durationSeconds: 8, width: 1080, height: 1920, hasAudio: true } } }; } };
+  const assessor = { async assess() { throw new Error('视觉模型网关不可用'); } };
+  const outcome = await new ComposeProductionExecutor(composer, { assessFrames: assessor }).execute(context(value, compose));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(received.edit.clipDirectives, undefined);
+  assert.equal(outcome.artifacts[0].metadata.frameAssessment, 'skipped');
+  assert.equal(outcome.artifacts.some(item => item.key === 'frame-review'), false);
 });

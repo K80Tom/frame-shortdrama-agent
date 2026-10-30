@@ -79,7 +79,7 @@ export interface ExternalOperation {
   operationKey: string;
   provider: string;
   providerTaskId: string | null;
-  status: 'prepared' | 'submitting' | 'submitted' | 'polling' | 'unknown' | 'succeeded' | 'failed';
+  status: 'prepared' | 'submitting' | 'submitted' | 'polling' | 'unknown' | 'succeeded' | 'failed' | 'abandoned';
   estimatedCostMicros: number;
   actualCostMicros: number | null;
   createdAt: string;
@@ -276,7 +276,9 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
 
 export type ProductionAction = { type: 'pause' } | { type: 'resume' }
   | { type: 'raiseBudget'; budgetMicros: number; reason: string }
-  | { type: 'retryTask'; taskId: string; reason: string; force?: boolean };
+  | { type: 'retryTask'; taskId: string; reason: string; force?: boolean }
+  | { type: 'abandonOperation'; taskId: string; reason: string }
+  | { type: 'reconcileOperation'; taskId: string; reason: string };
 export function parseProductionAction(value: unknown): ProductionAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('操作请求不正确。');
   const input = value as Record<string, unknown>;
@@ -291,6 +293,14 @@ export function parseProductionAction(value: unknown): ProductionAction {
     && Object.keys(input).length >= 2) {
     return { type: 'retryTask', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false),
       force: input.force === true };
+  }
+  if (input.type === 'abandonOperation' && Object.keys(input).every(key => ['type', 'taskId', 'reason'].includes(key))
+    && Object.keys(input).length >= 2) {
+    return { type: 'abandonOperation', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false) };
+  }
+  if (input.type === 'reconcileOperation' && Object.keys(input).every(key => ['type', 'taskId', 'reason'].includes(key))
+    && Object.keys(input).length >= 2) {
+    return { type: 'reconcileOperation', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false) };
   }
   return invalid('操作请求不正确。');
 }

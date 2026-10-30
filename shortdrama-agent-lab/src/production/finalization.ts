@@ -1,9 +1,16 @@
 import { canonicalDigest, type ProductionArtifact, type ProductionTask, type StoredProductionRun } from './contracts';
 import type { PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor,
   ProductionExecutorOutcome, SpawnTaskDraft } from './executor';
-import { ProductionMediaError, type ProductionMediaStore, type TimelineComposer } from '../production-media';
+import { ProductionMediaError, type FrameAssessmentReport, type TimelineClipDirective,
+  type TimelineComposer } from '../production-media';
+import type { ProductionMediaStore } from '../production-media';
 
 const LOCAL_MEDIA_URI = /^\/api\/production-media\/(media_[a-f0-9]{64})$/u;
+
+/** 抽帧评估器的结构化契约：编排层只依赖这一小块能力，避免与模型实现耦合。 */
+export interface FrameAssessorLike {
+  assess(inputs: readonly { shotId: string; mediaId: string; label: string; hint: string }[]): Promise<FrameAssessmentReport>;
+}
 
 function prepared(name: string, value: unknown): PreparedProductionExecution {
   return { executor: `ohao-${name}/1`, inputDigest: canonicalDigest(value), estimateCostMicros: 0,
@@ -159,9 +166,17 @@ export class ReviewProductionExecutor implements ProductionExecutor {
   }
 }
 
+export interface ComposeProductionExecutorOptions {
+  /** 解析项目标题用于片头卡；缺省时回退到通用标题。 */
+  resolveProjectTitle?: (projectId: string) => Promise<string>;
+  /** 合成前镜头抽帧评估：只有注入时才启用；评估失败自动降级为无指令，不阻塞成片。 */
+  assessFrames?: FrameAssessorLike;
+}
+
 export class ComposeProductionExecutor implements ProductionExecutor {
   readonly stage = 'compose' as const;
-  constructor(private readonly composer: TimelineComposer) {}
+  constructor(private readonly composer: TimelineComposer,
+    private readonly options: ComposeProductionExecutorOptions = {}) {}
 
   async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
     return prepared('timeline-composer', { runId: run.id, taskId: task.id,
@@ -185,16 +200,68 @@ export class ComposeProductionExecutor implements ProductionExecutor {
           message: `镜头 ${String(shot.id)} 没有已选且通过入库的本地视频。`, severity: 'error' } };
         ids.push(id);
       }
-      const manifest = await this.composer.compose({ videoIds: ids, title: '整集自动制作成片' });
-      return { state: 'succeeded', artifacts: [{ key: 'timeline-video', kind: 'video', title: '整集时间线 MP4',
+      const title = await this.resolveTitle(run.projectId);
+      // Frame review is advisory: any model/ffmpeg failure degrades to "no
+      // directives" so a paid shot set never fails to compose just because the
+      // quality pass is unavailable.
+      let assessment: Awaited<ReturnType<ComposeProductionExecutor['assessShots']>> = null;
+      try { assessment = await this.assessShots(shots, ids); }
+      catch { assessment = null; }
+      const manifest = await this.composer.compose({ videoIds: ids, title, edit: {
+        titleCardText: title, titleCardSubtitle: 'AI 自动制作短片',
+        endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4,
+        targetSeconds: run.targetDurationSec,
+        ...(assessment ? { clipDirectives: assessment.directives } : {}) } });
+      const edited = manifest.composition.strategy === 'ffmpeg-auto-edit';
+      return { state: 'succeeded', artifacts: [{ key: 'timeline-video', kind: 'video',
+        title: edited ? '整集自动剪辑成片' : '整集时间线 MP4',
         uri: `/api/production-media/${manifest.output.id}`, sha256: manifest.output.sha256,
         metadata: { mediaId: manifest.output.id, timelineId: manifest.id, inputMediaIds: ids,
           durationSeconds: manifest.output.probe.durationSeconds, width: manifest.output.probe.width,
-          height: manifest.output.probe.height, hasAudio: manifest.output.probe.hasAudio } }],
+          height: manifest.output.probe.height, hasAudio: manifest.output.probe.hasAudio,
+          autoEdit: edited, frameAssessment: assessment ? 'applied' : 'skipped',
+          ...(edited ? {
+            titleCardText: manifest.composition.edit?.titleCardText ?? null,
+            endCardText: manifest.composition.edit?.endCardText ?? null,
+            transitionSeconds: manifest.composition.edit?.transitionSeconds ?? null } : {}) } },
+        ...(assessment ? [assessment.artifact] : [])],
       timeline: { tracks: [{ kind: 'video', artifactKeys: ['timeline-video'] }], durationSec: manifest.output.probe.durationSeconds },
-      qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'local-timeline-compose/1',
-        summary: '所有已选镜头已按分镜顺序合成为本地 MP4' }] };
+      qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: edited ? 'local-auto-edit/1' : 'local-timeline-compose/1',
+        summary: edited ? '镜头按分镜顺序叠化剪辑，附加片头片尾卡，输出本地 MP4'
+          : '所有已选镜头已按分镜顺序合成为本地 MP4' }] };
     } catch (error) { return safeMediaFailure(error, 'TIMELINE_COMPOSE_FAILED', '整集时间线合成失败。'); }
+  }
+
+  private async resolveTitle(projectId: string): Promise<string> {
+    try { return await this.options.resolveProjectTitle?.(projectId) ?? '整集自动制作成片'; }
+    catch { return '整集自动制作成片'; }
+  }
+
+  /** 把抽帧评估结论转换成剪辑指令，并留下可追溯的评估报告产物。 */
+  private async assessShots(shots: readonly Record<string, unknown>[], ids: readonly string[]) {
+    const assessor = this.options.assessFrames;
+    if (!assessor) return null;
+    const inputs = shots.map((shot, index) => {
+      const design = shot.design && typeof shot.design === 'object' ? shot.design as Record<string, unknown> : {};
+      const visual = typeof design.visualDescription === 'string' ? design.visualDescription : '';
+      const size = typeof design.shotSize === 'string' ? design.shotSize : '';
+      return { shotId: String(shot.id), mediaId: String(ids[index] ?? ''), label: `镜 ${index + 1}`,
+        hint: [visual, size ? `景别：${size}` : ''].filter(Boolean).join('｜').slice(0, 400) };
+    });
+    const report = await assessor.assess(inputs);
+    const directives: TimelineClipDirective[] = [];
+    for (const item of report.shots) {
+      const media = inputs.find(input => input.shotId === item.shotId)?.mediaId;
+      if (!media) continue;
+      if (item.advice.action === 'drop') directives.push({ videoId: media, action: 'drop' });
+      else if (item.advice.action === 'trim' && item.advice.trimSeconds) {
+        directives.push({ videoId: media, action: 'trim', trimSeconds: item.advice.trimSeconds });
+      } else if (item.advice.action === 'speedup' && item.advice.speedFactor > 1) {
+        directives.push({ videoId: media, action: 'speedup', speedFactor: item.advice.speedFactor });
+      }
+    }
+    return { directives, artifact: { key: 'frame-review', kind: 'report' as const, title: '镜头抽帧评估',
+      metadata: { shots: report.shots, summary: report.summary, directiveCount: directives.length } } };
   }
 }
 

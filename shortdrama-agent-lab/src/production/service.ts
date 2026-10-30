@@ -80,7 +80,13 @@ export class ProductionService {
 
   async action(id: string, value: unknown) {
     let run = await this.requireRun(parseProductionRunId(id)); const action = parseProductionAction(value);
-    if (terminal.has(run.status)) conflict('PRODUCTION_RUN_TERMINAL', '已结束的生产运行不能再更改。');
+    // `partial` means "some work could not finish", not "nothing may ever change":
+    // an operator must be able to reconcile, retry, abandon or raise the budget
+    // through the API instead of editing run_json in the database.
+    const repairAction = ['retryTask', 'abandonOperation', 'reconcileOperation', 'raiseBudget'].includes(action.type);
+    if (terminal.has(run.status) && !(run.status === 'partial' && repairAction)) {
+      conflict('PRODUCTION_RUN_TERMINAL', '已结束的生产运行不能再更改。');
+    }
     let at = this.timestamp();
     if (action.type === 'pause') {
       if (run.pausedAt) return publicProductionRun(run);
@@ -126,8 +132,42 @@ export class ProductionService {
         { budgetMicros: run.budgetMicros, previousBudgetMicros }));
     }
     let task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
-    if (!['waitingHuman', 'failed', 'reconciling', 'invalidated'].includes(task.status)) {
+    if (action.type === 'abandonOperation') {
+      // Human reconciliation authority for synchronous providers that cannot be
+      // re-queried: the operator confirms the original paid submission is
+      // irrecoverable, releases the double-charge guard, and requeues the task.
+      if (task.status !== 'waitingHuman') conflict('PRODUCTION_TASK_NOT_ABANDONABLE', '只有等待人工处理的任务才能放弃外部操作。');
+      const operation = this.activeOperation(run, task.id);
+      if (!operation || operation.status !== 'unknown') {
+        conflict('PRODUCTION_OPERATION_NOT_UNKNOWN', '没有等待人工对账的外部操作。');
+      }
+      const attempt = run.attempts.find(item => item.id === operation.attemptId);
+      if (attempt) this.charge(run, task, attempt, 0, at, true);
+      operation.status = 'abandoned'; operation.updatedAt = at;
+      this.resolveTaskIssues(run, task.id, at);
+      this.invalidateFrom(run, task.id, at);
+      task.status = task.dependencies.every(id => dependencyDone(run.tasks.find(item => item.id === id)!)) ? 'ready' : 'pending';
+      task.blockingReason = null; task.version++; task.updatedAt = at;
+      this.refreshRunStatus(run);
+      return publicProductionRun(await this.save(run, 'production.task.operation_abandoned', { taskId: task.id, reason: action.reason }));
+    }
+    if (action.type === 'reconcileOperation') {
+      // Human-triggered reconciliation: re-query the original external operation
+      // without creating a second paid submission.
+      if (!['waitingHuman', 'reconciling'].includes(task.status)) {
+        conflict('PRODUCTION_TASK_NOT_RECONCILABLE', '当前任务状态不能对账。');
+      }
+      const operation = this.activeOperation(run, task.id);
+      if (!operation) conflict('PRODUCTION_OPERATION_NOT_FOUND', '没有等待对账的外部操作。');
+      if (operation.status !== 'unknown') conflict('PRODUCTION_OPERATION_NOT_UNKNOWN', '外部操作不在结果未知状态，无需对账。');
+      await this.reconcile(run, task);
+      return publicProductionRun(await this.requireRun(run.id));
+    }
+    if (!['waitingHuman', 'failed', 'reconciling', 'invalidated', 'succeeded'].includes(task.status)) {
       conflict('PRODUCTION_TASK_NOT_RETRYABLE', '当前任务状态不能重试。');
+    }
+    if (task.status === 'succeeded' && action.force !== true) {
+      conflict('PRODUCTION_RETRY_REQUIRES_FORCE', '重跑已完成任务会作废其产物和下游，需要显式 force。');
     }
     const operation = this.activeOperation(run, task.id);
     if (operation) {
@@ -432,12 +472,17 @@ export class ProductionService {
   }
 
   private async failInvalidOutcome(runId: string, taskId: string, attemptId: string, error: unknown) {
+    console.error('[failInvalidOutcome]', taskId, error instanceof Error ? (error.stack || error.message) : JSON.stringify(error));
     const latest = await this.requireRun(runId); const task = latest.tasks.find(item => item.id === taskId);
     const attempt = latest.attempts.find(item => item.id === attemptId);
     if (!task || !attempt || attempt.status === 'succeeded') return;
     const at = this.timestamp(); const code = error instanceof ProductionError ? error.code : 'PRODUCTION_EXECUTOR_OUTPUT_INVALID';
-    attempt.status = 'failed'; attempt.endedAt = at; attempt.error = { code,
-      message: '执行器输出未通过编排器校验，未保存部分成果。' };
+    // Keep a redacted, field-level reason on the attempt so the UI can explain the
+    // rejection without re-running the paid step only to see the same error again.
+    const reason = error instanceof ProductionError ? error.message : redactExecutorError(error);
+    const message = reason ? `执行器输出未通过编排器校验（${code}）：${reason}；未保存部分成果。`
+      : '执行器输出未通过编排器校验，未保存部分成果。';
+    attempt.status = 'failed'; attempt.endedAt = at; attempt.error = { code, message };
     const operation = this.activeOperation(latest, task.id);
     if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'waitingHuman'; }
     else task.status = 'failed';
@@ -796,7 +841,7 @@ export class ProductionService {
     }
   }
   private activeOperation(run: StoredProductionRun, taskId: string) {
-    return run.externalOperations.filter(item => item.taskId === taskId && !['succeeded', 'failed'].includes(item.status)).at(-1) ?? null;
+    return run.externalOperations.filter(item => item.taskId === taskId && !['succeeded', 'failed', 'abandoned'].includes(item.status)).at(-1) ?? null;
   }
   private spent(run: StoredProductionRun) { return run.budgetLedger.filter(item => item.kind === 'charge').reduce((sum, item) => sum + item.amountMicros, 0); }
   private reserved(run: StoredProductionRun) { return Math.max(0, run.budgetLedger.reduce((sum, item) => sum
@@ -841,4 +886,13 @@ export class ProductionService {
     return this.repository.replace(run, run.version);
   }
   private timestamp() { return this.now().toISOString(); }
+}
+
+/** Redact secrets, URLs and control characters before an executor error reaches the UI. */
+function redactExecutorError(value: unknown): string {
+  if (!(value instanceof Error) || !value.message) return '';
+  return value.message.replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\b(?:Bearer\s+)?(?:MAAS|sk-|ak-)[A-Za-z0-9._-]{8,}\b/gi, '[REDACTED]')
+    .replace(/https:\/\/[^\s"'<>]+/gi, '[REDACTED_URL]')
+    .replace(/\s+/g, ' ').trim().slice(0, 300);
 }

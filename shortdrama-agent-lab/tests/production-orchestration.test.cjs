@@ -628,6 +628,50 @@ test('an uncertain paid result retains its reservation and blocks a second submi
   assert.equal(uncertain.calls(), 1);
 });
 
+test('abandonOperation releases an irrecoverable synchronous submission and requeues the task', async () => {
+  let executions = 0;
+  const synchronous = {
+    stage: 'breakdown',
+    calls: () => executions,
+    async prepare({ task }) { return { executor: 'test-abandon/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { executions++;
+      return executions === 1
+        ? { state: 'waitingHuman', operationUnknown: true,
+            issue: { code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '同步接口无任务号，无法查询。', severity: 'error' } }
+        : { state: 'succeeded', actualCostMicros: 60 }; },
+  };
+  const { service } = await make({ executors: [synchronous] });
+  const created = await service.create(input({ clientRequestId: 'abandon-unknown-op' }));
+  await service.tick(created.id); await service.tick(created.id);
+  let run = await service.get(created.id); let task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.externalOperations[0].providerTaskId, null);
+  assert.equal(run.summary.budget.reservedMicros, 100); assert.equal(run.summary.budget.spentMicros, 0);
+  // The double-charge guard still blocks a plain retry for provider-less ops.
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '再试一次' }),
+    error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
+  assert.equal(executions, 1);
+  // Human authority: abandoning the original result releases the guard.
+  run = await service.action(run.id, { type: 'abandonOperation', taskId: task.id, reason: '人工确认同步结果不可恢复，放弃原调用' });
+  task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(run.externalOperations[0].status, 'abandoned');
+  assert.equal(task.status, 'ready');
+  assert.equal(task.blockingReason, null);
+  assert.equal(run.issues.some(item => item.code === 'MODEL_EXECUTION_UNKNOWN' && item.status === 'open'), false);
+  await ticks(service);
+  run = await service.get(created.id); task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'succeeded');
+  assert.equal(run.externalOperations.length, 2);
+  assert.equal(run.externalOperations[1].status, 'succeeded');
+  assert.equal(run.summary.budget.spentMicros, 60);
+  assert.equal(run.summary.budget.reservedMicros, 0);
+  // Terminal tasks cannot be abandoned again.
+  await assert.rejects(service.action(run.id, { type: 'abandonOperation', taskId: task.id, reason: '再次放弃' }),
+    error => error.code === 'PRODUCTION_TASK_NOT_ABANDONABLE');
+});
+
 test('a manual retry reconciles a definitively failed external operation and resubmits', async () => {
   const script = [];
   const reconciling = {
@@ -685,4 +729,104 @@ test('direct and gacha flows enforce their own candidate limits at creation time
   await assert.rejects(service.create(input({ candidatePolicy: 'direct', candidateLimit: 2 })), invalid);
   await assert.rejects(service.create(input({ candidatePolicy: 'gacha', candidateLimit: 1 })), invalid);
   await assert.rejects(service.create(input({ candidatePolicy: 'random', candidateLimit: 1 })), invalid);
+});
+
+test('a partial run accepts repair actions instead of requiring database surgery', async () => {
+  let assetCalls = 0;
+  const breakdownOk = executor('breakdown', () => ({ state: 'succeeded',
+    artifacts: [{ key: 'breakdown-plan', kind: 'report', title: '拆解计划', metadata: { facts: [] } }] }));
+  const assets = {
+    stage: 'assets', calls: () => assetCalls,
+    async prepare({ task }) { return { executor: 'test-assets/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 0, requiresPaid: false, provider: null }; },
+    async execute() { assetCalls++; return assetCalls === 1
+      ? { state: 'failed', code: 'ASSETS_MISSING', message: '参考图缺失。', retryable: false }
+      : { state: 'succeeded', artifacts: [{ key: 'asset-report', kind: 'report', title: '资产就绪', metadata: {} }] }; },
+  };
+  const { service } = await make({ executors: [breakdownOk, assets] });
+  const created = await service.create(input({ clientRequestId: 'partial-repair' }));
+  await ticks(service, 6);
+  let run = await service.get(created.id);
+  assert.equal(run.status, 'partial');
+  const task = run.tasks.find(item => item.stage === 'assets');
+  assert.equal(task.status, 'failed');
+  // The repair action must pass the old PRODUCTION_RUN_TERMINAL gate.
+  run = await service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '补好参考图后重跑' });
+  assert.notEqual(run.status, 'partial');
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'ready');
+  await ticks(service, 6);
+  run = await service.get(created.id);
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'succeeded');
+});
+
+test('partial runs still reject non-repair actions such as pause', async () => {
+  const breakdownOk = executor('breakdown', () => ({ state: 'succeeded',
+    artifacts: [{ key: 'breakdown-plan', kind: 'report', title: '拆解计划', metadata: {} }] }));
+  const assetsFail = executor('assets', () => ({ state: 'failed', code: 'ASSETS_MISSING', message: '参考图缺失。', retryable: false }));
+  const { service } = await make({ executors: [breakdownOk, assetsFail] });
+  const created = await service.create(input({ clientRequestId: 'partial-no-pause' }));
+  await ticks(service, 6);
+  const run = await service.get(created.id);
+  assert.equal(run.status, 'partial');
+  await assert.rejects(service.action(run.id, { type: 'pause' }),
+    error => error.code === 'PRODUCTION_RUN_TERMINAL');
+});
+
+test('a succeeded task can be rerun with force when downstream inputs change', async () => {
+  let calls = 0;
+  const breakdown = executor('breakdown', () => { calls++; return { state: 'succeeded',
+    artifacts: [{ key: 'breakdown-plan', kind: 'report', title: '拆解计划', metadata: { revision: calls } }] }; });
+  const assets = executor('assets', () => ({ state: 'succeeded',
+    artifacts: [{ key: 'asset-report', kind: 'report', title: '资产就绪', metadata: {} }] }));
+  const { service } = await make({ executors: [breakdown, assets] });
+  const created = await service.create(input({ clientRequestId: 'rerun-succeeded' }));
+  await ticks(service, 4);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'succeeded');
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '未显式确认' }),
+    error => error.code === 'PRODUCTION_RETRY_REQUIRES_FORCE');
+  run = await service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '目标时长变化后重跑', force: true });
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'ready');
+  // The stale artifact and its downstream must be invalidated, not silently kept.
+  assert.equal(run.artifacts.filter(item => item.taskId === task.id && item.status === 'current').length, 0);
+  await ticks(service, 4);
+  run = await service.get(created.id);
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'succeeded');
+  assert.equal(calls, 2);
+});
+
+test('reconcileOperation re-queries an unknown external operation without resubmitting', async () => {
+  let reconcileCalls = 0;
+  const reconciling = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-manual-reconcile/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { return { state: 'waitingExternal', providerTaskId: 'draft-run-9' }; },
+    async reconcile() { reconcileCalls++;
+      return reconcileCalls === 1
+        ? { state: 'waitingHuman', operationUnknown: true,
+            issue: { code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '付费请求超时，需要人工对账。', severity: 'error' } }
+        : { state: 'succeeded', actualCostMicros: 60 }; },
+  };
+  const { service } = await make({ executors: [reconciling] });
+  const created = await service.create(input({ clientRequestId: 'manual-reconcile' }));
+  await ticks(service, 6);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  run = await service.action(run.id, { type: 'reconcileOperation', taskId: task.id, reason: '人工触发对账' });
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'succeeded');
+  assert.equal(run.externalOperations[0].status, 'succeeded');
+  assert.equal(reconcileCalls, 2);
+});
+
+test('reconcileOperation refuses operations that are not in an unknown state', async () => {
+  const { service } = await make();
+  const created = await service.create(input({ clientRequestId: 'reconcile-not-needed' }));
+  const task = created.tasks.find(item => item.stage === 'breakdown');
+  // A task that has never run has no external operation at all: refuse early.
+  await assert.rejects(service.action(created.id, { type: 'reconcileOperation', taskId: task.id, reason: '无需对账' }),
+    error => error.code === 'PRODUCTION_TASK_NOT_RECONCILABLE' || error.code === 'PRODUCTION_OPERATION_NOT_FOUND');
 });

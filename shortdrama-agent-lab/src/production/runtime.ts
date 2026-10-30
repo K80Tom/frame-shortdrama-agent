@@ -400,7 +400,8 @@ export class VideoProductionExecutor implements ProductionExecutor {
           uncertaintyCode: video.error?.code ?? 'VIDEO_SUBMISSION_UNKNOWN' } }],
       issue: { code: 'VIDEO_SUBMISSION_UNKNOWN', title: '视频提交结果不明',
         message: '本地视频 Run 已保留，但没有可查询的供应商任务号。不会自动重发，需要先核对供应商账单和任务记录。',
-        severity: 'error', recommendedActions: ['核对供应商账单和原始请求', '不要重复提交', '确认状态后对原本地 Run 执行对账'] },
+        severity: 'error', recommendedActions: ['先在供应商侧核对原始请求和账单，确认这次提交是否真实发生',
+          '确认未发生：放弃原外部操作（abandonOperation）后重试', '确认已发生：不要重提，改为人工对账（reconcileOperation）'] },
       operationUnknown: true };
     }
     if (video.status === 'unknown' && video.providerTaskId
@@ -416,14 +417,27 @@ export class VideoProductionExecutor implements ProductionExecutor {
           uncertaintyCode: video.error.code } }],
       issue: { code: 'VIDEO_RECONCILIATION_LIMIT_REACHED', title: '视频任务已停止自动查询',
         message: '已多次查询同一个供应商任务但仍无法确认结果。原任务号和预算预留已保留，不会重新提交，需要人工对账。',
-        severity: 'error', recommendedActions: ['核对原供应商任务和账单', '不要重复提交', '确认结果后人工接管'] },
+        severity: 'error', recommendedActions: ['在供应商侧核对原任务号和账单',
+          '确认该任务确实不存在：放弃原外部操作（abandonOperation）后重试',
+          '确认存在但查询接口异常：再次手动对账（reconcileOperation），不要重复提交'] },
       operationUnknown: true };
     }
-    if (video.status === 'failed') return { state: 'failed', code: video.error?.code ?? 'VIDEO_GENERATION_FAILED',
-      message: video.error?.message ?? '视频供应商任务失败。', retryable: true,
-      // A definitive failure without a provider task ID happened before a paid
-      // submission. Never charge the estimate for local validation/model blocks.
-      actualCostMicros: context.operationKey && video.providerTaskId ? this.options.estimateCostMicros : 0 };
+    if (video.status === 'failed') {
+      const providerMessage = video.error?.message ?? '视频供应商任务失败。';
+      const blocked = /copyright|policy|sensitiv|violat|infring/i.test(providerMessage);
+      // A policy/copyright rejection is a content problem, not an infrastructure
+      // failure: resubmitting the same prompt and the same reference images just
+      // buys another rejection. Keep the paid task terminal and tell the operator
+      // exactly which input has to change.
+      if (blocked) return { state: 'failed', code: 'VIDEO_CONTENT_BLOCKED',
+        message: `供应商内容审核拦截，重提相同输入只会重复失败：${providerMessage}`.slice(0, 500), retryable: false,
+        actualCostMicros: context.operationKey && video.providerTaskId ? this.options.estimateCostMicros : 0 };
+      return { state: 'failed', code: video.error?.code ?? 'VIDEO_GENERATION_FAILED',
+        message: `${providerMessage}（供应商侧故障，可退避后重试）`.slice(0, 500), retryable: true,
+        // A definitive failure without a provider task ID happened before a paid
+        // submission. Never charge the estimate for local validation/model blocks.
+        actualCostMicros: context.operationKey && video.providerTaskId ? this.options.estimateCostMicros : 0 };
+    }
     return { state: 'waitingExternal', providerTaskId: video.id };
   }
 
@@ -431,6 +445,13 @@ export class VideoProductionExecutor implements ProductionExecutor {
     let providerIndex = -1; let completedIndex = -1;
     run.artifacts.forEach((item, index) => {
       if (item.taskId !== task.id) return;
+      // Reuse only artifacts that are still current, or a superseded record whose
+      // provider result is known to exist but failed to localize (retry must not
+      // pay twice). Any other superseded submission belongs to an abandoned
+      // operation and must never drive a fresh paid decision.
+      const reusable = item.status === 'current'
+        || (item.status === 'superseded' && typeof item.metadata.localizationErrorCode === 'string');
+      if (!reusable) return;
       if (item.metadata.key === 'provider-video-result' && typeof item.metadata.videoRunId === 'string') providerIndex = index;
       if (item.metadata.key === 'shot-video') completedIndex = index;
     });
