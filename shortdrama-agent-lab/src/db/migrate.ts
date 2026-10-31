@@ -12,10 +12,21 @@ interface Migration {
 }
 
 /**
+ * Checksums are defined on LF bytes, matching the committed SQL files.
+ * A Windows checkout or editor may still present CRLF. Fold only that line
+ * ending before hashing or applying. No other whitespace is canonicalized,
+ * and a changed statement still fails the recorded checksum.
+ */
+export function normalizeMigrationSql(sql: string): string {
+  return sql.replace(/\r\n/g, "\n");
+}
+
+/**
  * 003 was originally applied with two final LF bytes; its checked-in copy has
  * one. These exact, audited files differ only by that trailing blank line.
- * Preserve both recorded histories; never normalize or ignore arbitrary SQL
- * changes. No other migration or checksum is eligible for this exception.
+ * Preserve both recorded histories. The CRLF fold above only restores the
+ * committed LF bytes; it is not this exception. No other migration, checksum,
+ * or SQL change is eligible.
  */
 const EXECUTION_LEDGER_CHECKSUMS = new Set([
   '83957719239e47e6ea3ced16f0747ca80ccc5de2eb2c6690d7ec6ab7acca68c9',
@@ -32,12 +43,12 @@ export function acceptsRecordedChecksum(migration: Migration, recorded: string):
 
 const MIGRATION_NAME = /^(\d+)_([a-z0-9_-]+)\.sql$/i;
 
-async function readMigrations(directory: string): Promise<Migration[]> {
+export async function readMigrations(directory: string): Promise<Migration[]> {
   const files = (await readdir(directory)).filter((fileName) => MIGRATION_NAME.test(fileName)).sort();
   const migrations = await Promise.all(files.map(async (fileName) => {
     const match = MIGRATION_NAME.exec(fileName);
     if (!match) throw new Error("Invalid migration filename");
-    const sql = await readFile(join(directory, fileName), "utf8");
+    const sql = normalizeMigrationSql(await readFile(join(directory, fileName), "utf8"));
     if (!sql.trim()) throw new Error(`Migration ${fileName} is empty`);
     return {
       version: match[1]!,

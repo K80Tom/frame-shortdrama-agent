@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { mkdtemp, readFile, stat, writeFile, rm } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
+const { assertUnixMode } = require('./platform.cjs');
 const { readConfig } = require('../dist/config');
 const { ModelConnections } = require('../dist/models/connections');
 const { ModelClient } = require('../dist/models/client');
@@ -54,7 +55,7 @@ test('four complete text profiles can be selected independently and route with t
   assert.equal(store.list().profiles.length, 4, 'switching must not replace or duplicate saved connections');
   const publicText = JSON.stringify(store.list());
   for (const key of ['deepseek-test-only-key', 'kimi-k3-test-only-key', 'GPT-5.6 Sol-test-only-key', '"apiKey"']) assert.equal(publicText.includes(key), false);
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assertUnixMode((await stat(file)).mode, 0o600);
 });
 
 test('copying stored credentials is explicit, version checked and restricted to the same endpoint and auth type', async () => {
@@ -102,7 +103,7 @@ test('v1 migration preserves all role snapshots, credentials and cleared fields 
   assert.deepEqual(restored.list().profiles.map(p => p.id), firstIds);
   assert.equal(restored.public('general').configured, false);
   assert.equal(JSON.parse(await readFile(file, 'utf8')).schemaVersion, 2);
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assertUnixMode((await stat(file)).mode, 0o600);
 });
 
 test('shared profile updates invalidate exactly the assigned roles while in-flight snapshots remain fixed', async () => {

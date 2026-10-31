@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { mkdtemp, mkdir, writeFile, utimes, realpath, rm, symlink, link } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { dirname, join } = require('node:path');
+const { canCreateSymlink, WINDOWS_SYMLINK_SKIP } = require('./platform.cjs');
 const { deflateSync } = require('node:zlib');
 const { createApp } = require('../dist/app');
 const { readConfig } = require('../dist/config');
@@ -802,7 +803,9 @@ test('asset imported before candidate persistence stays guarded and is deduplica
 });
 
 test('file paths are task-derived and soft/hard linked image outputs cannot import unrelated files', async t => {
+  const symlinks = await canCreateSymlink();
   for (const mode of ['symlink', 'hardlink', 'directory-symlink']) {
+    if (!symlinks && mode !== 'hardlink') { t.diagnostic(`${mode}: ${WINDOWS_SYMLINK_SKIP}`); continue; }
     const f = await fixture(t);
     for (const id of ['../secrets', '/tmp/image', 'desktop_../image', 'desktop_' + 'g'.repeat(32)]) {
       assert.throws(() => f.service.outputPath(id), rejectCode('DESKTOP_TASK_INVALID'));
@@ -828,7 +831,9 @@ test('file paths are task-derived and soft/hard linked image outputs cannot impo
 });
 
 test('symlinked output root and nonempty task directories are rejected before a desktop command', async t => {
+  const symlinks = await canCreateSymlink();
   for (const mode of ['root', 'preexisting']) {
+    if (mode === 'root' && !symlinks) { t.diagnostic(WINDOWS_SYMLINK_SKIP); continue; }
     const f = await fixture(t);
     const task = await f.service.create(f.revision.id, request(f.revision));
     if (mode === 'root') {
@@ -1016,7 +1021,9 @@ test('a failed task with no output directory can retry only after health is rest
 });
 
 test('failed tasks with any marker, result, unrelated file, soft link or hard link cannot be resubmitted', async t => {
+  const symlinks = await canCreateSymlink();
   for (const entry of ['submit-intent.json', 'result.png', 'unrelated.txt', 'softlink', 'hardlink', 'directory-link']) {
+    if (!symlinks && (entry === 'softlink' || entry === 'directory-link')) { t.diagnostic(`${entry}: ${WINDOWS_SYMLINK_SKIP}`); continue; }
     const f = await fixture(t, { submit: async () => ({ state: 'blocked', code: 'BLOCKED', message: '未提交' }) });
     const task = await f.service.create(f.revision.id, request(f.revision)); await f.service.tick();
     const before = await f.stored(task);
