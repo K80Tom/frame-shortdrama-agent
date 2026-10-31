@@ -54,6 +54,20 @@ test('public production snapshot preserves server counts, attention and durable 
   assert.equal(run.candidateSets[0].candidates[0].summary, '平稳叙事');
   assert.equal(run.timeline[0].message, '已创建生产运行');
   assert.equal(run.artifacts[0].url, undefined, 'local filesystem paths must not become browser links');
+  assert.equal(run.qualityChecks[0].ruleVersion, 'v1');
+});
+
+test('quality-check rule versions stay short tokens', () => {
+  const value = snapshot();
+  value.qualityChecks = [
+    { ...value.qualityChecks[0], id: 'pcheck_ok', ruleVersion: 'extract-facts-completeness/2' },
+    { ...value.qualityChecks[0], id: 'pcheck_bad', ruleVersion: 'storyboard <script>' },
+    { ...value.qualityChecks[0], id: 'pcheck_long', ruleVersion: 'a'.repeat(81) },
+  ];
+  const checks = production.parseProductionRun(value).qualityChecks;
+  assert.equal(checks[0].ruleVersion, 'extract-facts-completeness/2');
+  assert.equal(checks[1].ruleVersion, undefined);
+  assert.equal(checks[2].ruleVersion, undefined);
 });
 
 test('retry eligibility stops exactly at the server-provided attempt limit', () => {

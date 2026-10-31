@@ -147,21 +147,21 @@ export default function EvolutionPage({ go }: { go: (page: Page, step?: number) 
               <td className="ev-numeric">{group.count}</td>
               <td>{group.openCount > 0 ? <span className="ev-pending">待处理 {group.openCount}</span> : <span className="ev-ok"><Check size={11} /> 已消化</span>}</td>
               <td className="ev-message">{group.latestMessage || '—'}</td>
-              <td className="ev-numeric">{group.runCount} 次</td>
+              <td className="ev-numeric">{group.runCount}</td>
             </tr>)}</tbody>
           </table></div>}
       </section>
 
       <section className="ev-card" aria-labelledby="ev-rules-title">
         <div className="ev-card-head"><div><span>RULES IN EFFECT</span><h2 id="ev-rules-title">生效规则与契约</h2></div><Sparkles size={18} /></div>
-        <p className="ev-card-intro">当前运行所携带的规则版本。每次规则升级都会写入产物溯源，同一版本跨运行复用代表系统正在稳定地按新契约工作。</p>
+        <p className="ev-card-intro">规则版本来自每次质量检查，以及只写在产物上的规则溯源。同一版本跨运行复用，表示系统正在按该契约工作。</p>
         {summary.rules.length === 0
-          ? <p className="ev-quiet">最近的运行还没有产出携带规则版本的产物；完成分镜或导演环节后会出现在这里。</p>
+          ? <p className="ev-quiet">最近的运行还没有带规则版本的检查或产物；完成分镜、资产匹配、技术复核或导演环节后会出现在这里。</p>
           : <ul className="ev-rules">
             {summary.rules.map(rule => <li key={rule.version}>
               <div><strong>{rule.version}</strong><small>{evolutionRuleKind(rule.version)}</small></div>
               <span>{rule.sampleStage}</span>
-              <b>{rule.occurrences} 个产物 · {rule.runCount} 次运行</b>
+              <b>{rule.occurrences} 条记录 · {rule.runCount} 次运行</b>
             </li>)}
           </ul>}
       </section>
