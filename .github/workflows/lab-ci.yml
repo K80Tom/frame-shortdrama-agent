@@ -1,0 +1,46 @@
+name: Lab CI
+
+# shortdrama-agent-lab 的离线测试与构建。不启动 Docker，不运行 test:db。
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: shortdrama-agent-lab
+
+jobs:
+  offline:
+    name: Offline tests and builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      # engines 与 README 要求 Node.js ≥ 22.19；22 发行线满足该下限。
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            shortdrama-agent-lab/package-lock.json
+            shortdrama-agent-lab/web/package-lock.json
+
+      - name: Backend install, test, and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Web install, test, and build
+        run: |
+          npm --prefix web ci
+          npm --prefix web test
+          npm --prefix web run build

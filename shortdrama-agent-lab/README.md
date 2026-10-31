@@ -236,6 +236,8 @@ npm --prefix web test
 npm --prefix web run build
 ```
 
+Pull request 与 `main` 上的 GitHub Actions（`.github/workflows/lab-ci.yml`）会在 Node.js 22（满足 ≥ 22.19）运行上述离线测试与构建，不包含 Docker 或 `npm run test:db`。
+
 数据库已启动并完成迁移后，还可以运行：
 
 ```sh
