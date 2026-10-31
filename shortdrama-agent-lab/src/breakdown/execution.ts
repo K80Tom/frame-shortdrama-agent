@@ -217,21 +217,14 @@ export class ExtractFactsStageRunner {
           createdAt: this.timestamp(),
         });
         await this.repository.markModelCallSubmitted(call.id);
+        let result: StageModelResult;
         try {
-          const result = await adapter.call({
+          result = await adapter.call({
             model: run.modelConfig.model,
             reasoningEffort: run.modelConfig.reasoningEffort,
             maxOutputTokens: run.task.maxOutputTokens,
             payload,
           });
-          await this.repository.completeModelCall({
-            modelCallId: call.id,
-            providerRequestId: result.providerRequestId,
-            usage: normalizeUsage(result.usage),
-            endedAt: this.timestamp(),
-            response: result.output,
-          });
-          return result.output;
         } catch (error) {
           // Keep the sanitized surface but preserve WHY the adapter failed
           // (upstream status, timeout, network) so a failed paid attempt can
@@ -250,6 +243,37 @@ export class ExtractFactsStageRunner {
           });
           throw new BreakdownError(502, "MODEL_ADAPTER_FAILED", detail);
         }
+        try {
+          await this.repository.completeModelCall({
+            modelCallId: call.id,
+            providerRequestId: result.providerRequestId,
+            usage: normalizeUsage(result.usage),
+            endedAt: this.timestamp(),
+            response: result.output,
+          });
+        } catch (error) {
+          if (error instanceof BreakdownError) throw error;
+          // The provider already returned. A missing response_json column
+          // (migration 017) or a later ledger write error must not be stored
+          // as an adapter failure: that hides the paid payload and invites
+          // another charge.
+          const errorName = error instanceof Error ? error.name : typeof error;
+          console.error(
+            `[breakdown] extract-facts ledger write failed after the model returned` +
+              ` (model=${run.modelConfig.model}, provider=${run.modelConfig.provider}, error=${errorName})`,
+          );
+          try {
+            console.error(`[breakdown] raw model output: ${JSON.stringify(result.output).slice(0, 40_000)}`);
+          } catch {
+            console.error("[breakdown] raw model output could not be serialized");
+          }
+          throw new BreakdownError(
+            503,
+            "MODEL_CALL_LEDGER_UNAVAILABLE",
+            "模型已经返回，但结果未能写入执行账本。请先执行 npm run db:migrate（需要迁移 017）后再核对，不要直接重新发起付费调用。",
+          );
+        }
+        return result.output;
       },
     };
 

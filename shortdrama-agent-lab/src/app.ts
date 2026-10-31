@@ -241,7 +241,7 @@ class BreakdownRunsController {
       || Object.keys(body).length !== 1 || (body as Record<string, unknown>).allowPaid !== true) {
       throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', '执行前须明确传入 allowPaid: true。');
     }
-    if (!this.runner) throw new BreakdownError(503, 'STAGE_RUNNER_UNAVAILABLE', '本地数据库或模型执行器尚未就绪。');
+    if (!this.runner) throw new BreakdownError(503, 'STAGE_RUNNER_UNAVAILABLE', '事实提取执行器尚未就绪。请先执行 npm run db:migrate（需要迁移 017）；未就绪时不会发起付费调用。');
     return this.runner.run(parseOpaqueId(runId, 'runId'));
   }
 

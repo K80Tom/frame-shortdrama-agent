@@ -194,6 +194,41 @@ test('P0.4 preserves the sanitized upstream cause on an adapter failure', async 
   assert.equal(snapshot.modelCalls[0].error.message, '模型适配器调用失败。（UPSTREAM_ERROR，上游状态 504）');
 });
 
+test('a ledger write failure after a successful model call is not recorded as an adapter failure', async () => {
+  const output = { synopsis: null, characters: [], locations: [], props: [], scenes: [], dialogues: [] };
+  let calls = 0;
+  let persisted;
+  const adapter = {
+    async call() {
+      calls += 1;
+      return { providerRequestId: 'paid-then-ledger-failed', usage: null, output };
+    },
+  };
+  const { service, runner, repository } = fixture({ adapter });
+  const { run } = await prepared(service);
+  const driverError = 'column "response_json" of relation "model_calls" does not exist';
+  repository.completeModelCall = async (input) => {
+    persisted = input.response;
+    throw new Error(driverError);
+  };
+  await assert.rejects(runner.run(run.id), (error) => error.status === 503
+    && error.code === 'MODEL_CALL_LEDGER_UNAVAILABLE'
+    && error.paidModelCallState === 'unknown'
+    && !error.message.includes('response_json')
+    && !error.message.includes(driverError));
+  const failedRun = await service.getRun(run.id);
+  const snapshot = await repository.getExecutionSnapshot(failedRun.task.activeAttemptId);
+  assert.equal(calls, 1);
+  assert.deepEqual(persisted, output);
+  assert.equal(snapshot.modelCalls.length, 1);
+  assert.equal(snapshot.modelCalls[0].status, 'submitted');
+  assert.equal(snapshot.modelCalls[0].error, null);
+  assert.equal(snapshot.attempt.status, 'failed');
+  assert.equal(snapshot.attempt.error.code, 'MODEL_CALL_LEDGER_UNAVAILABLE');
+  assert.equal(JSON.stringify(snapshot).includes(driverError), false);
+  assert.deepEqual(await service.listPlanRevisions(run.id), []);
+});
+
 test('repairs a field-level protocol violation with one bounded correction call', async () => {
   const requests = [];
   let firstContext = null;

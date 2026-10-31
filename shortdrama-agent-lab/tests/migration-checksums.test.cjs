@@ -53,3 +53,19 @@ test('013 persists review candidates and adds review-only task states without we
   assert.match(sql, /asset_generation_candidate_task_version_idx/);
   assert.doesNotMatch(sql, /CREATE UNIQUE INDEX desktop_asset_single_active/);
 });
+
+test('017 stores the paid model response and extract-facts will not start without it', () => {
+  const { BREAKDOWN_PERSISTENCE_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } = require('../dist/db/readiness');
+  const sql = readFileSync(join(__dirname, '../migrations/017_model_call_response.sql'), 'utf8');
+  const repository = readFileSync(join(__dirname, '../src/breakdown/repository.ts'), 'utf8');
+  const main = readFileSync(join(__dirname, '../src/main.ts'), 'utf8');
+  assert.match(sql, /ALTER TABLE model_calls ADD COLUMN IF NOT EXISTS response_json JSONB NULL/);
+  assert.match(repository, /response_json = \$5::jsonb/);
+  assert.deepEqual([...BREAKDOWN_PERSISTENCE_MIGRATIONS], ['001', '002', '003', '004', '005', '006', '007']);
+  assert.deepEqual([...EXTRACT_FACTS_LEDGER_MIGRATIONS], ['017']);
+  assert.equal(BREAKDOWN_PERSISTENCE_MIGRATIONS.includes('017'), false);
+  const gate = main.indexOf('hasMigrations(EXTRACT_FACTS_LEDGER_MIGRATIONS)');
+  const constructor = main.indexOf('new ExtractFactsStageRunner');
+  assert.ok(gate !== -1 && constructor !== -1 && gate < constructor);
+  assert.equal(main.includes('hasMigrations(BREAKDOWN_PERSISTENCE_MIGRATIONS)'), true);
+});
