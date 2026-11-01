@@ -6,6 +6,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { MacDoubaoDesktopAdapter } = require('../dist/desktop-assets/adapter');
+const { assertUnixMode, canCreateSymlink, WINDOWS_SYMLINK_SKIP } = require('./platform.cjs');
 
 const jobId = 'desktop_0123456789abcdef0123456789abcdef';
 const ready = { available: true, installed: true, accessibilityTrusted: true, code: 'DESKTOP_READY', message: 'ready' };
@@ -33,6 +34,7 @@ test('desktop adapter only permits its exact isolated job output', async t => {
 });
 
 test('desktop adapter rejects symlink job directory before any native submission', async t => {
+  if (!(await canCreateSymlink())) return t.skip(WINDOWS_SYMLINK_SKIP);
   const { adapter, input, calls, root } = await fixture(t);
   const directory = path.dirname(input.outputPath);
   await fs.rmdir(directory);
@@ -145,9 +147,9 @@ test('LaunchServices invocation isolates stdin/stdout and cleans only its own pr
     const responsePath = args[args.indexOf('--stdout') + 1];
     directory = path.dirname(requestPath);
     assert.equal(path.dirname(responsePath), directory);
-    assert.equal((await fs.stat(directory)).mode & 0o777, 0o700);
-    assert.equal((await fs.stat(requestPath)).mode & 0o777, 0o600);
-    assert.equal((await fs.stat(responsePath)).mode & 0o777, 0o600);
+    assertUnixMode((await fs.stat(directory)).mode, 0o700);
+    assertUnixMode((await fs.stat(requestPath)).mode, 0o600);
+    assertUnixMode((await fs.stat(responsePath)).mode, 0o600);
     assert.deepEqual(JSON.parse(await fs.readFile(requestPath, 'utf8')), input);
     assert.equal(args[args.indexOf('--stderr') + 1], '/dev/null');
     await fs.writeFile(responsePath, JSON.stringify({ state: 'submitted', code: 'DESKTOP_SUBMITTED', message: 'ok' }));
@@ -179,7 +181,9 @@ test('LaunchServices timeout retains IPC and prevents duplicate launches until o
 });
 
 test('LaunchServices response refuses symlinks, hardlinks and oversized content', async t => {
+  const symlinks = await canCreateSymlink();
   for (const mode of ['symlink', 'hardlink', 'oversized']) {
+    if (mode === 'symlink' && !symlinks) { t.diagnostic(WINDOWS_SYMLINK_SKIP); continue; }
     const { adapter, input, root } = await fixture(t); delete adapter.invoke;
     const target = path.join(root, 'unrelated.json'); await fs.writeFile(target, '{"sensitive":"do not return"}');
     fakeLauncher(adapter, async ({ args, child }) => {

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { mkdtemp, readFile, stat, writeFile, rm } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
+const { assertUnixMode } = require('./platform.cjs');
 const { readConfig } = require('../dist/config');
 const { ModelConnections, configForRole, parseModelRole } = require('../dist/models/connections');
 const { ModelClient } = require('../dist/models/client');
@@ -50,8 +51,8 @@ test('private atomic storage survives restart, keeps blank keys, explicitly clea
   let restarted = new ModelConnections(readConfig({}), file);
   assert.equal(restarted.resolve('breakdown').defaultModel, 'kimi-k3');
   assert.equal(restarted.resolve('general').defaultModel, 'GPT-5.6 Sol');
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
-  assert.equal((await stat(join(dir, 'private'))).mode & 0o777, 0o700);
+  assertUnixMode((await stat(file)).mode, 0o600);
+  assertUnixMode((await stat(join(dir, 'private'))).mode, 0o700);
   await update(restarted, 'general', { model: 'GPT-5.6 Terra', apiKey: '' });
   assert.equal(restarted.resolve('general').apiKey, 'new-test-only');
   await update(restarted, 'general', { apiKey: '', clearApiKey: true });

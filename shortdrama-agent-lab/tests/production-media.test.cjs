@@ -4,8 +4,9 @@ const { createHash } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { link, mkdtemp, mkdir, readFile, realpath, rm, symlink, unlink, writeFile } = require('node:fs/promises');
-const { join } = require('node:path');
+const { isAbsolute, join, relative, resolve, sep } = require('node:path');
 const { tmpdir } = require('node:os');
+const { canCreateSymlink, WINDOWS_SYMLINK_SKIP } = require('./platform.cjs');
 const {
   BoundedProcessRunner,
   PinnedHttpsMediaFetcher,
@@ -59,7 +60,8 @@ test('content-addressed storage accepts backend buffers, deduplicates bytes, and
   const owned = await f.store.getVideo(first.id);
   assert.equal(owned.object.id, first.id);
   assert.equal((await readFile(owned.absolutePath)).toString(), 'alpha');
-  assert.ok(owned.absolutePath.startsWith(`${f.root}/`));
+  const rel = relative(resolve(f.root), resolve(owned.absolutePath));
+  assert.ok(rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   assert.ok(f.prober.paths.length >= 3, 'dedupe and reads must not trust old probe metadata');
 });
 
@@ -81,9 +83,11 @@ test('owned-file import rejects remote URLs, traversal, symlinks, hardlinks, and
     rejectsCode('OWNED_MEDIA_FILE_INVALID'));
   await assert.rejects(f.store.importOwnedVideo(incoming), rejectsCode('OWNED_MEDIA_FILE_INVALID'));
 
-  const linked = join(incoming, 'linked.mp4');
-  await symlink(outside, linked);
-  await assert.rejects(f.store.importOwnedVideo(linked), rejectsCode('OWNED_MEDIA_FILE_INVALID'));
+  if (await canCreateSymlink()) {
+    const linked = join(incoming, 'linked.mp4');
+    await symlink(outside, linked);
+    await assert.rejects(f.store.importOwnedVideo(linked), rejectsCode('OWNED_MEDIA_FILE_INVALID'));
+  } else t.diagnostic(WINDOWS_SYMLINK_SKIP);
   const secondName = join(incoming, 'second-name.mp4');
   const { link } = require('node:fs/promises');
   await link(file, secondName);
@@ -131,6 +135,7 @@ test('stored objects fail closed after content tampering and unknown IDs are exp
 });
 
 test('content streaming refuses a symlink substituted for a stored object', async t => {
+  if (!(await canCreateSymlink())) return t.skip(WINDOWS_SYMLINK_SKIP);
   const f = await fixture(t, { original: probe() });
   const media = await f.store.putVideoBuffer(Buffer.from('original'));
   const owned = await f.store.getVideo(media.id);

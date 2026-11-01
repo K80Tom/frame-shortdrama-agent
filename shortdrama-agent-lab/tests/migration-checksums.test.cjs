@@ -2,10 +2,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');
+const { mkdtemp, rm, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
-const { acceptsRecordedChecksum } = require('../dist/db/migrate');
+const { tmpdir } = require('node:os');
+const { acceptsRecordedChecksum, normalizeMigrationSql, readMigrations } = require('../dist/db/migrate');
 const hash = sql => createHash('sha256').update(sql, 'utf8').digest('hex');
-const sql = readFileSync(join(__dirname, '../migrations/003_extract_facts_execution.sql'), 'utf8');
+const sql = normalizeMigrationSql(readFileSync(join(__dirname, '../migrations/003_extract_facts_execution.sql'), 'utf8'));
 const current = hash(sql);
 const legacy = '4164f2cc048e8e4df705fe156577eaf3716dd72303d687c2f308c15fa707a780';
 const migration = { version: '003', fileName: '003_extract_facts_execution.sql', sql, checksum: current };
@@ -16,6 +18,23 @@ test('003 compatibility is proven to be exactly one additional trailing LF', () 
   assert.equal(acceptsRecordedChecksum(migration, current), true);
   assert.equal(acceptsRecordedChecksum(migration, legacy), true);
   assert.equal(acceptsRecordedChecksum({ ...migration, sql: sql + '\n', checksum: legacy }, current), true);
+});
+
+test('CRLF migrations fold to the LF checksum and still reject other edits', async t => {
+  const crlf = sql.replace(/\n/g, '\r\n');
+  assert.notEqual(crlf, sql);
+  assert.equal(normalizeMigrationSql(crlf), sql);
+  assert.equal(hash(normalizeMigrationSql(crlf)), current);
+  const changed = normalizeMigrationSql(crlf.replace('CREATE TABLE', 'CREATE UNLOGGED TABLE'));
+  assert.equal(acceptsRecordedChecksum({ ...migration, sql: changed, checksum: hash(changed) }, current), false);
+
+  const dir = await mkdtemp(join(tmpdir(), 'ohao-migration-crlf-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, '020_crlf_only.sql'), 'SELECT 1;\r\n');
+  const [loaded] = await readMigrations(dir);
+  assert.equal(loaded.sql, 'SELECT 1;\n');
+  assert.equal(loaded.checksum, hash('SELECT 1;\n'));
+  assert.equal(loaded.version, '020');
 });
 
 test('the exception cannot mask changed SQL, other versions, names or unknown checksums', () => {
