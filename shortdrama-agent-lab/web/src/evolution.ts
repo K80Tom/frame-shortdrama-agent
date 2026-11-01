@@ -44,16 +44,30 @@ const severityRank: Record<string, number> = { error: 3, warning: 2, info: 1 };
 
 function severityOf(issue: ProductionIssue): string { return issue.severity || 'warning'; }
 
-/** 一条规则版本的来源阶段，取首次出现该版本的产物任务阶段。 */
-function artifactRuleVersions(run: ProductionRun): Map<string, string> {
-  const byVersion = new Map<string, string>();
-  for (const artifact of run.artifacts) {
-    const metadata = artifact.metadata; if (!metadata) continue;
-    const version = typeof metadata.ruleVersion === 'string' ? metadata.ruleVersion : '';
-    if (!version || byVersion.has(version)) continue;
-    byVersion.set(version, artifact.label || '制作产物');
-  }
-  return byVersion;
+function recordedRuleVersion(value: unknown): string {
+  return typeof value === 'string' && value.length <= 80 && /^[A-Za-z0-9_./:+-]+$/u.test(value) ? value : '';
+}
+
+/**
+ * Quality checks are the canonical rule record (storyboard, assets, media,
+ * delivery). Artifact metadata is only a fallback for records that never
+ * wrote a matching quality check, such as a skipped 3D shot. Counting both
+ * for the same version would double a director decision.
+ */
+function recordedRuleHits(run: ProductionRun): Array<{ version: string; sample: string }> {
+  const fromChecks = run.qualityChecks.flatMap(check => {
+    const version = recordedRuleVersion(check.ruleVersion);
+    if (!version) return [];
+    const task = run.tasks.find(item => item.id === check.taskId);
+    return [{ version, sample: task?.label || check.label || '质量检查' }];
+  });
+  const checkVersions = new Set(fromChecks.map(item => item.version));
+  const fromArtifacts = run.artifacts.flatMap(artifact => {
+    const version = recordedRuleVersion(artifact.metadata?.ruleVersion);
+    if (!version || checkVersions.has(version)) return [];
+    return [{ version, sample: artifact.label || '制作产物' }];
+  });
+  return [...fromChecks, ...fromArtifacts];
 }
 
 /** 运行走到的最深阶段：取已完成任务数 > 0 的最靠后阶段，否则看 needsAttention。 */
@@ -80,10 +94,10 @@ export function buildEvolutionSummary(runs: ProductionRun[], projects: ProjectOp
     const progressPct = tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 0;
     const breakthrough = position > 0 && tasksCompleted > deepestTasks && tasksTotal > 0;
     if (tasksCompleted > deepestTasks) deepestTasks = tasksCompleted;
-    const versions = artifactRuleVersions(run);
-    for (const [version, sampleStage] of versions) {
-      const entry = ruleOccurrences.get(version) ?? { occurrences: 0, runIds: new Set<string>(), sampleStage };
-      entry.occurrences += 1; entry.runIds.add(run.id); ruleOccurrences.set(version, entry);
+    const hits = recordedRuleHits(run);
+    for (const hit of hits) {
+      const entry = ruleOccurrences.get(hit.version) ?? { occurrences: 0, runIds: new Set<string>(), sampleStage: hit.sample };
+      entry.occurrences += 1; entry.runIds.add(run.id); ruleOccurrences.set(hit.version, entry);
     }
     steps.push({
       runId: run.id, index: position + 1, title: runTitle(run, projects), createdAt: run.createdAt, status: run.status,
@@ -91,11 +105,12 @@ export function buildEvolutionSummary(runs: ProductionRun[], projects: ProjectOp
       furthestStageKey: stage?.key ?? '', furthestStageLabel: stage?.label ?? '尚未推进', furthestStageState: state,
       issuesTotal: run.summary.issues.total, issuesOpen: run.summary.issues.open,
       qualityChecks: run.qualityChecks.length, reviews: run.reviews.length,
-      breakthrough, ruleVersions: [...versions.keys()],
+      breakthrough, ruleVersions: [...new Set(hits.map(hit => hit.version))],
     });
   });
 
   const issuesByCode = new Map<string, EvolutionIssueGroup>();
+  const issueRunIds = new Map<string, Set<string>>();
   let issuesTotal = 0; let issuesOpen = 0; let qualityPass = 0; let qualityChecksTotal = 0; let reviewsTotal = 0;
   for (const run of ordered) {
     issuesTotal += run.issues.length; issuesOpen += run.summary.issues.open;
@@ -111,8 +126,9 @@ export function buildEvolutionSummary(runs: ProductionRun[], projects: ProjectOp
           severity: severityOf(issue), latestMessage: issue.message, latestAt: run.updatedAt || run.createdAt,
           latestRunId: run.id, runCount: 1, stages: issue.stage ? [issue.stage] : [],
         });
+        issueRunIds.set(issue.code, new Set([run.id]));
       } else {
-        existing.count += 1; existing.runCount += 1;
+        existing.count += 1; issueRunIds.get(issue.code)?.add(run.id);
         if (issue.stage && !existing.stages.includes(issue.stage)) existing.stages.push(issue.stage);
         if (issue.status === 'open') existing.openCount += 1; else existing.resolvedCount += 1;
         if (severityRank[severityOf(issue)] > severityRank[existing.severity]) existing.severity = severityOf(issue);
@@ -122,8 +138,9 @@ export function buildEvolutionSummary(runs: ProductionRun[], projects: ProjectOp
     }
   }
 
-  const issueGroups = [...issuesByCode.values()].sort((a, b) =>
-    b.count - a.count || a.code.localeCompare(b.code));
+  const issueGroups = [...issuesByCode.values()].map(group => ({
+    ...group, runCount: issueRunIds.get(group.code)?.size ?? group.runCount,
+  })).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
   const rules: EvolutionRule[] = [...ruleOccurrences.entries()]
     .map(([version, entry]) => ({ version, occurrences: entry.occurrences, runCount: entry.runIds.size, sampleStage: entry.sampleStage }))
     .sort((a, b) => b.occurrences - a.occurrences || a.version.localeCompare(b.version));
@@ -154,7 +171,10 @@ export function evolutionStatusNote(status: string): string {
 
 export function evolutionRuleKind(version: string): string {
   if (version.includes('director')) return '3D 导演台规则';
-  if (version.includes('qc') || version.includes('quality')) return '质量检查规则';
   if (version.includes('storyboard')) return '分镜规则';
+  if (version.includes('asset')) return '资产规则';
+  if (version.includes('shot-media') || version.includes('timeline') || version.includes('delivery')) return '成片技术规则';
+  if (version.includes('extract-facts') || version.includes('completeness')) return '拆解检查规则';
+  if (version.includes('qc') || version.includes('quality')) return '质量检查规则';
   return '制作规则';
 }

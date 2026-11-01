@@ -47,7 +47,7 @@ export type ProductionCandidateSet = {
 };
 export type ProductionTimelineItem = { id: string; type: string; message: string; createdAt: string; taskId?: string };
 export type ProductionArtifact = { id: string; kind: string; label: string; url?: string; taskId?: string; metadata?: Record<string, unknown> };
-export type ProductionQualityCheck = { id: string; taskId: string; level: string; label: string; result: 'pass' | 'fail' | 'uncertain'; issues: string[] };
+export type ProductionQualityCheck = { id: string; taskId: string; level: string; label: string; result: 'pass' | 'fail' | 'uncertain'; ruleVersion?: string; issues: string[] };
 export type ProductionReview = { id: string; taskId: string; decision: string; candidateId?: string; feedback?: string; createdAt: string };
 export type ProductionDelivery = { status: string; videoUrl?: string; message?: string } | null;
 export type ProductionSummary = {
@@ -69,6 +69,10 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 function text(value: unknown, fallback = '') { return typeof value === 'string' ? value : fallback; }
+/** Rule ids are short tokens such as storyboard-validator/2. Drop anything else. */
+function ruleVersion(value: unknown): string {
+  return typeof value === 'string' && value.length <= 80 && /^[A-Za-z0-9_./:+-]+$/u.test(value) ? value : '';
+}
 function number(value: unknown, fallback = 0) { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
 function nullableText(value: unknown) { return typeof value === 'string' ? value : null; }
 function list(value: unknown) { return Array.isArray(value) ? value : []; }
@@ -161,7 +165,7 @@ export function parseProductionRun(value: unknown): ProductionRun {
     stages: list(row.stages).map(parseStage).filter(Boolean) as ProductionStage[], tasks: list(row.tasks).map(parseTask).filter(Boolean) as ProductionTask[],
     issues: list(row.issues).map(parseIssue).filter(Boolean) as ProductionIssue[], candidateSets: list(row.candidateSets).map(parseCandidateSet).filter(Boolean) as ProductionCandidateSet[],
     artifacts: list(row.artifacts).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; const metadata = jsonSafe(item.metadata); return [{ id: text(item.id), kind: text(item.kind), label: text(item.title, text(item.kind, '产物')), ...(safeLink(item.uri) ? { url: safeLink(item.uri) } : {}), ...(text(item.taskId) ? { taskId: text(item.taskId) } : {}), ...(metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata) && Object.keys(metadata).length > 0 ? { metadata: metadata as Record<string, unknown> } : {}) }]; }),
-    qualityChecks: list(row.qualityChecks).flatMap(value => { const item = record(value); if (!item || !text(item.id) || !text(item.taskId)) return []; const result = enumValue(item.result, ['pass', 'fail', 'uncertain'] as const, 'uncertain'); return [{ id: text(item.id), taskId: text(item.taskId), level: text(item.level), label: text(item.summary, '质量检查'), result, issues: list(item.issues).filter(value => typeof value === 'string') as string[] }]; }),
+    qualityChecks: list(row.qualityChecks).flatMap(value => { const item = record(value); if (!item || !text(item.id) || !text(item.taskId)) return []; const result = enumValue(item.result, ['pass', 'fail', 'uncertain'] as const, 'uncertain'); const version = ruleVersion(item.ruleVersion); return [{ id: text(item.id), taskId: text(item.taskId), level: text(item.level), label: text(item.summary, '质量检查'), result, ...(version ? { ruleVersion: version } : {}), issues: list(item.issues).filter(value => typeof value === 'string') as string[] }]; }),
     reviews: list(row.reviews).flatMap(value => { const item = record(value); if (!item || !text(item.id) || !text(item.taskId)) return []; return [{ id: text(item.id), taskId: text(item.taskId), decision: text(item.decision), ...(text(item.candidateId) ? { candidateId: text(item.candidateId) } : {}), ...(text(item.feedback) ? { feedback: text(item.feedback) } : {}), createdAt: text(item.createdAt) }]; }),
     timeline: list(row.outbox).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; const type = text(item.type); return [{ id: text(item.id), type, message: productionEventLabel(type), createdAt: text(item.createdAt) }]; }),
     delivery: deliveryRow ? (() => { const artifact = list(row.artifacts).map(record).find(item => item && text(item.id) === text(deliveryRow.artifactId)); return { status: text(deliveryRow.status, 'validating'), ...(artifact && safeLink(artifact.uri) ? { videoUrl: safeLink(artifact.uri) } : {}), message: text(deliveryRow.status) === 'ready' ? '整集成片已完成本地技术校验。' : text(deliveryRow.status) === 'failed' ? '本地技术校验未通过，请查看镜头技术复核问题。' : '正在进行最终成片本地技术校验。' }; })() : null,
