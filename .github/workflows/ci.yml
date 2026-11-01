@@ -49,7 +49,13 @@ jobs:
         with:
           node-version: 22.19.0
           cache: npm
-          cache-dependency-path: shortdrama-agent-lab/web/package-lock.json
-      - run: npm ci
+          cache-dependency-path: |
+            shortdrama-agent-lab/package-lock.json
+            shortdrama-agent-lab/web/package-lock.json
+      - name: Install shared backend type dependencies
+        run: npm ci
+        working-directory: shortdrama-agent-lab
+      - name: Install frontend dependencies
+        run: npm ci
       - run: npm test
       - run: npm run build
