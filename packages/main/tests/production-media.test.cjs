@@ -14,6 +14,7 @@ const {
   ProductionMediaStore,
   TimelineComposer,
   isPublicInternetAddress,
+  parseAssessment,
   parseFfprobe,
 } = require('../dist/production-media');
 
@@ -567,4 +568,68 @@ test('composition blocks missing local video, remote URLs, mixed audio and inval
   const digest = createHash('sha256').update(JSON.stringify({ version: 1, videoIds: [voiced.id], title: '' })).digest('hex');
   assert.equal(await f.store.readManifest(`timeline_${digest}`), null,
     'a mismatched ffmpeg output must never be registered as a delivered timeline');
+});
+
+function assessment(body, shotId = 'shot_one', durationSeconds = 5) {
+  return parseAssessment(JSON.stringify(body), shotId, durationSeconds);
+}
+
+test('frame assessment does not keep a pass the dimension scores do not support', () => {
+  const missing = parseAssessment('{"verdict":"pass"}', 'shot_missing', 5);
+  assert.equal(missing.verdict, 'reject');
+  assert.equal(missing.advice.action, 'drop');
+  assert.ok(missing.issues.includes('分数低于维度规则，已降级判定'));
+  assert.ok(missing.issues.includes('不合格镜头不会按保留处理'));
+
+  const oneLow = assessment({
+    verdict: 'pass',
+    scores: { identity: 5, anatomy: 5, action: 2, quality: 5 },
+    advice: { action: 'keep', speedFactor: 1, trimSeconds: null, reason: '还可以' },
+  }, 'shot_weak');
+  assert.equal(oneLow.verdict, 'weak');
+  assert.equal(oneLow.advice.action, 'keep');
+
+  const twoLow = assessment({
+    verdict: 'weak',
+    scores: { identity: 1, anatomy: 5, action: 2, quality: 5 },
+    advice: { action: 'keep', speedFactor: 1, trimSeconds: null, reason: '多处不合格' },
+  }, 'shot_reject');
+  assert.equal(twoLow.verdict, 'reject');
+  assert.equal(twoLow.advice.action, 'drop');
+
+  const consistent = assessment({
+    verdict: 'pass',
+    scores: { identity: 5, anatomy: 4, action: 4, quality: 5 },
+    advice: { action: 'keep', speedFactor: 1, trimSeconds: null, reason: '画面稳定' },
+  }, 'shot_pass');
+  assert.equal(consistent.verdict, 'pass');
+  assert.equal(consistent.advice.action, 'keep');
+  assert.deepEqual(consistent.issues, []);
+
+  const explicitReject = assessment({
+    verdict: 'reject',
+    scores: { identity: 5, anatomy: 5, action: 5, quality: 5 },
+    advice: { action: 'keep', speedFactor: 1.4, trimSeconds: 2, reason: '畸形' },
+  }, 'shot_model_reject');
+  assert.equal(explicitReject.verdict, 'reject');
+  assert.equal(explicitReject.advice.action, 'drop');
+  assert.equal(explicitReject.advice.speedFactor, 1);
+  assert.equal(explicitReject.advice.trimSeconds, null);
+
+  const salvaged = assessment({
+    verdict: 'reject',
+    scores: { identity: 1, anatomy: 1, action: 5, quality: 5 },
+    advice: { action: 'trim', speedFactor: 1, trimSeconds: 2, reason: '裁掉破损开头' },
+  }, 'shot_trim');
+  assert.equal(salvaged.verdict, 'reject');
+  assert.equal(salvaged.advice.action, 'trim');
+  assert.equal(salvaged.advice.trimSeconds, 2);
+
+  const unknown = assessment({
+    verdict: 'maybe',
+    scores: { identity: 5, anatomy: 5, action: 5, quality: 5 },
+    advice: { action: 'keep', speedFactor: 1, trimSeconds: null, reason: '' },
+  }, 'shot_unknown');
+  assert.equal(unknown.verdict, 'weak');
+  assert.equal(unknown.advice.action, 'keep');
 });
