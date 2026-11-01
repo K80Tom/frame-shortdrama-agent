@@ -138,6 +138,30 @@ test('new runs freeze current policy while idempotent and historical runs never 
   assert.equal((await repository.get(first.id)).assetRetrievalPolicy.registryRevision, 0);
 });
 
+test('multi-revision rollback restores the exact previously adopted candidate, not a duplicate policy', async () => {
+  const repository = new MemoryEvolutionRepository();
+  const defaultDigest = assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY);
+  const policyA = { ...DEFAULT_ASSET_RETRIEVAL_POLICY, ambiguityMargin: 0.12 };
+  const policyB = { ...policyA, threshold: 0.63 };
+  const makeCandidate = (id, proposalId, basePolicy, policy) => ({ id, proposalId, basePolicy,
+    basePolicyDigest: assetRetrievalPolicyDigest(basePolicy), policy, policyDigest: assetRetrievalPolicyDigest(policy), status: 'draft', createdAt: NOW });
+  const duplicate = makeCandidate('evocand_duplicate', 'eproposal_duplicate', DEFAULT_ASSET_RETRIEVAL_POLICY, policyA);
+  const first = makeCandidate('evocand_first', 'eproposal_first', DEFAULT_ASSET_RETRIEVAL_POLICY, policyA);
+  const second = makeCandidate('evocand_second', 'eproposal_second', policyA, policyB);
+  await repository.createCandidate(duplicate); await repository.createCandidate(first); await repository.createCandidate(second);
+  await repository.recordProbe(await runAssetRetrievalProbe(first, NOW));
+  await repository.recordProbe(await runAssetRetrievalProbe(second, NOW));
+  const adoptedA = await repository.adopt(first.id, defaultDigest, '采用 A', NOW);
+  const adoptedB = await repository.adopt(second.id, adoptedA.policy.policyDigest, '采用 B', '2026-10-24T12:01:00.000Z');
+  const restored = await repository.rollback(adoptedB.policy.policyDigest, '回到 A', '2026-10-24T12:02:00.000Z');
+  assert.equal(restored.revision, 3);
+  assert.equal(restored.policy.sourceCandidateId, first.id);
+  assert.notEqual(restored.policy.sourceCandidateId, duplicate.id);
+  assert.deepEqual(restored.policy.threshold, policyA.threshold);
+  assert.deepEqual(restored.policy.ambiguityMargin, policyA.ambiguityMargin);
+  assert.deepEqual((await repository.listRegistryEvents()).map(event => event.action), ['adopt', 'adopt', 'rollback']);
+});
+
 test('HTTP exposes the local-only evidence/probe/adopt/rollback workflow with no-store', async t => {
   const { evolution, run } = await setup();
   const app = await createApp(readConfig({}), fetch, { evolutionService: evolution }); t.after(() => app.close());

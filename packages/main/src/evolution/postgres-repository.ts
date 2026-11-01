@@ -83,15 +83,16 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
   }
   async createCandidate(candidate: AssetRetrievalCandidate): Promise<AssetRetrievalCandidate> {
     return this.transaction(async client => {
-      const existing = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-        `SELECT candidate_json FROM evolution_candidates WHERE proposal_id=$1 AND base_policy_digest=$2 AND policy_digest=$3`,
-        [candidate.proposalId, candidate.basePolicyDigest, candidate.policyDigest]);
-      if (existing) return existing.candidate_json;
       await client.query(`INSERT INTO evolution_candidates
         (id,proposal_id,base_policy_digest,policy_digest,status,candidate_json,created_at)
-        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [candidate.id, candidate.proposalId, candidate.basePolicyDigest,
-        candidate.policyDigest, candidate.status, candidate, candidate.createdAt]);
-      return candidate;
+        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
+        ON CONFLICT (proposal_id,base_policy_digest,policy_digest) DO NOTHING`, [candidate.id, candidate.proposalId,
+        candidate.basePolicyDigest, candidate.policyDigest, candidate.status, candidate, candidate.createdAt]);
+      const stored = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
+        `SELECT candidate_json FROM evolution_candidates WHERE proposal_id=$1 AND base_policy_digest=$2 AND policy_digest=$3`,
+        [candidate.proposalId, candidate.basePolicyDigest, candidate.policyDigest]);
+      if (!stored) return notFound('EVOLUTION_CANDIDATE_NOT_FOUND', '检索策略候选未能持久化。');
+      return stored.candidate_json;
     });
   }
   async listProbes(): Promise<AssetProbeReport[]> {
@@ -120,7 +121,7 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
     return this.transaction(client => this.registry(client));
   }
   async listRegistryEvents(): Promise<AssetRegistryEvent[]> {
-    try { const result = await this.database.query('SELECT event_json FROM evolution_registry_events ORDER BY created_at,id');
+    try { const result = await this.database.query("SELECT event_json FROM evolution_registry_events WHERE domain='AssetRetrievalPolicy' ORDER BY revision,id");
       return result.rows.map(row => clone(row.event_json)); } catch (error) { return failure(error); }
   }
   async adopt(candidateId: string, expectedPolicyDigest: string, reason: string, at: string): Promise<AssetPolicyRegistry> {
@@ -162,15 +163,24 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
       const current = await this.registry(client, true) ?? baselineRegistry();
       if (current.policy.policyDigest !== expectedPolicyDigest) return conflict('EVOLUTION_REGISTRY_STALE', '当前 Registry 已变化，请刷新后再回滚。');
       const latest = await this.one<{ event_json: AssetRegistryEvent }>(client,
-        'SELECT event_json FROM evolution_registry_events ORDER BY revision DESC LIMIT 1');
+        "SELECT event_json FROM evolution_registry_events WHERE domain='AssetRetrievalPolicy' ORDER BY revision DESC LIMIT 1");
       if (!latest || latest.event_json.action !== 'adopt' || latest.event_json.toPolicyDigest !== current.policy.policyDigest) {
         return conflict('EVOLUTION_ROLLBACK_UNAVAILABLE', '当前版本没有可回滚的上一次采用记录。');
       }
-      let target = DEFAULT_ASSET_RETRIEVAL_POLICY; let sourceCandidateId: string | null = null;
+      let target: typeof DEFAULT_ASSET_RETRIEVAL_POLICY | AssetRetrievalCandidate['policy'] = DEFAULT_ASSET_RETRIEVAL_POLICY;
+      let sourceCandidateId: string | null = null;
       if (latest.event_json.fromPolicyDigest !== DEFAULT_DIGEST) {
-        const previous = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-          'SELECT candidate_json FROM evolution_candidates WHERE policy_digest=$1 ORDER BY created_at DESC LIMIT 1', [latest.event_json.fromPolicyDigest]);
-        if (!previous) return conflict('EVOLUTION_ROLLBACK_TARGET_MISSING', '上一版本策略内容不可用，不能安全回滚。');
+        const previousAdopt = await this.one<{ event_json: AssetRegistryEvent }>(client,
+          `SELECT event_json FROM evolution_registry_events
+           WHERE domain='AssetRetrievalPolicy' AND revision<$1 AND event_json->>'action'='adopt'
+             AND event_json->>'toPolicyDigest'=$2 ORDER BY revision DESC LIMIT 1`,
+          [latest.event_json.revision, latest.event_json.fromPolicyDigest]);
+        const previous = previousAdopt?.event_json.candidateId
+          ? await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
+            'SELECT candidate_json FROM evolution_candidates WHERE id=$1', [previousAdopt.event_json.candidateId]) : null;
+        if (!previous || previous.candidate_json.policyDigest !== latest.event_json.fromPolicyDigest) {
+          return conflict('EVOLUTION_ROLLBACK_TARGET_MISSING', '上一版本策略内容不可用，不能安全回滚。');
+        }
         target = previous.candidate_json.policy; sourceCandidateId = previous.candidate_json.id;
       }
       await client.query("UPDATE evolution_candidates SET status='rolledBack',candidate_json=jsonb_set(candidate_json,'{status}','\"rolledBack\"') WHERE status='adopted'");

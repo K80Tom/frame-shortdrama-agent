@@ -63,4 +63,10 @@ npm --prefix packages/web test
 npm test
 ```
 
-真实 PostgreSQL 迁移与持久化集成测试需要本地数据库已启动并迁移；不能用内存测试代替该项结论。
+真实 PostgreSQL 验证使用独立临时数据库，执行全部迁移、不可变触发器、CAS 和多版本回滚后删除该测试库：
+
+```sh
+npm --prefix packages/main run test:evolution-db
+```
+
+不要用内存测试代替真实迁移结论，也不要在正式项目数据库中写入不可变测试记录。

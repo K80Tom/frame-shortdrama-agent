@@ -52,8 +52,8 @@ export default function EvolutionPage({ go }: { go: (page: Page, step?: number) 
       const parsed = parseProductionRuns(runsData);
       setRuns(previous => (previous ? mergeProductionRuns(previous, parsed) : parsed));
       if (projectsData) setProjects(parseProjectOptions(projectsData));
-    } catch (cause) { setError(errorText(cause)); }
-    finally { setLoading(false); }
+    } catch (cause) { if (!signal?.aborted) setError(errorText(cause)); }
+    finally { if (!signal?.aborted) setLoading(false); }
   }, []);
 
   useEffect(() => {

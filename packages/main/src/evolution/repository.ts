@@ -107,12 +107,18 @@ export class MemoryEvolutionRepository implements EvolutionRepository {
     if (!latest || latest.action !== 'adopt' || latest.toPolicyDigest !== current.policy.policyDigest) {
       return conflict('EVOLUTION_ROLLBACK_UNAVAILABLE', '当前版本没有可回滚的上一次采用记录。');
     }
-    const target = latest.fromPolicyDigest === assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY)
-      ? DEFAULT_ASSET_RETRIEVAL_POLICY
-      : [...this.candidates.values()].find(item => item.policyDigest === latest.fromPolicyDigest)?.policy;
-    if (!target) return conflict('EVOLUTION_ROLLBACK_TARGET_MISSING', '上一版本策略内容不可用，不能安全回滚。');
-    const sourceCandidateId = latest.fromPolicyDigest === assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY)
-      ? null : [...this.candidates.values()].find(item => item.policyDigest === latest.fromPolicyDigest)?.id ?? null;
+    const defaultDigest = assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY);
+    let target: typeof DEFAULT_ASSET_RETRIEVAL_POLICY | AssetRetrievalCandidate['policy'] = DEFAULT_ASSET_RETRIEVAL_POLICY;
+    let sourceCandidateId: string | null = null;
+    if (latest.fromPolicyDigest !== defaultDigest) {
+      const previousAdopt = [...this.events].reverse().find(event => event.revision < latest.revision
+        && event.action === 'adopt' && event.toPolicyDigest === latest.fromPolicyDigest);
+      const previous = previousAdopt?.candidateId ? this.candidates.get(previousAdopt.candidateId) : undefined;
+      if (!previous || previous.policyDigest !== latest.fromPolicyDigest) {
+        return conflict('EVOLUTION_ROLLBACK_TARGET_MISSING', '上一版本策略内容不可用，不能安全回滚。');
+      }
+      target = previous.policy; sourceCandidateId = previous.id;
+    }
     for (const candidate of this.candidates.values()) {
       if (candidate.status === 'adopted') candidate.status = 'rolledBack';
       if (candidate.id === sourceCandidateId) candidate.status = 'adopted';

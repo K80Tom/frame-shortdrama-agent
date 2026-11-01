@@ -1,5 +1,4 @@
-BEGIN;
-
+-- The migration runner owns the surrounding transaction.
 CREATE TABLE evolution_evidence (
   id text PRIMARY KEY,
   run_id text NOT NULL UNIQUE,
@@ -78,5 +77,3 @@ FOR EACH ROW EXECUTE FUNCTION reject_evolution_immutable_change();
 CREATE TRIGGER evolution_registry_events_immutable
 BEFORE UPDATE OR DELETE ON evolution_registry_events
 FOR EACH ROW EXECUTE FUNCTION reject_evolution_immutable_change();
-
-COMMIT;

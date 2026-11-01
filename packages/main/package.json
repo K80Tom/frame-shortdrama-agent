@@ -22,6 +22,7 @@
     "test:db": "npm run build && node --env-file-if-exists=.env scripts/test-db.mjs",
     "test:novel-db": "npm run build && node --test tests/novel-persistence.db.test.cjs",
     "test:assets-db": "npm run build && node --test tests/assets.db.test.cjs tests/novel-assets.db.test.cjs",
+    "test:evolution-db": "npm run build && node --env-file-if-exists=.env scripts/test-evolution-db.mjs",
     "models:list": "node --env-file=.env examples/models-client.mjs list",
     "models:text": "node --env-file=.env examples/models-client.mjs text",
     "models:smoke": "node --env-file=.env scripts/model-smoke.mjs"
