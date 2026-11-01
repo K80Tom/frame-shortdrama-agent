@@ -1,4 +1,4 @@
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 import {
   AssistantError, newAssistantId, parseAssistantContext, parseAssistantMessageInput,
   type AssistantContext, type AssistantEvent, type AssistantMessage, type AssistantQuote, type AssistantSession,

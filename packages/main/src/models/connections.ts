@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { AppConfig } from '../config';
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 
 export const MODEL_ROLES = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof MODEL_ROLES[number];

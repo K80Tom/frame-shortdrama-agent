@@ -138,7 +138,7 @@ test('LaunchServices invocation isolates stdin/stdout and cleans only its own pr
   fakeLauncher(adapter, async ({ command, args, options, child }) => {
     assert.equal(command, '/usr/bin/open');
     assert.deepEqual(args.slice(0, 5), ['-n', '-g', '-W', '-a',
-      path.join(root, 'outputs/private/desktop-helper/OHAO Desktop Bridge.app')]);
+      path.join(root, 'outputs/private/desktop-helper/Lyra Desktop Bridge.app')]);
     assert.deepEqual(args.slice(-2), ['--args', 'submit']);
     assert.equal(args.includes('-F'), false);
     assert.equal(args.some(arg => arg.includes(input.prompt)), false);

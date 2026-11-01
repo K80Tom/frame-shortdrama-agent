@@ -3,7 +3,7 @@ import {
   parseProductionRunId, productionId, sameProductionRequest, type BudgetEntry, type CandidateSet,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
-} from '@ohao/shared';
+} from '@lyra/shared';
 import { compileProductionRun } from './blueprint';
 import {
   ProductionPreflightExecutor, type ArtifactDraft, type CandidateSetDraft, type DeliveryDraft,

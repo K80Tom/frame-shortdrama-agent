@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { AssistantError, parseAssistantId, type AssistantEvent } from '@ohao/agent';
-import type { AssistantService } from '@ohao/agent';
+import { AssistantError, parseAssistantId, type AssistantEvent } from '@lyra/agent';
+import type { AssistantService } from '@lyra/agent';
 
 export const ASSISTANT_SERVICE = Symbol('ASSISTANT_SERVICE');
 

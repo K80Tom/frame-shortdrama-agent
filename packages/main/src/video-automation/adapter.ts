@@ -1,8 +1,8 @@
 import type { AppConfig } from '../config';
-import { AssetError, localAssetUrl } from '@ohao/shared';
+import { AssetError, localAssetUrl } from '@lyra/shared';
 import type { AssetService } from '../assets/service';
 import { SeedanceVideoClient, type SeedanceTask } from '../models/media-client';
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 import { VideoAutomationError, type StoredVideoRun, type VideoAvailability } from './contracts';
 
 export type VideoSubmitResult = { state: 'submitted'; task: SeedanceTask }

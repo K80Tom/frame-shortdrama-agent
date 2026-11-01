@@ -3,7 +3,7 @@ import Ajv from "ajv";
 import type { ErrorObject } from "ajv";
 import { Type, type Static } from "@sinclair/typebox";
 import { BreakdownError, PaidModelExecutionError, type PaidModelCallState } from "./errors";
-import { ModelError } from "@ohao/shared";
+import { ModelError } from "@lyra/shared";
 import { findModel } from "../models/registry";
 import type { CreateExtractFactsCandidateRequest, PlanRevisionRecord } from "./plan";
 import type {

@@ -1,8 +1,8 @@
 {
-  "name": "@ohao/cli",
+  "name": "@lyra/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "OHAO 命令行客户端：只调用 main 的 HTTP API，不连接数据库、不持有模型密钥。付费操作遵循 计划 → 人工确认 → 提交。",
+  "description": "Lyra 命令行客户端：只调用 main 的 HTTP API，不连接数据库、不持有模型密钥。付费操作遵循 计划 → 人工确认 → 提交。",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -15,7 +15,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@ohao/shared": "file:../shared"
+    "@lyra/shared": "file:../shared"
   },
   "devDependencies": {
     "@types/node": "22.19.15",

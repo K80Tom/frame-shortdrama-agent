@@ -56,7 +56,7 @@ export class MacDoubaoDesktopAdapter implements DesktopAssetAdapter {
   constructor(options: MacDoubaoDesktopAdapterOptions = {}) {
     this.projectRoot = path.resolve(options.projectRoot ?? process.cwd());
     this.helperPath = options.helperPath ?? path.join(this.projectRoot,
-      'outputs/private/desktop-helper/OHAO Desktop Bridge.app/Contents/MacOS/OHAODesktopBridge');
+      'outputs/private/desktop-helper/Lyra Desktop Bridge.app/Contents/MacOS/LyraDesktopBridge');
     this.timeoutMs = options.timeoutMs ?? 60_000;
   }
   private launch(command: string, args: string[], options: SpawnOptions): ChildProcess { return spawn(command, args, options); }

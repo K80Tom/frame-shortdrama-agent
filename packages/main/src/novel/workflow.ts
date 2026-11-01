@@ -3,11 +3,11 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import { Type, type Static, type TSchema } from '@sinclair/typebox';
 import type { AppConfig } from '../config';
 import { ModelClient } from '../models/client';
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 import { NovelError, chapterParagraphs, createReviewSeed, supplementNovelQuotes, validateNovelContent,
-  type NovelChapter, type NovelContent, type NovelItem, type NovelSource } from '@ohao/shared';
-import { AnalysisIssueSchema, EntityTypeSchema, OccurrenceSchema, type AnalysisIssue, type NovelAnalysis, type Usage } from '@ohao/shared';
-import { canonicalId, type EntityRegistryEntry } from '@ohao/shared';
+  type NovelChapter, type NovelContent, type NovelItem, type NovelSource } from '@lyra/shared';
+import { AnalysisIssueSchema, EntityTypeSchema, OccurrenceSchema, type AnalysisIssue, type NovelAnalysis, type Usage } from '@lyra/shared';
+import { canonicalId, type EntityRegistryEntry } from '@lyra/shared';
 
 const S = (n = 100) => Type.String({ minLength: 1, maxLength: n });
 const NullableId = Type.Union([S(), Type.Null()]);

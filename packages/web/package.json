@@ -1,5 +1,5 @@
 {
-  "name": "@ohao/web",
+  "name": "@lyra/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -20,7 +20,7 @@
     "three-stdlib": "2.36.1",
     "zod": "4.3.6",
     "zustand": "5.0.14",
-    "@ohao/shared": "file:../shared"
+    "@lyra/shared": "file:../shared"
   },
   "devDependencies": {
     "@types/node": "22.20.4",

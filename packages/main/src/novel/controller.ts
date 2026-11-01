@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
-import { NovelError } from '@ohao/shared';
+import { NovelError } from '@lyra/shared';
 import type { NovelService } from './service';
 
 export const NOVEL_SERVICE = Symbol('NOVEL_SERVICE');

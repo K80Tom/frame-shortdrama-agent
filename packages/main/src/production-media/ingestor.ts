@@ -64,7 +64,7 @@ export class PinnedHttpsMediaFetcher implements PinnedMediaFetcher {
       try {
         requestHandle = this.httpsRequest(url, {
           method: 'GET', agent: false,
-          headers: { accept: 'video/mp4', 'user-agent': 'OHAO-local-media/1' },
+          headers: { accept: 'video/mp4', 'user-agent': 'Lyra-local-media/1' },
           // Pin the TLS socket to the checked address. The URL hostname remains
           // unchanged, so certificate validation and SNI still use the provider host.
           // The all-form array is used because the classic (err, address, family)

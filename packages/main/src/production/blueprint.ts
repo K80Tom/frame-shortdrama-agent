@@ -2,7 +2,7 @@ import {
   PRODUCTION_WORKFLOW_VERSION, canonicalDigest, productionId, productionStageOrder,
   type CreateProductionRun, type OutboxEvent, type ProductionStage, type ProductionTask,
   type StoredProductionRun,
-} from '@ohao/shared';
+} from '@lyra/shared';
 
 export const productionStageLabels: Record<ProductionStage, string> = {
   prepare: '输入与生产预检',

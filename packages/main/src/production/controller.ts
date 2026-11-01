@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
-import { ProductionError } from '@ohao/shared';
+import { ProductionError } from '@lyra/shared';
 import type { ProductionService } from './service';
 
 export const PRODUCTION_SERVICE = Symbol('PRODUCTION_SERVICE');

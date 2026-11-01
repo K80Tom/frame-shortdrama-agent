@@ -1,4 +1,4 @@
-import { parseCreateProductionRun } from '@ohao/shared';
+import { parseCreateProductionRun } from '@lyra/shared';
 import {
   AssistantError, newAssistantId, type AssistantEvent, type AssistantMessage, type AssistantQuote, type AssistantSession,
 } from './contracts';

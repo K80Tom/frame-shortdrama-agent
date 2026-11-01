@@ -1,5 +1,5 @@
 import type { PostgresDatabase } from '../db/client';
-import { CREATE_KEYS, ProductionError, type StoredProductionRun } from '@ohao/shared';
+import { CREATE_KEYS, ProductionError, type StoredProductionRun } from '@lyra/shared';
 
 export interface ProductionRepository {
   list(): Promise<StoredProductionRun[]>;

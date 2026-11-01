@@ -1,4 +1,4 @@
-import { AssetError, createAssetRecord, localAssetUrl, type AssetRecord } from '@ohao/shared';
+import { AssetError, createAssetRecord, localAssetUrl, type AssetRecord } from '@lyra/shared';
 import type { AssetRepository } from './repository';
 import { parseAssetImport, type AssetMedia } from './media';
 

@@ -8,7 +8,7 @@ import { ProductionMediaError, type LocalVideoObject } from '../production-media
 import type { ProductionMediaIngestor } from '../production-media/ingestor';
 import type { VideoAutomationService } from '../video-automation/service';
 import { VideoAutomationError } from '../video-automation/contracts';
-import { canonicalDigest, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@ohao/shared';
+import { canonicalDigest, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 import type {
   PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor, ProductionExecutorOutcome, SpawnTaskDraft,
 } from './executor';

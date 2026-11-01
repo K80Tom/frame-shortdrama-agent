@@ -1,10 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { InMemoryAssistantRepository } = require('@ohao/agent');
-const { AssistantOrchestrator } = require('@ohao/agent');
-const { AssistantService } = require('@ohao/agent');
-const { executeAssistantTool } = require('@ohao/agent');
-const { ModelError } = require('@ohao/shared');
+const { InMemoryAssistantRepository } = require('@lyra/agent');
+const { AssistantOrchestrator } = require('@lyra/agent');
+const { AssistantService } = require('@lyra/agent');
+const { executeAssistantTool } = require('@lyra/agent');
+const { ModelError } = require('@lyra/shared');
 
 const validRequest = () => ({
   projectId: 'proj_1', scriptVersionId: 'script_1', ratio: '9:16', targetDurationSec: 60,

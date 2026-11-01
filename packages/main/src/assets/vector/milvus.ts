@@ -1,4 +1,4 @@
-import type { AssetKind } from '@ohao/shared';
+import type { AssetKind } from '@lyra/shared';
 import { AssetVectorContractError, AssetVectorError } from './errors';
 
 export interface AssetVectorRecord {

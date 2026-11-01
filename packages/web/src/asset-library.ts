@@ -1,5 +1,5 @@
-import type { NovelAssetBinding, NovelContent, NovelItem } from '@ohao/shared';
-import type { AssetRecord } from '@ohao/shared';
+import type { NovelAssetBinding, NovelContent, NovelItem } from '@lyra/shared';
+import type { AssetRecord } from '@lyra/shared';
 
 export type AssetKind = 'character' | 'location' | 'prop';
 export type { AssetRecord };

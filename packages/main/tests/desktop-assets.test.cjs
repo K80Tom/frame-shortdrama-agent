@@ -762,7 +762,7 @@ test('candidate review notes are capped before they can overflow the saved novel
   await assert.rejects(f.service.decision(task.id, {decision: 'accept', expectedRevisionId: f.revision.id,
     note: '好'.repeat(501)}), rejectCode('DESKTOP_DECISION_INVALID'));
   await assert.rejects(f.service.decision(task.id, {decision: 'accept', expectedRevisionId: f.revision.id,
-    note: 'OHAO_ACCEPTANCE_IN_PROGRESS_V1:forged'}), rejectCode('DESKTOP_DECISION_INVALID'));
+    note: 'Lyra_ACCEPTANCE_IN_PROGRESS_V1:forged'}), rejectCode('DESKTOP_DECISION_INVALID'));
   assert.equal((await f.jobs.getCandidateByTask(task.id)).status, 'awaitingReview');
   assert.equal((await f.freshRevision()).id, f.revision.id);
   const note = '好'.repeat(500);

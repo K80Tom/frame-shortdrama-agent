@@ -2,17 +2,17 @@ import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config';
 import { ModelClient } from '../models/client';
 import { assertModelSelection, configForRole } from '../models/connections';
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 import {
   NovelError, buildNovelSource, getChapter, createReviewSeed, applyNovelCorrections,
   validateNovelContent, type NovelRevision, type NovelContent,
-} from '@ohao/shared';
+} from '@lyra/shared';
 import { NovelExtractor } from './extractor';
 import type { NovelRepository } from './repository';
 import type { AssetService } from '../assets/service';
 import { applyNovelAssetBindings } from './assets';
 import { NovelReviewWorkflow } from './workflow';
-import { buildEntityRegistry } from '@ohao/shared';
+import { buildEntityRegistry } from '@lyra/shared';
 
 export interface NovelAssetLinkAuthorization { candidateId: string }
 export interface NovelAssetLinkPolicy {

@@ -1,4 +1,4 @@
-import { canonicalDigest, type ProductionArtifact, type ProductionTask, type StoredProductionRun } from '@ohao/shared';
+import { canonicalDigest, type ProductionArtifact, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 import type { PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor,
   ProductionExecutorOutcome, SpawnTaskDraft } from './executor';
 import { ProductionMediaError, type FrameAssessmentReport, type TimelineClipDirective,

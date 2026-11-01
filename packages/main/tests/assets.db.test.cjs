@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { PostgresDatabase } = require('../dist/db/client');
 const { readDatabaseConfig } = require('../dist/db/config');
-const { createAssetRecord } = require('@ohao/shared');
+const { createAssetRecord } = require('@lyra/shared');
 const { PostgresAssetRepository } = require('../dist/assets/repository');
 const { AssetService } = require('../dist/assets/service');
 

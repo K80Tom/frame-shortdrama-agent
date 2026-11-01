@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { MemoryProductionRepository } = require('../dist/production/repository');
 const { ProductionService } = require('../dist/production/service');
-const { ProductionError } = require('@ohao/shared');
+const { ProductionError } = require('@lyra/shared');
 
 const input = (changes = {}) => ({
   projectId: 'project_0123456789abcdef0123456789abcdef',

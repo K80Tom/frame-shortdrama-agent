@@ -1,4 +1,4 @@
-import type { NovelChapter, NovelEvidence, NovelItem, NovelRevision, NovelSource } from '@ohao/shared';
+import type { NovelChapter, NovelEvidence, NovelItem, NovelRevision, NovelSource } from '@lyra/shared';
 
 export type { NovelChapter, NovelEvidence, NovelItem, NovelRevision, NovelSource };
 export type NovelKind = NovelItem['kind'];

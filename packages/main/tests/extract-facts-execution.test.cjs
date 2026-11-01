@@ -178,7 +178,7 @@ test('P0.4 records a sanitized adapter failure and does not save raw errors or a
 });
 
 test('P0.4 preserves the sanitized upstream cause on an adapter failure', async () => {
-  const { ModelError } = require('@ohao/shared');
+  const { ModelError } = require('@lyra/shared');
   const adapter = {
     async call() { throw new ModelError(502, 'UPSTREAM_ERROR', '上游服务失败，请检查模型服务。', { upstreamStatus: 504 }); },
   };

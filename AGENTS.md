@@ -1,8 +1,8 @@
-# OHAO monorepo 工程指南
+# Lyra monorepo 工程指南
 
 ## 1. 仓库定位
 
-本仓库是短剧智能生产系统 **OHAO** 的 monorepo。唯一的应用代码在 `packages/`；`reference/` 是旧平台的只读精选参考，不参与构建、测试或部署。
+本仓库是短剧智能生产系统 **Lyra** 的 monorepo。唯一的应用代码在 `packages/`；`reference/` 是旧平台的只读精选参考，不参与构建、测试或部署。
 
 ```text
 packages/
@@ -17,7 +17,7 @@ packages/
 
 1. **只有 `main`** 能持有模型密钥、连接 PostgreSQL、执行付费提交与媒体写入。
 2. **`agent` 不 import 数据库驱动、不读取密钥环境变量、不监听端口**；需要数据时通过 `shared`/本包定义的接口获取，由 `main` 注入实现（本地为进程内调用，未来可换 HTTP 实现）。
-3. **`web` 与 `cli` 只是客户端**：运行时只调用 `main` 的 HTTP API，不直连模型或数据库。共享类型统一来自 `@ohao/shared`，不要从 `main` 内部实现文件反向 import。
+3. **`web` 与 `cli` 只是客户端**：运行时只调用 `main` 的 HTTP API，不直连模型或数据库。共享类型统一来自 `@lyra/shared`，不要从 `main` 内部实现文件反向 import。
 4. **付费纪律**：任何付费动作都必须"估价/计划 → 人工确认 → 提交"。`cli` 的 `run create` 只生成计划，`run submit` 才提交；AI 工作区只允许生成估价确认卡，建卡不扣费。
 5. 公共契约（请求/响应、错误、事件、领域类型）放在 `shared`；新增跨包类型优先进 `shared`，不要在包间互相引用内部实现。
 

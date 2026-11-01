@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import type { PostgresDatabase } from '../db/client';
-import { NovelError, validateNovelContent, type NovelChapter, type NovelRevision, type NovelSource } from '@ohao/shared';
+import { NovelError, validateNovelContent, type NovelChapter, type NovelRevision, type NovelSource } from '@lyra/shared';
 
 export interface NovelSourceSummary { id: string; title: string; createdAt: string; chapterCount: number }
 export interface NovelAttempt {

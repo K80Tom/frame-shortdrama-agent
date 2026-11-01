@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config';
-import { ModelError, parseCall } from '@ohao/shared';
+import { ModelError, parseCall } from '@lyra/shared';
 import { configuredModel } from './registry';
 
 const record = (value: unknown): Record<string, unknown> =>

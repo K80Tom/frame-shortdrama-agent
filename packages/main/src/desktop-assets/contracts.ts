@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
-import { NovelError, type NovelEvidence, type NovelItem, type NovelRevision } from '@ohao/shared';
-import { isLocalAssetUrl, type AssetRecord } from '@ohao/shared';
+import { NovelError, type NovelEvidence, type NovelItem, type NovelRevision } from '@lyra/shared';
+import { isLocalAssetUrl, type AssetRecord } from '@lyra/shared';
 
 export const ASSET_VISUAL_BRIEF_VERSION = 'asset-visual-brief/v1' as const;
 export const ASSET_PROMPT_VERSION = 'asset-generation-prompt/v1' as const;
 export const LEGACY_ASSET_PROMPT_VERSION = 'legacy/unknown' as const;
 export type AssetPromptVersion = typeof ASSET_PROMPT_VERSION | typeof LEGACY_ASSET_PROMPT_VERSION;
-export const GENERATED_ASSET_MARKER = 'OHAO_GENERATED_CANDIDATE_V1' as const;
-const ACCEPTANCE_RESERVATION = 'OHAO_ACCEPTANCE_IN_PROGRESS_V1:';
+export const GENERATED_ASSET_MARKER = 'Lyra_GENERATED_CANDIDATE_V1' as const;
+const ACCEPTANCE_RESERVATION = 'Lyra_ACCEPTANCE_IN_PROGRESS_V1:';
 export interface AcceptanceReservation {
   expectedRevisionId: string;
   nonce: string;

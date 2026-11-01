@@ -8,7 +8,7 @@ import {
 import './novel.css';
 import NovelAssetPanel from './NovelAssetPanel';
 import { assetBindingSummary, type AssetBindingInput } from './asset-library';
-import type { EntityRegistryEntry } from '@ohao/shared';
+import type { EntityRegistryEntry } from '@lyra/shared';
 import { useDesktopAssetTasks } from './DesktopAssetGeneration';
 import { desktopCompletionNeedsRefresh, desktopReloadAllowed, desktopTaskActive, desktopTaskLabels } from './desktop-asset-generation';
 

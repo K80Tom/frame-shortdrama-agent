@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { AssetError } from '@ohao/shared';
+import { AssetError } from '@lyra/shared';
 import type { AssetService } from './service';
 
 export const ASSET_SERVICE = Symbol('ASSET_SERVICE');

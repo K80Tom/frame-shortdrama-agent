@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
-const { buildNovelSource, createReviewSeed } = require('@ohao/shared');
+const { buildNovelSource, createReviewSeed } = require('@lyra/shared');
 const { InMemoryNovelRepository } = require('../dist/novel/repository');
 
 // Original synthetic prose, not copied from any published novel.

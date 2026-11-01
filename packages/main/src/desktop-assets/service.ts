@@ -4,11 +4,11 @@ import { lstat, mkdir, open, readdir, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AssetService } from '../assets/service';
-import { AssetError } from '@ohao/shared';
+import { AssetError } from '@lyra/shared';
 import { MAX_ASSET_BYTES, inspectAssetImage, parseAssetImport } from '../assets/media';
 import type { NovelRepository } from '../novel/repository';
 import type { NovelService } from '../novel/service';
-import { NovelError } from '@ohao/shared';
+import { NovelError } from '@lyra/shared';
 import type { DesktopAssetAdapter } from './adapter';
 import {
   ASSET_PROMPT_VERSION, LEGACY_ASSET_PROMPT_VERSION, acceptanceReservation, activeStates, buildAssetVisualBrief, desktopError,

@@ -1,7 +1,7 @@
 import type { PlanRevisionRecord } from '../../breakdown/plan';
 import type { BreakdownServicePort } from '../../breakdown/service';
 import type { StoryboardRevision, StoryboardService, StoryboardShot } from '../../breakdown/storyboard';
-import { canonicalDigest, type StoredProductionRun } from '@ohao/shared';
+import { canonicalDigest, type StoredProductionRun } from '@lyra/shared';
 import type {
   PreparedProductionExecution,
   ProductionExecutionContext,

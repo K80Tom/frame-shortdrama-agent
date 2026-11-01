@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OHAO CLI —— main 的命令行客户端。
+ * Lyra CLI —— main 的命令行客户端。
  *
  * 边界：只通过 HTTP 调用 main，不连接数据库、不读取模型密钥。
  * 付费纪律：run create 只生成并保存"生产计划"（不提交、不扣费）；
@@ -10,10 +10,10 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parseCreateProductionRun, type CreateProductionRun } from '@ohao/shared';
+import { parseCreateProductionRun, type CreateProductionRun } from '@lyra/shared';
 
-const DEFAULT_API = process.env.OHAO_API ?? 'http://127.0.0.1:8788';
-const PENDING_FILE = join(homedir(), '.ohao', 'pending-run.json');
+const DEFAULT_API = process.env.Lyra_API ?? 'http://127.0.0.1:8788';
+const PENDING_FILE = join(homedir(), '.lyra', 'pending-run.json');
 
 interface Flags { [key: string]: string | boolean; }
 
@@ -47,13 +47,13 @@ async function request<T>(method: string, path: string, flags: Flags, body?: unk
       headers: {
         accept: 'application/json',
         ...(body === undefined ? {} : { 'content-type': 'application/json', 'X-Shortdrama-Call': '1' }),
-        ...(process.env.OHAO_TOKEN ? { authorization: `Bearer ${process.env.OHAO_TOKEN}` } : {}),
+        ...(process.env.Lyra_TOKEN ? { authorization: `Bearer ${process.env.Lyra_TOKEN}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
   } catch {
-    throw new Error(`无法连接 OHAO 后端 ${apiBase(flags)}。请先启动 packages/main（npm run dev），或用 --api / OHAO_API 指定地址。`);
+    throw new Error(`无法连接 Lyra 后端 ${apiBase(flags)}。请先启动 packages/main（npm run dev），或用 --api / Lyra_API 指定地址。`);
   }
   const text = await response.text();
   let payload: unknown = undefined;
@@ -104,7 +104,7 @@ function buildRunRequest(flags: Flags): CreateProductionRun {
 }
 
 function savePending(requestBody: CreateProductionRun): void {
-  mkdirSync(join(homedir(), '.ohao'), { recursive: true });
+  mkdirSync(join(homedir(), '.lyra'), { recursive: true });
   writeFileSync(PENDING_FILE, JSON.stringify(requestBody, null, 2), { mode: 0o600 });
 }
 
@@ -114,7 +114,7 @@ function loadPending(): CreateProductionRun {
   return parseCreateProductionRun(JSON.parse(raw));
 }
 
-const HELP = `OHAO CLI（只调用 main API；付费需先 create 计划、再 submit 确认）
+const HELP = `Lyra CLI（只调用 main API；付费需先 create 计划、再 submit 确认）
 
 用法：
   ohao doctor [--json]                       后端连通性与模型可用性
@@ -133,7 +133,7 @@ run create 选项：
   --style <视觉风格>                            默认 电影感写实
   --budget <元>        本次预算上限，默认 30     --gacha --candidates <1-4>  多候选
 
-全局：--api <地址> 或 OHAO_API（默认 ${DEFAULT_API}）；OHAO_TOKEN 可附加访问令牌。
+全局：--api <地址> 或 Lyra_API（默认 ${DEFAULT_API}）；Lyra_TOKEN 可附加访问令牌。
 
 示例：
   ohao run create --project proj_1 --script-version sv_3 --duration 60 --budget 30

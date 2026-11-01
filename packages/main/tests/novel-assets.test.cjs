@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildNovelSource, validateNovelContent, validateNovelAssetBindings, applyNovelCorrections, supplementNovelQuotes } = require('@ohao/shared');
+const { buildNovelSource, validateNovelContent, validateNovelAssetBindings, applyNovelCorrections, supplementNovelQuotes } = require('@lyra/shared');
 const { applyNovelAssetBindings } = require('../dist/novel/assets.js');
 
 // Original, tiny fiction only. No remote content or model calls.

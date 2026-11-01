@@ -144,4 +144,4 @@ npm --prefix packages/web run dev
 - `src/ModelConnections.tsx` / `src/model-connections.ts`：按用途管理模型连接。
 - `src/director/`：浏览器 3D 白模导演台；来源见 [第三方代码说明](THIRD_PARTY_NOTICES.md)。
 
-整集实现、恢复策略、媒体安全链与详细边界见[全流程自动制片实现](../docs/OHAO全流程自动制片实现-v0.1.md)。旧的独立九步教学页面保留在 `../flow-explainer/`，不属于本次 Lyra 工作台视觉系统。
+整集实现、恢复策略、媒体安全链与详细边界见[全流程自动制片实现](../docs/Lyra全流程自动制片实现-v0.1.md)。旧的独立九步教学页面保留在 `../flow-explainer/`，不属于本次 Lyra 工作台视觉系统。

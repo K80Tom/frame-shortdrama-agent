@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { PostgresDatabase } from '../db/client';
-import { NovelError } from '@ohao/shared';
+import { NovelError } from '@lyra/shared';
 import type { NovelAssetLinkAuthorization, NovelAssetLinkPolicy } from '../novel/service';
 import type { AssetService } from '../assets/service';
 import { activeStates, desktopError, generatedAssetTaskId, type StoredAssetGenerationCandidate, type StoredDesktopTask } from './contracts';

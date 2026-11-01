@@ -3,7 +3,7 @@ import {
   AssistantError, contextKeyOf, newAssistantId,
   type AssistantContext, type AssistantMessage, type AssistantQuote, type AssistantQuoteStatus,
   type AssistantRepository, type AssistantSession,
-} from '@ohao/agent';
+} from '@lyra/agent';
 
 function requireSession(session: AssistantSession | undefined, id: string): AssistantSession {
   if (!session) throw new AssistantError(404, 'ASSISTANT_SESSION_NOT_FOUND', '助手会话不存在或已过期，请重新打开 AI 工作区。');

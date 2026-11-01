@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AssetError, localAssetUrl, parseAssetMetadata, type AssetRecord } from '@ohao/shared';
+import { AssetError, localAssetUrl, parseAssetMetadata, type AssetRecord } from '@lyra/shared';
 
 export const MAX_ASSET_BYTES = 6 * 1024 * 1024;
 export interface AssetMedia { bytes: Buffer; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; sha256: string }

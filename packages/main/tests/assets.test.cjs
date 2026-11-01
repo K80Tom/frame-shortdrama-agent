@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { AssetError, parseAssetInput, createAssetRecord, validateAssetRecord } = require('@ohao/shared');
+const { AssetError, parseAssetInput, createAssetRecord, validateAssetRecord } = require('@lyra/shared');
 const { InMemoryAssetRepository, PostgresAssetRepository } = require('../dist/assets/repository');
 const { AssetService } = require('../dist/assets/service');
 

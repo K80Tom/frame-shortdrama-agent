@@ -1,5 +1,5 @@
 {
-  "name": "@ohao/main",
+  "name": "@lyra/main",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -27,8 +27,8 @@
     "models:smoke": "node --env-file=.env scripts/model-smoke.mjs"
   },
   "dependencies": {
-    "@ohao/shared": "file:../shared",
-    "@ohao/agent": "file:../agent",
+    "@lyra/shared": "file:../shared",
+    "@lyra/agent": "file:../agent",
     "@earendil-works/pi-agent-core": "^0.80.6",
     "@earendil-works/pi-ai": "^0.80.10",
     "@nestjs/common": "12.1.2",

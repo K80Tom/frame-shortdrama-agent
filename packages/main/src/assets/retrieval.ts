@@ -1,4 +1,4 @@
-import type { AssetKind, AssetRecord } from '@ohao/shared';
+import type { AssetKind, AssetRecord } from '@lyra/shared';
 
 export const ASSET_RETRIEVAL_RULE_VERSION = 'asset-rag-structured/1';
 export const ASSET_RETRIEVAL_HYBRID_RULE_VERSION = 'asset-rag-hybrid/1';
@@ -66,7 +66,7 @@ export interface AssetRetrievalResult {
 
 /**
  * Deterministic lexical retrieval adapted from 短剧Main's structured/CJK
- * fallback strategy. OHAO's AssetService remains the source of truth: no LLM
+ * fallback strategy. Lyra's AssetService remains the source of truth: no LLM
  * query rewriting or old-platform API is used. Optional semantic retrieval is
  * layered on by HybridAssetRetriever and hydrated against the same catalog.
  * Exact identity matching stays in the production executor and runs first.

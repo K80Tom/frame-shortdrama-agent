@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { AssetRecord } from '@ohao/shared';
+import type { AssetRecord } from '@lyra/shared';
 import { AssetVectorContractError } from './errors';
 import type { AssetEmbeddingClient } from './embedding';
 import type { AssetVectorStore } from './milvus';

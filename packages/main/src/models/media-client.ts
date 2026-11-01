@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { MAX_ASSET_BYTES, inspectAssetImage, type AssetMedia } from '../assets/media';
-import { ModelError } from '@ohao/shared';
+import { ModelError } from '@lyra/shared';
 
 export type MediaAuthType = 'api-key' | 'bearer';
 

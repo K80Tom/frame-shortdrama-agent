@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { PostgresDatabase } = require('../dist/db/client');
 const { readDatabaseConfig } = require('../dist/db/config');
 const { PostgresNovelRepository } = require('../dist/novel/repository');
-const { buildNovelSource, createReviewSeed } = require('@ohao/shared');
+const { buildNovelSource, createReviewSeed } = require('@lyra/shared');
 
 // Deliberately opt in with a dedicated test database, never load local .env or
 // migrate as part of a test. The harness owns and removes only its own source.

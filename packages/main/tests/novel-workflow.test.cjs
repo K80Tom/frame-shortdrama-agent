@@ -1,11 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readConfig } = require('../dist/config');
-const { buildNovelSource, applyNovelCorrections } = require('@ohao/shared');
+const { buildNovelSource, applyNovelCorrections } = require('@lyra/shared');
 const { NovelReviewWorkflow } = require('../dist/novel/workflow');
 const { NovelService } = require('../dist/novel/service');
 const { InMemoryNovelRepository } = require('../dist/novel/repository');
-const { buildEntityRegistry } = require('@ohao/shared');
+const { buildEntityRegistry } = require('@lyra/shared');
 const config = readConfig({ LLM_BASE_URL: 'https://model.test', LLM_API_KEY: 'test-only-key' });
 const source = () => buildNovelSource({ title: '原创查漏练习', rawText: '第一章 港口\n周宁把铁盒放在路灯旁。\n“等一会。”周宁说。\n第二章 回家\n周宁朝家走去。\n' });
 const entity = (id, label, kind = 'character') => ({ tempId: id, label, description: '',

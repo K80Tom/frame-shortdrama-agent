@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { deflateSync } = require('node:zlib');
 const { MAX_ASSET_BYTES } = require('../dist/assets/media');
-const { ModelError } = require('@ohao/shared');
+const { ModelError } = require('@lyra/shared');
 const { DoubaoImageClient, SeedanceVideoClient, MAX_REFERENCE_IMAGE_SOURCE_CHARS } = require('../dist/models/media-client');
 
 function pngChunk(type, data) {

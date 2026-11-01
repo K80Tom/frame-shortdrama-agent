@@ -11,7 +11,7 @@ if (!process.env.DATABASE_URL) {
   const { PostgresBreakdownRepository } = require('../dist/breakdown/repository');
   const { BreakdownService } = require('../dist/breakdown/service');
   const { compileProductionRun } = require('../dist/production/blueprint');
-  const { productionId } = require('@ohao/shared');
+  const { productionId } = require('@lyra/shared');
   const { PostgresProductionRepository } = require('../dist/production/repository');
 
   test('PostgreSQL production aggregate persists CAS state and outbox atomically', async () => {

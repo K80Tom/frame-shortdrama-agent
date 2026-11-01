@@ -1,6 +1,6 @@
 import type { PostgresDatabase } from '../db/client';
 import { createHash } from 'node:crypto';
-import { AssetError, localAssetUrl, validateAssetRecord, type AssetRecord } from '@ohao/shared';
+import { AssetError, localAssetUrl, validateAssetRecord, type AssetRecord } from '@lyra/shared';
 import { inspectAssetImage, type AssetMedia } from './media';
 
 export interface AssetRepository {

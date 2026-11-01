@@ -35,8 +35,8 @@ import {
 } from './production-media';
 import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
-import { AssistantOrchestrator } from '@ohao/agent';
-import { AssistantService } from '@ohao/agent';
+import { AssistantOrchestrator } from '@lyra/agent';
+import { AssistantService } from '@lyra/agent';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -161,9 +161,9 @@ async function main() {
             new ReviewProductionExecutor(productionMediaStore),
             new ComposeProductionExecutor(timelineComposer, {
               resolveProjectTitle: projectId => breakdown.getProject(projectId).then(project => project.title),
-              // 合成前的镜头抽帧评估：默认开启，可用 OHAO_FRAME_ASSESSMENT=0 关闭；
+              // 合成前的镜头抽帧评估：默认开启，可用 Lyra_FRAME_ASSESSMENT=0 关闭；
               // 评估器内部任何失败都会降级为“无剪辑指令”，不会阻塞已付费的成片。
-              ...(process.env.OHAO_FRAME_ASSESSMENT === '0' ? {} : {
+              ...(process.env.Lyra_FRAME_ASSESSMENT === '0' ? {} : {
                 assessFrames: new FrameAssessor(productionMediaStore, mediaRunner,
                   { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
                   'ffmpeg', { framesPerShot: 2 }),

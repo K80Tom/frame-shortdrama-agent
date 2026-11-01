@@ -5,7 +5,7 @@ const { createApp } = require('../dist/app');
 const { readConfig } = require('../dist/config');
 const { MODELS } = require('../dist/models/registry');
 const { ModelClient } = require('../dist/models/client');
-const { parseCall } = require('@ohao/shared');
+const { parseCall } = require('@lyra/shared');
 
 const modelEnv = { LLM_BASE_URL: 'https://model.test/openai', LLM_API_KEY: 'test-only-api-key' };
 const config = readConfig(modelEnv);

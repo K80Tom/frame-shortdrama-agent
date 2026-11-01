@@ -1,8 +1,8 @@
 import Ajv from 'ajv';
 import { Type } from '@sinclair/typebox';
 import { isDeepStrictEqual } from 'node:util';
-import { validateAssetRecord, type AssetRecord } from '@ohao/shared';
-import { NovelAssetNoteSchema, NovelError, validateNovelAssetBindings, type NovelAssetBinding, type NovelContent, type NovelRevision } from '@ohao/shared';
+import { validateAssetRecord, type AssetRecord } from '@lyra/shared';
+import { NovelAssetNoteSchema, NovelError, validateNovelAssetBindings, type NovelAssetBinding, type NovelContent, type NovelRevision } from '@lyra/shared';
 
 const Id = Type.String({ minLength: 1, maxLength: 100 });
 const BindingPatchSchema = Type.Object({

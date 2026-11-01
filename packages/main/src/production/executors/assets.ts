@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { AssetKind, AssetRecord } from '@ohao/shared';
+import type { AssetKind, AssetRecord } from '@lyra/shared';
 import {
   retrieveAssetForGeneration,
   type AssetRetrievalResult,
@@ -16,7 +16,7 @@ import {
   type GeneratedImage,
   type MediaClientConfig,
 } from '../../models/media-client';
-import { canonicalDigest, type StoredProductionRun } from '@ohao/shared';
+import { canonicalDigest, type StoredProductionRun } from '@lyra/shared';
 import type {
   PreparedProductionExecution,
   ProductionExecutionContext,

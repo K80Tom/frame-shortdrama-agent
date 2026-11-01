@@ -1,5 +1,5 @@
 import { productionStageLabels } from './blueprint';
-import { productionStageOrder, type ProductionStage, type ProductionTask, type StoredProductionRun } from '@ohao/shared';
+import { productionStageOrder, type ProductionStage, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 
 const done = (task: ProductionTask) => task.status === 'succeeded' || task.status === 'skipped';
 const attention = (task: ProductionTask) => ['waitingHuman', 'failed', 'reconciling'].includes(task.status);

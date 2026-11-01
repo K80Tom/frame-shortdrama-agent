@@ -5,7 +5,7 @@ import type { AppConfig } from '../config';
 import { ModelClient } from '../models/client';
 import { runPiJsonAgent } from '../breakdown/pi-json';
 import { chapterParagraphs, createReviewSeed, NovelError, supplementNovelQuotes, validateNovelContent,
-  type NovelChapter, type NovelContent, type NovelEvidence, type NovelItem, type NovelSource } from '@ohao/shared';
+  type NovelChapter, type NovelContent, type NovelEvidence, type NovelItem, type NovelSource } from '@lyra/shared';
 
 const Nonempty = (maxLength: number) => Type.String({ minLength: 1, maxLength, pattern: '\\S' });
 const ModelEntitySchema = Type.Object({

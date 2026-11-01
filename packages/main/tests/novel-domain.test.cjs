@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { buildNovelSource, chapterParagraphs, getChapter, createReviewSeed, validateNovelContent,
-  applyNovelCorrections, supplementNovelQuotes } = require('@ohao/shared');
+  applyNovelCorrections, supplementNovelQuotes } = require('@lyra/shared');
 const { NovelExtractor } = require('../dist/novel/extractor.js');
 
 // Original micro-fiction: no third-party novel text, credentials or real model calls.

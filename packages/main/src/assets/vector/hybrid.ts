@@ -1,4 +1,4 @@
-import type { AssetRecord } from '@ohao/shared';
+import type { AssetRecord } from '@lyra/shared';
 import {
   ASSET_RETRIEVAL_HYBRID_RULE_VERSION,
   ASSET_RETRIEVAL_SEMANTIC_WEIGHT,

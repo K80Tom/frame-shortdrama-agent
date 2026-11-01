@@ -1,7 +1,7 @@
 import type {
   ArtifactKind, CandidateKind, ExternalOperation, ProductionStage, ProductionTask, QualityCheck,
   ProductionReviewInput, StoredProductionRun, TaskScope,
-} from '@ohao/shared';
+} from '@lyra/shared';
 
 export interface ProductionExecutionContext {
   run: Readonly<StoredProductionRun>;
