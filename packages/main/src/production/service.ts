@@ -236,11 +236,17 @@ export class ProductionService {
       let changed = false;
       for (const task of current.tasks.filter(item => item.status === 'running')) {
         const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
-        if (attempt?.status === 'running') { attempt.status = 'interrupted'; attempt.endedAt = at; }
+        const attemptWasRunning = attempt?.status === 'running';
+        if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
         const operation = this.activeOperation(current, task.id);
         if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
           task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
-        else { task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' }; }
+        else {
+          // The process that held this attempt is gone, and no external operation
+          // was opened. Settle the hold so a later retry can reserve again.
+          if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
+          task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+        }
         task.updatedAt = at; task.version++; this.addIssue(current, task, {
           code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
           severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
@@ -365,7 +371,12 @@ export class ProductionService {
         message: prepared.requiresPaid ? '付费提交结果不明，不会自动重发。' : '执行器运行失败，原始错误未暴露。' };
       const operation = this.activeOperation(failed, currentTask.id);
       if (operation) { operation.status = 'unknown'; operation.updatedAt = end; currentTask.status = 'reconciling'; }
-      else currentTask.status = 'failed';
+      else {
+        // No external operation was opened, so the thrown attempt did not report
+        // a charge. Release the hold; a returned local failure already does this.
+        this.charge(failed, currentTask, currentAttempt, 0, end, true);
+        currentTask.status = 'failed';
+      }
       currentTask.blockingReason = clone(currentAttempt.error); currentTask.updatedAt = end; currentTask.version++;
       this.addIssue(failed, currentTask, { code: currentAttempt.error.code, title: '执行未完成', message: currentAttempt.error.message,
         severity: 'error', recommendedActions: operation ? ['查询原供应商任务', '不要重复提交'] : ['检查执行器后重试'] }, end);
@@ -491,7 +502,10 @@ export class ProductionService {
     attempt.status = 'failed'; attempt.endedAt = at; attempt.error = { code, message };
     const operation = this.activeOperation(latest, task.id);
     if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'waitingHuman'; }
-    else task.status = 'failed';
+    else {
+      this.charge(latest, task, attempt, 0, at, true);
+      task.status = 'failed';
+    }
     task.blockingReason = clone(attempt.error); task.version++; task.updatedAt = at;
     this.addIssue(latest, task, { code, title: '执行器输出无效', message: attempt.error.message,
       severity: 'error', recommendedActions: operation ? ['对账原外部任务，不要重复提交'] : ['修复执行器后局部重试'] }, at);
