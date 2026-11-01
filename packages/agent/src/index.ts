@@ -9,3 +9,4 @@ export * from './assistant/tools';
 export * from './assistant/orchestrator';
 export * from './assistant/service';
 export * from './assistant/repository';
+export * from './prompt-library/index';

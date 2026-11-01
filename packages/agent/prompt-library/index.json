@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "stages": [
+    "topic",
+    "adaptation",
+    "character",
+    "episode-outline",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt",
+    "production"
+  ],
+  "packs": [
+    {
+      "id": "screenwriter-skill-review",
+      "name": "内容负责人编剧审稿（38 条铁律）",
+      "stages": ["script-review"],
+      "models": ["*"],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false
+    }
+  ]
+}
