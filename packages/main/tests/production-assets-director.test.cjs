@@ -8,7 +8,7 @@ const { compileProductionRun } = require('../dist/production/blueprint');
 const { AssetsProductionExecutor } = require('../dist/production/executors/assets');
 const { HybridAssetRetriever } = require('../dist/assets/vector/hybrid');
 const { retrieveAssetForGeneration, tokenizeAssetQuery, ASSET_RETRIEVAL_THRESHOLD } = require('../dist/assets/retrieval');
-const { DirectorProductionExecutor, buildDirectorSnapshot, directorDecision } = require('../dist/production/executors/director');
+const { DirectorProductionExecutor, buildDirectorSnapshot, directorDecision, posePreset } = require('../dist/production/executors/director');
 
 const PROJECT = `project_${'1'.repeat(32)}`;
 const SCRIPT = `script_${'2'.repeat(32)}`;
@@ -316,7 +316,31 @@ test('director coordinator only reports decisions; shot task builds a stable web
   assert.equal(snapshot.schemaVersion, 1); assert.equal(snapshot.aspectRatio, '9:16');
   assert.equal(snapshot.provenance.ruleBased, true); assert.equal(snapshot.objects[0].type, 'geometry');
   assert.equal(snapshot.objects[1].type, 'mannequin'); assert.equal(snapshot.cameras[0].type, 'camera');
+  assert.equal(snapshot.objects[1].pose.preset, 'walk');
+  assert.equal(snapshot.objects[1].transform.rotation.y, 10.313);
   assert.deepEqual(snapshot, buildDirectorSnapshot(run, r.plan, r.board, r.board.shots[1]));
+});
+
+test('director whitebox yaw is degrees and lookback is a stage pose, not turn', () => {
+  assert.equal(posePreset('她回头看向巷口'), 'lookback');
+  assert.equal(posePreset('他猛地转身'), 'lookback');
+  assert.notEqual(posePreset('他猛地转身'), 'turn');
+  assert.equal(posePreset('沈玥奔跑穿过巷道后转身'), 'walk');
+  const r = readers();
+  const shot = structuredClone(r.board.shots[0]);
+  shot.design.visualDescription = '她回头看向巷口';
+  const one = buildDirectorSnapshot(production(), r.plan, r.board, shot);
+  const actor = one.objects.find(item => item.type === 'mannequin');
+  assert.equal(actor.pose.preset, 'lookback');
+  assert.deepEqual(actor.transform.rotation, { x: 0, y: 10.313, z: 0 });
+  const planWithTwo = structuredClone(r.plan);
+  const partner = structuredClone(planWithTwo.content.characters[0]);
+  partner.id = 'character_partner'; partner.name = { ...partner.name, value: '周野' };
+  planWithTwo.content.characters.push(partner);
+  planWithTwo.content.scenes[0].characterIds.push(partner.id);
+  const two = buildDirectorSnapshot(production(), planWithTwo, r.board, shot);
+  const yaws = two.objects.filter(item => item.type === 'mannequin').map(item => item.transform.rotation.y);
+  assert.deepEqual(yaws, [10.313, -10.313]);
 });
 
 test('director auto complexity and never policy are explicit deterministic rules', () => {
