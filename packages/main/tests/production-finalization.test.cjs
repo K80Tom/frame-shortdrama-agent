@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { compileProductionRun } = require('../dist/production/blueprint');
 const { CandidateProductionExecutor, ReviewProductionExecutor, ComposeProductionExecutor,
-  DeliveryProductionExecutor } = require('../dist/production/finalization');
+  DeliveryProductionExecutor, frameAssessmentHint } = require('../dist/production/finalization');
 
 const now = '2026-10-23T12:00:00.000Z';
 const mediaA = `media_${'a'.repeat(64)}`;
@@ -135,6 +135,42 @@ test('delivery blocks a technically valid timeline that misses the frozen target
   assert.equal(outcome.issue.code, 'DELIVERY_CHECK_FAILED');
   assert.match(outcome.issue.message, /冻结目标 90s/);
   assert.equal(outcome.qualityChecks[0].result, 'fail');
+});
+
+test('frame assessment hint prefers the flat artifact fields and falls back to design', () => {
+  assert.equal(frameAssessmentHint({ visualDescription: '主角跑下楼梯', shotSize: '全景', cameraMovement: '跟拍',
+    design: { visualDescription: '不应使用嵌套文案', shotSize: '特写', cameraMovement: '固定' } }),
+    '主角跑下楼梯｜景别：全景｜运镜：跟拍');
+  assert.equal(frameAssessmentHint({ design: { visualDescription: '走进门', shotSize: '中景', cameraMovement: '固定' } }),
+    '走进门｜景别：中景｜运镜：固定');
+  assert.equal(frameAssessmentHint({ id: 'shot_one', durationMs: 8000 }), '');
+});
+
+test('frame assessment reads the flat storyboard design stored on the shot', async () => {
+  const value = run();
+  value.artifacts[0].metadata.shots[0] = { id: 'shot_one', durationMs: 8000,
+    visualDescription: '主角跑下楼梯', shotSize: '全景', cameraMovement: '跟拍' };
+  const compose = { ...value.tasks.find(item => item.stage === 'compose'), status: 'running' };
+  const selectedArtifact = artifact(value, 'ptask_candidates_source', 'partifact_selected', mediaA);
+  value.artifacts.push(selectedArtifact);
+  value.candidateSets.push({ id: 'pcset_one', runId: value.id, taskId: 'ptask_candidates_source', kind: 'video',
+    scope: { kind: 'shot', id: 'shot_one' }, status: 'selected', selectedCandidateId: 'pcandidate_one', createdAt: now,
+    candidates: [{ id: 'pcandidate_one', artifactId: selectedArtifact.id, label: 'A', summary: '', score: 1,
+      status: 'selected', createdAt: now }] });
+  const composer = { async compose() { return { id: `timeline_${'c'.repeat(64)}`,
+    composition: { strategy: 'ffmpeg-auto-edit', edit: { titleCardText: '整集自动制作成片',
+      endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } },
+    output: { id: mediaB, sha256: mediaB.slice(6), probe: { durationSeconds: 8, width: 1080, height: 1920, hasAudio: true } } }; } };
+  const assessor = { async assess(inputs) {
+    assert.equal(inputs.length, 1);
+    assert.match(inputs[0].hint, /主角跑下楼梯/);
+    assert.match(inputs[0].hint, /景别：全景/);
+    assert.match(inputs[0].hint, /运镜：跟拍/);
+    return { shots: [], summary: { pass: 0, weak: 0, reject: 0, recommendedTrim: 0, recommendedSpeedup: 0, recommendedDrop: 0 } };
+  } };
+  const outcome = await new ComposeProductionExecutor(composer, { assessFrames: assessor }).execute(context(value, compose));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(outcome.artifacts[0].metadata.frameAssessment, 'applied');
 });
 
 test('compose runs the frame assessment first and passes clip directives', async () => {

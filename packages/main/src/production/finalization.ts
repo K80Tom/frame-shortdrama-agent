@@ -95,6 +95,23 @@ function selectedShotArtifact(run: Readonly<StoredProductionRun>, shotId: string
     && artifact.kind === 'video').sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1) ?? null;
 }
 
+/** 已冻结的分镜产物把画面、景别、运镜直接写在镜头上；嵌套 `design` 只作为仍传入完整镜头时的回退。 */
+export function frameAssessmentHint(shot: Record<string, unknown>): string {
+  const design = shot.design && typeof shot.design === 'object' && !Array.isArray(shot.design)
+    ? shot.design as Record<string, unknown> : {};
+  const text = (key: string) => {
+    const flat = shot[key];
+    if (typeof flat === 'string' && flat.trim()) return flat.trim();
+    const nested = design[key];
+    return typeof nested === 'string' ? nested.trim() : '';
+  };
+  const visual = text('visualDescription');
+  const size = text('shotSize');
+  const movement = text('cameraMovement');
+  return [visual, size ? `景别：${size}` : '', movement ? `运镜：${movement}` : '']
+    .filter(Boolean).join('｜').slice(0, 400);
+}
+
 function storyboardShot(run: Readonly<StoredProductionRun>, shotId: string): Record<string, unknown> | null {
   const board = run.artifacts.filter(artifact => artifact.status === 'current' && artifact.metadata.storyboardRevisionId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
@@ -241,13 +258,10 @@ export class ComposeProductionExecutor implements ProductionExecutor {
   private async assessShots(shots: readonly Record<string, unknown>[], ids: readonly string[]) {
     const assessor = this.options.assessFrames;
     if (!assessor) return null;
-    const inputs = shots.map((shot, index) => {
-      const design = shot.design && typeof shot.design === 'object' ? shot.design as Record<string, unknown> : {};
-      const visual = typeof design.visualDescription === 'string' ? design.visualDescription : '';
-      const size = typeof design.shotSize === 'string' ? design.shotSize : '';
-      return { shotId: String(shot.id), mediaId: String(ids[index] ?? ''), label: `镜 ${index + 1}`,
-        hint: [visual, size ? `景别：${size}` : ''].filter(Boolean).join('｜').slice(0, 400) };
-    });
+    const inputs = shots.map((shot, index) => ({
+      shotId: String(shot.id), mediaId: String(ids[index] ?? ''), label: `镜 ${index + 1}`,
+      hint: frameAssessmentHint(shot),
+    }));
     const report = await assessor.assess(inputs);
     const directives: TimelineClipDirective[] = [];
     for (const item of report.shots) {
