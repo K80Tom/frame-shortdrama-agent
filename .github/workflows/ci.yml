@@ -1,0 +1,55 @@
+name: OHAO CI
+
+on:
+  pull_request:
+    paths:
+      - shortdrama-agent-lab/**
+      - .github/workflows/ci.yml
+  push:
+    branches: [main]
+    paths:
+      - shortdrama-agent-lab/**
+      - .github/workflows/ci.yml
+
+concurrency:
+  group: ohao-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: shortdrama-agent-lab
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: shortdrama-agent-lab/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: shortdrama-agent-lab/web
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: shortdrama-agent-lab/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
