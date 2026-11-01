@@ -1,0 +1,19 @@
+{
+  "id": "egguy886-write-screenplay-skill-write-screenplay",
+  "name": "write-screenplay",
+  "version": "synced",
+  "summary": "小说/设定转商业剧本，国内短剧与出海微短剧双模式",
+  "stages": [
+    "adaptation",
+    "script"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

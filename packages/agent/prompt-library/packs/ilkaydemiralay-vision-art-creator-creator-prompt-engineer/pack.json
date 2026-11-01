@@ -1,0 +1,26 @@
+{
+  "id": "ilkaydemiralay-vision-art-creator-creator-prompt-engineer",
+  "name": "creator-prompt-engineer",
+  "version": "synced",
+  "summary": "影视部门式 skill 包：编剧、导演、角色、美术、摄影、分镜、镜头表、提示词、声音、剪辑，由总监 skill 调度和质检",
+  "stages": [
+    "character",
+    "production",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "nanobanana",
+    "sora",
+    "veo",
+    "kling"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

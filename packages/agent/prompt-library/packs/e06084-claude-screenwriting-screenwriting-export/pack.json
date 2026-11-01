@@ -1,0 +1,20 @@
+{
+  "id": "e06084-claude-screenwriting-screenwriting-export",
+  "name": "screenwriting-export",
+  "version": "synced",
+  "summary": "编剧知识引擎：把 Vogler/McKee/救猫咪落成 Obsidian 故事 wiki，15-beat 节奏、三层角色卡、结构诊断",
+  "stages": [
+    "character",
+    "episode-outline",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

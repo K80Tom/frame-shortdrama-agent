@@ -41,6 +41,17 @@ test('enabling the pack injects the 38-rule review methodology on demand', () =>
   assert.equal(prompt.user, baseline.user, 'pack must not change the user payload');
 });
 
+test('full library load is consistent and disabled by default', () => {
+  const packs = loadPromptPacks();
+  assert.ok(packs.length >= 300, `expected full library, got ${packs.length}`);
+  assert.equal(new Set(packs.map((pack) => pack.id)).size, packs.length, 'pack ids must be unique');
+  for (const pack of packs) {
+    assert.ok(pack.stages.length > 0, `${pack.id} should declare stages`);
+    assert.equal(pack.enabledByDefault, false, `${pack.id} must be disabled by default`);
+    assert.ok(pack.contentPolicy !== 'reference-only', `${pack.id} is reference-only and must not be importable`);
+  }
+});
+
 test('pack selection validates unknown ids and stage mismatches', () => {
   assert.throws(
     () => buildPromptPackInjection({ stage: 'script-review', packIds: ['missing-pack'] }),

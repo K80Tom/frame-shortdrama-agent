@@ -1,0 +1,22 @@
+{
+  "id": "lixiaoxiao9888-create-manju-laoli-skill-short-drama-director",
+  "name": "short-drama-director",
+  "version": "synced",
+  "summary": "漫剧老李：AIGC 漫剧导演全流程，门控剧本、资产锁定、分镜、投喂提示词、规则化质检",
+  "stages": [
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

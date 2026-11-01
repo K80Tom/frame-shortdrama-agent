@@ -1,0 +1,10 @@
+{
+  "repository": "djyy1031/ai-comic-drama-director-skills",
+  "url": "https://github.com/djyy1031/ai-comic-drama-director-skills",
+  "branch": "main",
+  "path": "skills/make-ai-comic-drama/SKILL.md",
+  "via": "UnderleveledBuilder/awesome-short-drama-skills",
+  "awesomeCommit": "4c3ba567a35325bd9041858d56116fc4ebbcdc43",
+  "syncedAt": "2026-11-01",
+  "note": "仅文本；未引入任何第三方脚本。"
+}

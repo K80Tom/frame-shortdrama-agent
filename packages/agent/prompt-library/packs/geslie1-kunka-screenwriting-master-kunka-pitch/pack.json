@@ -1,0 +1,20 @@
+{
+  "id": "geslie1-kunka-screenwriting-master-kunka-pitch",
+  "name": "kunka-pitch",
+  "version": "synced",
+  "summary": "昆卡编剧大师：中文优先的编剧 skill 组，覆盖构思、改稿、连续性检查与剧集开发",
+  "stages": [
+    "episode-outline",
+    "script",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

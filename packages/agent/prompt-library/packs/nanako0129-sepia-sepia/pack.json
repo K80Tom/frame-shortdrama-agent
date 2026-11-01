@@ -1,0 +1,18 @@
+{
+  "id": "nanako0129-sepia-sepia",
+  "name": "sepia",
+  "version": "synced",
+  "summary": "面向小说的去 AI 味：修复叙事结构，按场合匹配文风规则，方法来自 StoryScope 论文",
+  "stages": [
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

@@ -1,0 +1,19 @@
+{
+  "id": "woodfantasy-seedance-shotdesign-skills-seedance-shot-design",
+  "name": "seedance-shot-design",
+  "version": "synced",
+  "summary": "Seedance 2.5 镜头设计",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT-0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

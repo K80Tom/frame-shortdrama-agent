@@ -1,0 +1,21 @@
+{
+  "id": "a-cat-with-carrots-onlyshot-ai-short-drama",
+  "name": "ai-short-drama",
+  "version": "synced",
+  "summary": "神仙鱼短剧流水线：一句话 → 剧本、分镜、分镜图、视频、剪辑五步，沉淀 17 种失败模式",
+  "stages": [
+    "production",
+    "script",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

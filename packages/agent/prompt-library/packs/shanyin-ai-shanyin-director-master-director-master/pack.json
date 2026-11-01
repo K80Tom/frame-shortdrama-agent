@@ -1,0 +1,19 @@
+{
+  "id": "shanyin-ai-shanyin-director-master-director-master",
+  "name": "director-master",
+  "version": "synced",
+  "summary": "山音超级导演大师：剧本 → 导演定调、节奏规划、剧本微调、分镜拆解，输出九列分镜表（xlsx），内置类型片导演风格模板",
+  "stages": [
+    "script-review",
+    "storyboard"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

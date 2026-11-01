@@ -1,0 +1,19 @@
+{
+  "id": "phileiny-h3-storyboard-skill-h3-storyboard",
+  "name": "h3-storyboard",
+  "version": "synced",
+  "summary": "MiniMax H3 分镜拆解与角色表演设计",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

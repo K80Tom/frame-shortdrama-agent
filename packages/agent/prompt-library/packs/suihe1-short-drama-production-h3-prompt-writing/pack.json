@@ -1,0 +1,23 @@
+{
+  "id": "suihe1-short-drama-production-h3-prompt-writing",
+  "name": "h3-prompt-writing",
+  "version": "synced",
+  "summary": "短剧生产总控：小说大纲/人物/剧本、导演分镜、提示词、声音资产、粗剪与 QC（默认 16:9）",
+  "stages": [
+    "adaptation",
+    "episode-outline",
+    "production",
+    "script",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "minimax"
+  ],
+  "license": "Apache-2.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

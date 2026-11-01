@@ -28,6 +28,10 @@ export interface PromptPackMeta {
   stages: PromptPackStage[];
   models: string[];
   license: string;
+  /** imported=已入库文本；reference-only=仅登记参考，不可注入。 */
+  contentPolicy?: 'imported' | 'reference-only';
+  /** 许可是否允许商用（CC BY-NC 等非商用许可为 false）。 */
+  commercialUseAllowed?: boolean;
   quality: 'evaluated' | 'unevaluated';
   enabledByDefault: boolean;
   entry: string;
@@ -71,6 +75,9 @@ export function selectPromptPacks(options: PromptPackSelection): LoadedPromptPac
   return ids.map((id) => {
     const pack = packs.find((candidate) => candidate.id === id);
     if (!pack) throw new Error(`PROMPT_PACK_NOT_FOUND: ${id}`);
+    if ((pack.contentPolicy ?? 'imported') === 'reference-only') {
+      throw new Error(`PROMPT_PACK_REFERENCE_ONLY: ${id} 仅登记参考，未入库内容`);
+    }
     if (!pack.stages.includes(options.stage)) {
       throw new Error(`PROMPT_PACK_STAGE_MISMATCH: ${id} 不支持阶段 ${options.stage}`);
     }

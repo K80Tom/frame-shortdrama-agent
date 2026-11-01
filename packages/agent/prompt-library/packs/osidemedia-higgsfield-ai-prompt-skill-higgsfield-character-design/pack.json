@@ -1,0 +1,22 @@
+{
+  "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-character-design",
+  "name": "higgsfield-character-design",
+  "version": "synced",
+  "summary": "Higgsfield 平台提示词：MCSLA 公式、Seedance 2.5 多参考导演、表演指导、Soul ID 角色一致性、镜头清单与失败诊断",
+  "stages": [
+    "character",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "kling",
+    "veo",
+    "wan"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

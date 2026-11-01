@@ -1,0 +1,19 @@
+{
+  "id": "zhu5859243-free-hongguo-shortdrama-screenwriting-hongguo-shortdrama-screenwriting",
+  "name": "hongguo-shortdrama-screenwriting",
+  "version": "synced",
+  "summary": "红果/抖音爆款短剧编剧：短剧工厂引擎 + 《短剧编剧第一课》01–10 期方法论",
+  "stages": [
+    "episode-outline",
+    "script"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

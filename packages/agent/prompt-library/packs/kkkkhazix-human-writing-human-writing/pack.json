@@ -1,0 +1,18 @@
+{
+  "id": "kkkkhazix-human-writing-human-writing",
+  "name": "human-writing",
+  "version": "synced",
+  "summary": "活人感写作：让 AI 写的中文像具体的人在说话，适合打磨对白和旁白",
+  "stages": [
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

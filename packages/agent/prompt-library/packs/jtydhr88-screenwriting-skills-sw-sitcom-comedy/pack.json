@@ -1,0 +1,22 @@
+{
+  "id": "jtydhr88-screenwriting-skills-sw-sitcom-comedy",
+  "name": "sw-sitcom-comedy",
+  "version": "synced",
+  "summary": "编剧理论最系统的一套：结构、Truby、场景、对白、剧集圣经、编剧室，含日韩法美与中国戏曲案例",
+  "stages": [
+    "adaptation",
+    "character",
+    "episode-outline",
+    "script",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

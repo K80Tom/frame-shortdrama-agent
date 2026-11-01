@@ -1,0 +1,19 @@
+{
+  "id": "nigo-studio-ai-film-skills-character-consistency",
+  "name": "character-consistency",
+  "version": "synced",
+  "summary": "从 AI 动作片《CROW LINE》流程拆出的 skill：Seedance 2.5 参考生视频提示词导演，三联角色设定图保持跨镜一致",
+  "stages": [
+    "character",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

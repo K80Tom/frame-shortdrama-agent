@@ -1,0 +1,18 @@
+{
+  "id": "dexhunter-seedance2-skill-seedance-prompt-zh",
+  "name": "seedance-prompt-zh",
+  "version": "synced",
+  "summary": "为 Seedance 2.0 生成高质量视频提示词",
+  "stages": [
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

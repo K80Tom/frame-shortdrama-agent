@@ -1,0 +1,22 @@
+{
+  "id": "leynos-visual-storytelling-skills-media-project",
+  "name": "media-project",
+  "version": "synced",
+  "summary": "从文字到画面：场景清单、镜头设计、视频模型提示词、视频生成",
+  "stages": [
+    "production",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "kling",
+    "seedance",
+    "nanobanana"
+  ],
+  "license": "ISC",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

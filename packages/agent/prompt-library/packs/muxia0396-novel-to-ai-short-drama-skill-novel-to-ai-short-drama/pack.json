@@ -1,0 +1,19 @@
+{
+  "id": "muxia0396-novel-to-ai-short-drama-skill-novel-to-ai-short-drama",
+  "name": "novel-to-ai-short-drama",
+  "version": "synced",
+  "summary": "从导演视角把小说改编成 AI 短剧：分镜、运镜、表演调度与时长",
+  "stages": [
+    "adaptation",
+    "storyboard"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

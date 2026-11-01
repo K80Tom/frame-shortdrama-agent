@@ -1,0 +1,21 @@
+{
+  "id": "luojiangyong-muse-video-skill-muse-video",
+  "name": "muse-video",
+  "version": "synced",
+  "summary": "虚拟剧组：导演/编剧/摄影/美术/特效/声音六角色协作，创意 → 剧本、分镜、美术、提示词，38 个案例技法库",
+  "stages": [
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

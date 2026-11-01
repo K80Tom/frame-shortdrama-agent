@@ -1,5 +1,7 @@
 {
   "version": 1,
+  "source": "UnderleveledBuilder/awesome-short-drama-skills",
+  "awesomeCommit": "4c3ba567a35325bd9041858d56116fc4ebbcdc43",
   "stages": [
     "topic",
     "adaptation",
@@ -13,13 +15,6963 @@
   ],
   "packs": [
     {
+      "id": "0xsline-short-drama-short-drama",
+      "name": "short-drama",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-ai-short-drama-production",
+      "name": "ai-short-drama-production",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-ai-storyboard-director",
+      "name": "ai-storyboard-director",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-character-asset",
+      "name": "character-asset",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-cyberpunk-design",
+      "name": "cyberpunk-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-d-data-analysis-semantic-layer",
+      "name": "d-data-analysis-semantic-layer",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-d-official-market-analysis",
+      "name": "d-official-market-analysis",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-director-agent",
+      "name": "director-agent",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-epic-design",
+      "name": "epic-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-fantasy-design",
+      "name": "fantasy-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-guofeng-visual-director",
+      "name": "guofeng-visual-director",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-hard-sci-fi-visual-director",
+      "name": "hard-sci-fi-visual-director",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-horror-design",
+      "name": "horror-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-noir-design",
+      "name": "noir-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-produce-ai-video",
+      "name": "produce-ai-video",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-prop-asset",
+      "name": "prop-asset",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-romance-design",
+      "name": "romance-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-scene-asset",
+      "name": "scene-asset",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-war-design",
+      "name": "war-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-web-design-director",
+      "name": "web-design-director",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-whitebox-previs-executor",
+      "name": "whitebox-previs-executor",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "62656456-ai-film-skills-wuxia-design",
+      "name": "wuxia-design",
+      "stages": [
+        "character",
+        "production",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "a-cat-with-carrots-onlyshot-ai-short-drama",
+      "name": "ai-short-drama",
+      "stages": [
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-adaptation",
+      "name": "em-adaptation",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-chief-writer",
+      "name": "em-chief-writer",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-dialogue",
+      "name": "em-dialogue",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-episode-hooks",
+      "name": "em-episode-hooks",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-expectation",
+      "name": "em-expectation",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-iteration",
+      "name": "em-iteration",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-outline-to-script",
+      "name": "em-outline-to-script",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-script-trim",
+      "name": "em-script-trim",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-story-architect",
+      "name": "em-story-architect",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "adoria111-emma-screenwriting-skills-em-structure",
+      "name": "em-structure",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-assets",
+      "name": "acheng-assets",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-continuity",
+      "name": "acheng-continuity",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-director",
+      "name": "acheng-director",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-effects-scale",
+      "name": "acheng-effects-scale",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-model-output",
+      "name": "acheng-model-output",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-performance-action",
+      "name": "acheng-performance-action",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-scene-design-adapter",
+      "name": "acheng-scene-design-adapter",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-shots",
+      "name": "acheng-shots",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-acheng-story",
+      "name": "acheng-story",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-h3-prompt-writing",
+      "name": "h3-prompt-writing",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "aharaooo-acheng-director-skill-scene-concept-art-director",
+      "name": "scene-concept-art-director",
+      "stages": [
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "alchaincyf-seedance-skill-huashu-seedance",
+      "name": "huashu-seedance",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "babicat4242-svg-seedance-2-5-prompting-seedance-2-5-prompting",
+      "name": "seedance-2-5-prompting",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "blader-humanizer-humanizer",
+      "name": "humanizer",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-happyhorse-prompter",
+      "name": "happyhorse-prompter",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-kling-prompter",
+      "name": "kling-prompter",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-model-selector",
+      "name": "model-selector",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-prompt-translator",
+      "name": "prompt-translator",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-seedance-debugger",
+      "name": "seedance-debugger",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-seedance-prompter",
+      "name": "seedance-prompter",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "cclank-lanshu-awesome-ai-video-kit-seedance-storyboard",
+      "name": "seedance-storyboard",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "dexhunter-seedance2-skill-seedance-prompt-en",
+      "name": "seedance-prompt-en",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "dexhunter-seedance2-skill-seedance-prompt-zh",
+      "name": "seedance-prompt-zh",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-character-performance-assets",
+      "name": "ai-character-performance-assets",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-cinematic-directing-assets",
+      "name": "ai-cinematic-directing-assets",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-comic-scene-assets",
+      "name": "ai-comic-scene-assets",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-shot-execution-continuity",
+      "name": "ai-shot-execution-continuity",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-storyboard-asset-grounding",
+      "name": "ai-storyboard-asset-grounding",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-ai-storyboard-blocking-assets",
+      "name": "ai-storyboard-blocking-assets",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "djyy1031-ai-comic-drama-director-skills-make-ai-comic-drama",
+      "name": "make-ai-comic-drama",
+      "stages": [
+        "adaptation",
+        "character",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting",
+      "name": "screenwriting",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-beats",
+      "name": "screenwriting-beats",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-character",
+      "name": "screenwriting-character",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-export",
+      "name": "screenwriting-export",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-ingest",
+      "name": "screenwriting-ingest",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-lint",
+      "name": "screenwriting-lint",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-refactor",
+      "name": "screenwriting-refactor",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "e06084-claude-screenwriting-screenwriting-reimagine",
+      "name": "screenwriting-reimagine",
+      "stages": [
+        "character",
+        "episode-outline",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "egguy886-write-screenplay-skill-write-screenplay",
+      "name": "write-screenplay",
+      "stages": [
+        "adaptation",
+        "script"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-character-refs",
+      "name": "character-refs",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-art",
+      "name": "novel-art",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-characters",
+      "name": "novel-characters",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-outline",
+      "name": "novel-outline",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-script",
+      "name": "novel-script",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-staging",
+      "name": "novel-staging",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "eternityspring-shuohao-skills-novel-storyboard",
+      "name": "novel-storyboard",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-adaptation",
+      "name": "kunka-adaptation",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-character",
+      "name": "kunka-character",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-continuity",
+      "name": "kunka-continuity",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-dialogue",
+      "name": "kunka-dialogue",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-format",
+      "name": "kunka-format",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-pitch",
+      "name": "kunka-pitch",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-premise",
+      "name": "kunka-premise",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-revision",
+      "name": "kunka-revision",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-scene",
+      "name": "kunka-scene",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-screenwriter",
+      "name": "kunka-screenwriter",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-series",
+      "name": "kunka-series",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-structure",
+      "name": "kunka-structure",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "geslie1-kunka-screenwriting-master-kunka-style-lab",
+      "name": "kunka-style-lab",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "hao0321-ai-short-drama-ai-short-drama",
+      "name": "ai-short-drama",
+      "stages": [
+        "episode-outline",
+        "script",
+        "script-review",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-character-designer",
+      "name": "creator-character-designer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-cinematographer",
+      "name": "creator-cinematographer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-director",
+      "name": "creator-director",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-final-cut-editor",
+      "name": "creator-final-cut-editor",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-pipeline-supervisor",
+      "name": "creator-pipeline-supervisor",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-production-designer",
+      "name": "creator-production-designer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-prompt-engineer",
+      "name": "creator-prompt-engineer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-screenwriter",
+      "name": "creator-screenwriter",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-shot-list-designer",
+      "name": "creator-shot-list-designer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-sound-music-designer",
+      "name": "creator-sound-music-designer",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "ilkaydemiralay-vision-art-creator-creator-storyboard-artist",
+      "name": "creator-storyboard-artist",
+      "stages": [
+        "character",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "nanobanana",
+        "sora",
+        "veo",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "irenerachel-fight-prompt-director-fight-prompt-director",
+      "name": "fight-prompt-director",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jlam00-dev-hardcore-director-hardcore-director",
+      "name": "hardcore-director",
+      "stages": [
+        "character",
+        "episode-outline",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "wan",
+        "minimax",
+        "kling"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jnmetacode-ai-shortfilm-prompts-shortfilm-prompt",
+      "name": "shortfilm-prompt",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "sora",
+        "kling",
+        "veo",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-chekhov-dramaturgy",
+      "name": "chekhov-dramaturgy",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-ozu-screenplay-style",
+      "name": "ozu-screenplay-style",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-succession-series-writing",
+      "name": "succession-series-writing",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-american-case-studies",
+      "name": "sw-american-case-studies",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-character-conflict",
+      "name": "sw-character-conflict",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-chinese-opera-banqiang",
+      "name": "sw-chinese-opera-banqiang",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-chinese-opera-banqiang-cases",
+      "name": "sw-chinese-opera-banqiang-cases",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-chinese-opera-qupai",
+      "name": "sw-chinese-opera-qupai",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-chinese-opera-qupai-cases",
+      "name": "sw-chinese-opera-qupai-cases",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-chinese-series-practice",
+      "name": "sw-chinese-series-practice",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-dialogue",
+      "name": "sw-dialogue",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-format-adaptation",
+      "name": "sw-format-adaptation",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-genre-anatomy",
+      "name": "sw-genre-anatomy",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-industry-business",
+      "name": "sw-industry-business",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-japanese-screenwriting",
+      "name": "sw-japanese-screenwriting",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-korean-french-screenwriting",
+      "name": "sw-korean-french-screenwriting",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-premise-theme",
+      "name": "sw-premise-theme",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-scene-craft",
+      "name": "sw-scene-craft",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-series-case-studies",
+      "name": "sw-series-case-studies",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-series-engine-bible",
+      "name": "sw-series-engine-bible",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-series-structure",
+      "name": "sw-series-structure",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-sitcom-comedy",
+      "name": "sw-sitcom-comedy",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-story-structure",
+      "name": "sw-story-structure",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-truby-anatomy",
+      "name": "sw-truby-anatomy",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-workflow",
+      "name": "sw-workflow",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "jtydhr88-screenwriting-skills-sw-writers-room",
+      "name": "sw-writers-room",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kevinchin12-storyboard-director-storyboard-aggregate-prompt",
+      "name": "storyboard-aggregate-prompt",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kevinchin12-storyboard-director-storyboard-director",
+      "name": "storyboard-director",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kevinchin12-storyboard-director-storyboard-final-frame-optional",
+      "name": "storyboard-final-frame-optional",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kevinchin12-storyboard-director-storyboard-lineart-generator",
+      "name": "storyboard-lineart-generator",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kevinchin12-storyboard-director-storyboard-script-planner",
+      "name": "storyboard-script-planner",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "kkkkhazix-human-writing-human-writing",
+      "name": "human-writing",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-3d-cartoon",
+      "name": "seedance-3d-cartoon",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-car-vehicle",
+      "name": "seedance-car-vehicle",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-epic-fantasy-scifi",
+      "name": "seedance-epic-fantasy-scifi",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-fashion-lookbook",
+      "name": "seedance-fashion-lookbook",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-food-asmr",
+      "name": "seedance-food-asmr",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-game-ui-livestream",
+      "name": "seedance-game-ui-livestream",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-horror-suspense",
+      "name": "seedance-horror-suspense",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-meme-comedy",
+      "name": "seedance-meme-comedy",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-pet-animal",
+      "name": "seedance-pet-animal",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-production-workflow",
+      "name": "seedance-production-workflow",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-prompt-library",
+      "name": "seedance-prompt-library",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-retro-dv-home-video",
+      "name": "seedance-retro-dv-home-video",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-sports-extreme",
+      "name": "seedance-sports-extreme",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-storyboard-grid-to-video",
+      "name": "seedance-storyboard-grid-to-video",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "learnprompt-awesome-seedance-seedance-travel-city-walk",
+      "name": "seedance-travel-city-walk",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-kling-3-0-deep-dive",
+      "name": "kling-3-0-deep-dive",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-media-project",
+      "name": "media-project",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-nanobanana",
+      "name": "nanobanana",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-phoneticize",
+      "name": "phoneticize",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-scene-inventory-extractor",
+      "name": "scene-inventory-extractor",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-seedance-2-deep-dive",
+      "name": "seedance-2-deep-dive",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-shot-specifier",
+      "name": "shot-specifier",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "leynos-visual-storytelling-skills-video-generator",
+      "name": "video-generator",
+      "stages": [
+        "production",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "kling",
+        "seedance",
+        "nanobanana"
+      ],
+      "license": "ISC",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "liuxiao20051106-prog-ai-manga-drama-ai-manga-drama",
+      "name": "ai-manga-drama",
+      "stages": [
+        "character",
+        "episode-outline",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "liuxiao20051106-prog-ai-manga-drama-ai-manga-drama-en",
+      "name": "ai-manga-drama-en",
+      "stages": [
+        "character",
+        "episode-outline",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-asset-engine",
+      "name": "sd-asset-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-combat-engine",
+      "name": "sd-combat-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-decision-engine",
+      "name": "sd-decision-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-feed-engine",
+      "name": "sd-feed-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-jieshuo-engine",
+      "name": "sd-jieshuo-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-overseas-engine",
+      "name": "sd-overseas-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-qc-engine",
+      "name": "sd-qc-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-real-engine",
+      "name": "sd-real-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-recon-engine",
+      "name": "sd-recon-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-script-engine",
+      "name": "sd-script-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-storyboard-engine",
+      "name": "sd-storyboard-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-sd-xuanhuan-engine",
+      "name": "sd-xuanhuan-engine",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-manju-laoli-skill-short-drama-director",
+      "name": "short-drama-director",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "lixiaoxiao9888-create-short-drama-factory-short-drama-factory",
+      "name": "short-drama-factory",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "script",
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "liyue-aigc-seedance-2-5-video-director-seedance-2-5-video-director",
+      "name": "seedance-2-5-video-director",
+      "stages": [
+        "script",
+        "script-review",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "luojiangyong-muse-video-skill-muse-video",
+      "name": "muse-video",
+      "stages": [
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "mengxiujie-manjuforge-manjuforge",
+      "name": "manjuforge",
+      "stages": [
+        "episode-outline",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT-0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "muxia0396-novel-to-ai-short-drama-skill-novel-to-ai-short-drama",
+      "name": "novel-to-ai-short-drama",
+      "stages": [
+        "adaptation",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia",
+      "name": "sepia",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia-hemingway",
+      "name": "sepia-hemingway",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia-recreate",
+      "name": "sepia-recreate",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia-refactor",
+      "name": "sepia-refactor",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia-review",
+      "name": "sepia-review",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nanako0129-sepia-sepia-write",
+      "name": "sepia-write",
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nigo-studio-ai-film-skills-character-consistency",
+      "name": "character-consistency",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "nigo-studio-ai-film-skills-video-prompt-director",
+      "name": "video-prompt-director",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield",
+      "name": "higgsfield",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-3d",
+      "name": "higgsfield-3d",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-acting",
+      "name": "higgsfield-acting",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-apps",
+      "name": "higgsfield-apps",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-assist",
+      "name": "higgsfield-assist",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-audio",
+      "name": "higgsfield-audio",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-camera",
+      "name": "higgsfield-camera",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-canvas",
+      "name": "higgsfield-canvas",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-character-design",
+      "name": "higgsfield-character-design",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-cinema",
+      "name": "higgsfield-cinema",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-content-factory",
+      "name": "higgsfield-content-factory",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-facs",
+      "name": "higgsfield-facs",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-gpt-image-2",
+      "name": "higgsfield-gpt-image-2",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-image-shots",
+      "name": "higgsfield-image-shots",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-marketing-studio",
+      "name": "higgsfield-marketing-studio",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-mixed-media",
+      "name": "higgsfield-mixed-media",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-models",
+      "name": "higgsfield-models",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-moodboard",
+      "name": "higgsfield-moodboard",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-motion",
+      "name": "higgsfield-motion",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-motion-design",
+      "name": "higgsfield-motion-design",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-pipeline",
+      "name": "higgsfield-pipeline",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-prompt",
+      "name": "higgsfield-prompt",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-recall",
+      "name": "higgsfield-recall",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-recipes",
+      "name": "higgsfield-recipes",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-repurpose",
+      "name": "higgsfield-repurpose",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-scene-engine",
+      "name": "higgsfield-scene-engine",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-seedance",
+      "name": "higgsfield-seedance",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-seedance-2-5",
+      "name": "higgsfield-seedance-2-5",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-seedance-vfx",
+      "name": "higgsfield-seedance-vfx",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-shotlist-director",
+      "name": "higgsfield-shotlist-director",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-soul",
+      "name": "higgsfield-soul",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-stack",
+      "name": "higgsfield-stack",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-style",
+      "name": "higgsfield-style",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-troubleshoot",
+      "name": "higgsfield-troubleshoot",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-vibe-motion",
+      "name": "higgsfield-vibe-motion",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "osidemedia-higgsfield-ai-prompt-skill-higgsfield-workspaces",
+      "name": "higgsfield-workspaces",
+      "stages": [
+        "character",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "kling",
+        "veo",
+        "wan"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "phileiny-h3-storyboard-skill-h3-storyboard",
+      "name": "h3-storyboard",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
       "id": "screenwriter-skill-review",
       "name": "内容负责人编剧审稿（38 条铁律）",
-      "stages": ["script-review"],
-      "models": ["*"],
+      "stages": [
+        "script-review"
+      ],
+      "models": [
+        "*"
+      ],
       "license": "MIT",
       "quality": "unevaluated",
       "enabledByDefault": false
+    },
+    {
+      "id": "shanyin-ai-shanyin-director-master-director-master",
+      "name": "director-master",
+      "stages": [
+        "script-review",
+        "storyboard"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "slavasexton-comfyui-agent-kit-comfyui",
+      "name": "comfyui",
+      "stages": [
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "seedance",
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "slavasexton-comfyui-agent-kit-krea",
+      "name": "krea",
+      "stages": [
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "seedance",
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "slavasexton-comfyui-agent-kit-minimax-h3",
+      "name": "minimax-h3",
+      "stages": [
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "seedance",
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "slavasexton-comfyui-agent-kit-seedance",
+      "name": "seedance",
+      "stages": [
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "seedance",
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "smixs-visual-skills-image",
+      "name": "image",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "CC-BY-4.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "smixs-visual-skills-video",
+      "name": "video",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "CC-BY-4.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-h3-prompt-writing",
+      "name": "h3-prompt-writing",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-novel-art",
+      "name": "novel-art",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-novel-characters",
+      "name": "novel-characters",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-novel-outline",
+      "name": "novel-outline",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-novel-script",
+      "name": "novel-script",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-novel-storyboard",
+      "name": "novel-storyboard",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-short-drama-director",
+      "name": "short-drama-director",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "suihe1-short-drama-production-short-drama-production",
+      "name": "short-drama-production",
+      "stages": [
+        "adaptation",
+        "episode-outline",
+        "production",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "minimax"
+      ],
+      "license": "Apache-2.0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-0715-scriptwriter",
+      "name": "0715-scriptwriter",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-3d-animation-short-generator",
+      "name": "3d-animation-short-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-ai-manga-planner",
+      "name": "ai-manga-planner",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-ai-music-studio",
+      "name": "ai-music-studio",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-ai-video-script",
+      "name": "ai-video-script",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-brand-promo-video-generator",
+      "name": "brand-promo-video-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-cinematic-ai-comic-director",
+      "name": "cinematic-ai-comic-director",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-co-op-game-intro-generator",
+      "name": "co-op-game-intro-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-comic-drama-generator",
+      "name": "comic-drama-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-era-consistency-optimizer",
+      "name": "era-consistency-optimizer",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-h3-prompt-writing",
+      "name": "h3-prompt-writing",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-handdrawn-live-video-generator",
+      "name": "handdrawn-live-video-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-hf-drama-storyboard-script",
+      "name": "hf-drama-storyboard-script",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-ic-writer",
+      "name": "ic-writer",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-image-prompt-writing",
+      "name": "image-prompt-writing",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-infinite-creation",
+      "name": "infinite-creation",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-manga-drama-generator",
+      "name": "manga-drama-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-manga-full-stack",
+      "name": "manga-full-stack",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-manju-director-agent",
+      "name": "manju-director-agent",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-media-storyboard-design",
+      "name": "media-storyboard-design",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-micro-drama-creator",
+      "name": "micro-drama-creator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-minimalist-product-ad-generator",
+      "name": "minimalist-product-ad-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-music-caption-rewriter",
+      "name": "music-caption-rewriter",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-music-video-subtitle-generator",
+      "name": "music-video-subtitle-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-novel-to-skitscreenplay",
+      "name": "novel-to-skitscreenplay",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-novel-to-storyboard",
+      "name": "novel-to-storyboard",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-novel-to-video",
+      "name": "novel-to-video",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-paper-collage-explainer-generator",
+      "name": "paper-collage-explainer-generator",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-papercraft-stop-motion-explainer",
+      "name": "papercraft-stop-motion-explainer",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-prompt-bozo",
+      "name": "prompt-bozo",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-scene-blocking-consistency",
+      "name": "scene-blocking-consistency",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-script-master",
+      "name": "script-master",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-script-to-manga",
+      "name": "script-to-manga",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-script-to-storyboard",
+      "name": "script-to-storyboard",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-story-pipeline-cn",
+      "name": "story-pipeline-cn",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-tts-voice-design",
+      "name": "tts-voice-design",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "swotatmk-infinite-creation-video-cinematography",
+      "name": "video-cinematography",
+      "stages": [
+        "adaptation",
+        "production",
+        "video-prompt"
+      ],
+      "models": [
+        "comfyui",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-accessory-detail-material-motif-fashion-relay",
+      "name": "accessory-detail-material-motif-fashion-relay",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-action-buildup-censored-ellipse-aftermath-reveal",
+      "name": "action-buildup-censored-ellipse-aftermath-reveal",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-activate-layered-character-dossier",
+      "name": "activate-layered-character-dossier",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-air-cluster-near-surface-wide-landing",
+      "name": "air-cluster-near-surface-wide-landing",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-alternate-graphic-reset-and-action-proof",
+      "name": "alternate-graphic-reset-and-action-proof",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-alternate-obstacles-toward-goal",
+      "name": "alternate-obstacles-toward-goal",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-animate-created-mark-into-world",
+      "name": "animate-created-mark-into-world",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-animate-fixed-frame-construction",
+      "name": "animate-fixed-frame-construction",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-apparent-vulnerability-readiness-reversal-resumption",
+      "name": "apparent-vulnerability-readiness-reversal-resumption",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-asymmetric-ability-commit-evade-impact-proof",
+      "name": "asymmetric-ability-commit-evade-impact-proof",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-asymmetric-route-cost-overtake-proof",
+      "name": "asymmetric-route-cost-overtake-proof",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-asymmetric-scale-evasion-exchange",
+      "name": "asymmetric-scale-evasion-exchange",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-autonomous-packing-disruption-recovery",
+      "name": "autonomous-packing-disruption-recovery",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-bounded-day-loop-recurring-anchor",
+      "name": "bounded-day-loop-recurring-anchor",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-bounded-render-band-progressive-conversion",
+      "name": "bounded-render-band-progressive-conversion",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-breach-resistance-with-asymmetric-force",
+      "name": "breach-resistance-with-asymmetric-force",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-break-contained-space-into-impossible-world",
+      "name": "break-contained-space-into-impossible-world",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-break-kinetic-text-obstacles",
+      "name": "break-kinetic-text-obstacles",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-build-earned-arrival-journey",
+      "name": "build-earned-arrival-journey",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-build-microexpression-greeting-arc",
+      "name": "build-microexpression-greeting-arc",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-build-pace-to-destination-celebration",
+      "name": "build-pace-to-destination-celebration",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-build-viewpoint-scale-spectacle-ladder",
+      "name": "build-viewpoint-scale-spectacle-ladder",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-capability-demo-crowd-witness-challenge",
+      "name": "capability-demo-crowd-witness-challenge",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-carrier-arrival-lead-crossing-group-release",
+      "name": "carrier-arrival-lead-crossing-group-release",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-carrier-relay-shared-world-trailer",
+      "name": "carrier-relay-shared-world-trailer",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-catastrophe-to-miniature-set-proof",
+      "name": "catastrophe-to-miniature-set-proof",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-celebration-word-prop-action-materialization",
+      "name": "celebration-word-prop-action-materialization",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-center-trigger-radial-world-change",
+      "name": "center-trigger-radial-world-change",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-chain-one-tool-through-rescue-route",
+      "name": "chain-one-tool-through-rescue-route",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-character-action-typography-module-carousel",
+      "name": "character-action-typography-module-carousel",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-choreograph-anomaly-materialization",
+      "name": "choreograph-anomaly-materialization",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-collapse-route-after-threshold",
+      "name": "collapse-route-after-threshold",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-connect-independent-roles-to-shared-result",
+      "name": "connect-independent-roles-to-shared-result",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-constricted-route-open-release",
+      "name": "constricted-route-open-release",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-contact-proof-to-substrate-breach",
+      "name": "contact-proof-to-substrate-breach",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-contact-triggered-medium-toggle-progress",
+      "name": "contact-triggered-medium-toggle-progress",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-contact-triggered-toy-scale-creature-reveal",
+      "name": "contact-triggered-toy-scale-creature-reveal",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-contact-triggered-transient-energy-feedback",
+      "name": "contact-triggered-transient-energy-feedback",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-continuous-emotion-escalation-conceal-residue",
+      "name": "continuous-emotion-escalation-conceal-residue",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "t8mars-minimax-h3-prompt-skill-t8-continuous-forward-gauntlet-elevated-symbolic-finish",
+      "name": "continuous-forward-gauntlet-elevated-symbolic-finish",
+      "stages": [
+        "video-prompt"
+      ],
+      "models": [
+        "minimax",
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-character-profile",
+      "name": "character-profile",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-character-relationships",
+      "name": "character-relationships",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-detailed-plot-analyzer",
+      "name": "detailed-plot-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-drama-analyzer",
+      "name": "drama-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-drama-creator",
+      "name": "drama-creator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-drama-evaluator",
+      "name": "drama-evaluator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-drama-planner",
+      "name": "drama-planner",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-drama-workflow",
+      "name": "drama-workflow",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-file-reference",
+      "name": "file-reference",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-ip-evaluator",
+      "name": "ip-evaluator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-knowledge-query",
+      "name": "knowledge-query",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-mind-map-generator",
+      "name": "mind-map-generator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-novel-evaluator",
+      "name": "novel-evaluator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-novel-summarizer",
+      "name": "novel-summarizer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-novel-truncator",
+      "name": "novel-truncator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-output-formatter",
+      "name": "output-formatter",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-plot-keypoints",
+      "name": "plot-keypoints",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-plot-points-analyzer",
+      "name": "plot-points-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-plot-workflow",
+      "name": "plot-workflow",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-result-integrator",
+      "name": "result-integrator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-score-analyzer",
+      "name": "score-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-script-evaluator",
+      "name": "script-evaluator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-series-analyzer",
+      "name": "series-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-story-five-elements",
+      "name": "story-five-elements",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-story-outline-evaluator",
+      "name": "story-outline-evaluator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-story-outliner",
+      "name": "story-outliner",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-story-summarizer",
+      "name": "story-summarizer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-story-type-analyzer",
+      "name": "story-type-analyzer",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-text-splitter",
+      "name": "text-splitter",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-text-truncator",
+      "name": "text-truncator",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "vangong1999-screen-creative-skills-web-search",
+      "name": "web-search",
+      "stages": [
+        "adaptation",
+        "character",
+        "episode-outline"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wddxh-shortvideodirector-auto-video",
+      "name": "auto-video",
+      "stages": [
+        "character",
+        "episode-outline",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wddxh-shortvideodirector-check-video",
+      "name": "check-video",
+      "stages": [
+        "character",
+        "episode-outline",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wddxh-shortvideodirector-creator-create-assets",
+      "name": "creator-create-assets",
+      "stages": [
+        "character",
+        "episode-outline",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wddxh-shortvideodirector-simple-leaf",
+      "name": "simple-leaf",
+      "stages": [
+        "character",
+        "episode-outline",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "woodfantasy-seedance-shotdesign-skills-seedance-shot-design",
+      "name": "seedance-shot-design",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance"
+      ],
+      "license": "MIT-0",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wuwangzhang1216-directorskill-cinematic-director",
+      "name": "cinematic-director",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "wyuzhi-qisi-video-remix-qisi-video-remix",
+      "name": "qisi-video-remix",
+      "stages": [
+        "adaptation",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "xixihhhh-ai-short-drama-skill-dramake",
+      "name": "dramake",
+      "stages": [
+        "adaptation",
+        "production",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "wan",
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama",
+      "name": "short-drama",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-assets",
+      "name": "short-drama-assets",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-develop",
+      "name": "short-drama-develop",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-edit",
+      "name": "short-drama-edit",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-image-prompts",
+      "name": "short-drama-image-prompts",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-knowhow",
+      "name": "short-drama-knowhow",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-novel-analyze",
+      "name": "short-drama-novel-analyze",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-produce",
+      "name": "short-drama-produce",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-review",
+      "name": "short-drama-review",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-storyboard",
+      "name": "short-drama-storyboard",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-video-prompts",
+      "name": "short-drama-video-prompts",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zenstory-ai-drama-skills-short-drama-write",
+      "name": "short-drama-write",
+      "stages": [
+        "adaptation",
+        "character",
+        "script",
+        "script-review",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zhouwei713-chinese-epic-scene-director-chinese-epic-scene-director",
+      "name": "chinese-epic-scene-director",
+      "stages": [
+        "character",
+        "script",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zhu5859243-free-hongguo-shortdrama-screenwriting-hongguo-shortdrama-screenwriting",
+      "name": "hongguo-shortdrama-screenwriting",
+      "stages": [
+        "episode-outline",
+        "script"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zlbigger-story-video-director-story-video-director",
+      "name": "story-video-director",
+      "stages": [
+        "character",
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "*"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    },
+    {
+      "id": "zzzaloong-fight-scene-director-fight-scene-director",
+      "name": "fight-scene-director",
+      "stages": [
+        "storyboard",
+        "video-prompt"
+      ],
+      "models": [
+        "seedance",
+        "minimax"
+      ],
+      "license": "MIT",
+      "quality": "unevaluated",
+      "enabledByDefault": false,
+      "contentPolicy": "imported",
+      "commercialUseAllowed": true
+    }
+  ],
+  "referenceOnly": [
+    {
+      "repo": "AtlasCloudAI/awesome-seedance-2.5-prompts-skills",
+      "license": "未声明",
+      "url": "https://github.com/AtlasCloudAI/awesome-seedance-2.5-prompts-skills",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "JohnKeating1997/spark-video",
+      "license": "未声明",
+      "url": "https://github.com/JohnKeating1997/spark-video",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "MIKA6941/Comfy-H3-Director",
+      "license": "未声明",
+      "url": "https://github.com/MIKA6941/Comfy-H3-Director",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "Shanyin-ai/shanyin-screenwriting-master",
+      "license": "MIT",
+      "url": "https://github.com/Shanyin-ai/shanyin-screenwriting-master",
+      "reason": "未找到 SKILL.md"
+    },
+    {
+      "repo": "SoloEnt-AI/5min-drama-contest",
+      "license": "未声明",
+      "url": "https://github.com/SoloEnt-AI/5min-drama-contest",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "Tencent/workrally",
+      "license": "未声明",
+      "url": "https://github.com/Tencent/workrally",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "UncleWang2088/short-drama-director",
+      "license": "未声明",
+      "url": "https://github.com/UncleWang2088/short-drama-director",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "YvonneMovingon/short-drama-skills",
+      "license": "MIT",
+      "url": "https://github.com/YvonneMovingon/short-drama-skills",
+      "reason": "未找到 SKILL.md"
+    },
+    {
+      "repo": "catyiqian/qianqianwriting",
+      "license": "未声明",
+      "url": "https://github.com/catyiqian/qianqianwriting",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "ciel-oliver/analyze-hit-novel",
+      "license": "未声明",
+      "url": "https://github.com/ciel-oliver/analyze-hit-novel",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "jxshow/jingju-skills",
+      "license": "未声明",
+      "url": "https://github.com/jxshow/jingju-skills",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "liangdabiao/Seedance2-Storyboard-Generator",
+      "license": "未声明",
+      "url": "https://github.com/liangdabiao/Seedance2-Storyboard-Generator",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "liangdabiao/make-prompt-seedance2",
+      "license": "未声明",
+      "url": "https://github.com/liangdabiao/make-prompt-seedance2",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "liangdabiao/smy-seedance-storyboard",
+      "license": "未声明",
+      "url": "https://github.com/liangdabiao/smy-seedance-storyboard",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "liyue-aigc/seedance-2-5-fight-director",
+      "license": "未声明",
+      "url": "https://github.com/liyue-aigc/seedance-2-5-fight-director",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "luanyi824-hash/xiaxia",
+      "license": "未声明",
+      "url": "https://github.com/luanyi824-hash/xiaxia",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "machina-exm/film-studio-skills",
+      "license": "未声明",
+      "url": "https://github.com/machina-exm/film-studio-skills",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "mini-yifan/open-source-video-gen-skill",
+      "license": "未声明",
+      "url": "https://github.com/mini-yifan/open-source-video-gen-skill",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "momo5213/live-action-drama-16x9",
+      "license": "未声明",
+      "url": "https://github.com/momo5213/live-action-drama-16x9",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "mudden2380078550-creator/write-chinese-long-screenplay",
+      "license": "GPL-3.0",
+      "url": "https://github.com/mudden2380078550-creator/write-chinese-long-screenplay",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "oiuv/ai-short-drama",
+      "license": "未声明",
+      "url": "https://github.com/oiuv/ai-short-drama",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "pipivv/gushi-skill",
+      "license": "未声明",
+      "url": "https://github.com/pipivv/gushi-skill",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "popopo-99/zy-cinematic-realism",
+      "license": "未声明",
+      "url": "https://github.com/popopo-99/zy-cinematic-realism",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "qualsenWeb/fight-video-create-skill",
+      "license": "未声明",
+      "url": "https://github.com/qualsenWeb/fight-video-create-skill",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "senmanx/novel-to-manju",
+      "license": "未声明",
+      "url": "https://github.com/senmanx/novel-to-manju",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "zhaihao118/Micro-Drama-Skills",
+      "license": "未声明",
+      "url": "https://github.com/zhaihao118/Micro-Drama-Skills",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "zhlmi/narrative-to-screen-reader",
+      "license": "未声明",
+      "url": "https://github.com/zhlmi/narrative-to-screen-reader",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "zhlmi/screenplay-review-checklist",
+      "license": "未声明",
+      "url": "https://github.com/zhlmi/screenplay-review-checklist",
+      "reason": "未声明许可"
+    },
+    {
+      "repo": "zhurui0523/XiaoLuo-AI-Drama-Skill",
+      "license": "未声明",
+      "url": "https://github.com/zhurui0523/XiaoLuo-AI-Drama-Skill",
+      "reason": "未声明许可"
+    }
+  ],
+  "applications": [
+    {
+      "repo": "ArcReel/ArcReel",
+      "desc": "可自部署视频工作台：小说/剧本 → 角色场景道具资产、分镜、视频和剪映草稿，含跨镜头一致性与费用追踪",
+      "url": "https://github.com/ArcReel/ArcReel"
+    },
+    {
+      "repo": "Forget-C/Jellyfish",
+      "desc": "AI 短剧端到端工作台：剧本输入、结构化分镜、一致性管理、视频生成",
+      "url": "https://github.com/Forget-C/Jellyfish"
+    },
+    {
+      "repo": "HBAI-Ltd/Toonflow-app",
+      "desc": "Toonflow：开源 AI 短剧/漫剧平台，剧本、智能分镜、角色场景资产、图像和视频生成，无限画布 + Agent",
+      "url": "https://github.com/HBAI-Ltd/Toonflow-app"
+    },
+    {
+      "repo": "HITsz-TMG/VideoClaw",
+      "desc": "哈工大（深圳）VideoClaw：AI 视频员工，聊一个想法出一部片，覆盖短剧全流程",
+      "url": "https://github.com/HITsz-TMG/VideoClaw"
+    },
+    {
+      "repo": "HKUDS/ViMax",
+      "desc": "港大 ViMax：导演、编剧、制片、视频生成一体的 Agent 化视频生成",
+      "url": "https://github.com/HKUDS/ViMax"
+    },
+    {
+      "repo": "LingGuoAI/LingGuo-Drama",
+      "desc": "灵果短剧：一站式 AI 短剧/漫剧平台，剧本生成、角色场景道具提取与出图、分镜和帧提示词、视频生成，FFmpeg 合成成片",
+      "url": "https://github.com/LingGuoAI/LingGuo-Drama"
+    },
+    {
+      "repo": "Stonewuu/ai-fusion-video",
+      "desc": "融光：基于 Agent 的全流程 AI 短剧/漫剧/视频创作平台（Java + AgentScope）",
+      "url": "https://github.com/Stonewuu/ai-fusion-video"
+    },
+    {
+      "repo": "alibaba/lumenx",
+      "desc": "阿里 LumenX Studio：小说到动态视频的短漫剧一站式生产，剧本分析、角色定制、分镜、视频合成",
+      "url": "https://github.com/alibaba/lumenx"
+    },
+    {
+      "repo": "chatfire-AI/huobao-drama",
+      "desc": "火宝短剧：一句话生成完整短剧，从剧本到成片全自动",
+      "url": "https://github.com/chatfire-AI/huobao-drama"
+    },
+    {
+      "repo": "dramaclaw/dramaclaw",
+      "desc": "通用 AIGC 视频引擎：剧本到成片一条流水线，覆盖漫剧、广告、电商、乙游",
+      "url": "https://github.com/dramaclaw/dramaclaw"
+    },
+    {
+      "repo": "gzxx-2025/aid-studio",
+      "desc": "AID Studio：可自部署的 AI 漫剧/短剧创作平台，剧本、角色场景资产、分镜、图片与视频生成、配音和成片预览，也能做短片和漫画",
+      "url": "https://github.com/gzxx-2025/aid-studio"
+    },
+    {
+      "repo": "shuyu-labs/BigBanana-AI-Director",
+      "desc": "BigBanana AI 导演：短剧/漫剧一站式平台，「剧本 → 资产 → 关键帧」工业化流程",
+      "url": "https://github.com/shuyu-labs/BigBanana-AI-Director"
+    },
+    {
+      "repo": "waooAI/waoowaoo",
+      "desc": "AI 影视 Agent 工作台（预览版）：图片与视频创作，从短片到真人可控成片",
+      "url": "https://github.com/waooAI/waoowaoo"
+    },
+    {
+      "repo": "xhongc/ai_story",
+      "desc": "AI 视频、动漫、短剧、漫剧自动化生成工具",
+      "url": "https://github.com/xhongc/ai_story"
+    },
+    {
+      "repo": "xuanyustudio/LocalMiniDrama",
+      "desc": "本地运行的 AI 短剧/漫剧工具：故事到成片，项目数据存在本机，图片和视频走云端 API，已接入 Seedance 2",
+      "url": "https://github.com/xuanyustudio/LocalMiniDrama"
+    },
+    {
+      "repo": "yi1108/printfilm",
+      "desc": "PRINTFILM：AI 短视频营销与 AI 短剧创作平台",
+      "url": "https://github.com/yi1108/printfilm"
     }
   ]
 }

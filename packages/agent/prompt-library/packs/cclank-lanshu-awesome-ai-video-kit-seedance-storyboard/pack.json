@@ -1,0 +1,20 @@
+{
+  "id": "cclank-lanshu-awesome-ai-video-kit-seedance-storyboard",
+  "name": "seedance-storyboard",
+  "version": "synced",
+  "summary": "企业 AI 视频项目工具包：Seedance/可灵提示词、分镜、模型选择与调试，附 600 多条 prompt 和方法论",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "kling"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

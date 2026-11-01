@@ -1,0 +1,21 @@
+{
+  "id": "jnmetacode-ai-shortfilm-prompts-shortfilm-prompt",
+  "name": "shortfilm-prompt",
+  "version": "synced",
+  "summary": "把任意想法变成电影感、可直接投喂模型的视频提示词",
+  "stages": [
+    "video-prompt"
+  ],
+  "models": [
+    "sora",
+    "kling",
+    "veo",
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

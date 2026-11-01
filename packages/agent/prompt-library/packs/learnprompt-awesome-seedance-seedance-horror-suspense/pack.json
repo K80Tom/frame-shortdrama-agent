@@ -1,0 +1,18 @@
+{
+  "id": "learnprompt-awesome-seedance-seedance-horror-suspense",
+  "name": "seedance-horror-suspense",
+  "version": "synced",
+  "summary": "Seedance 2.5/2.0 提示词库：800+ 条可追溯原帖的案例、近 500 次跨模型复测，附 skill",
+  "stages": [
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

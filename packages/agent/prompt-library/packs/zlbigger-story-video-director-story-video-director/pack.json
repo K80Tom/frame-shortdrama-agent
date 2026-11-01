@@ -1,0 +1,20 @@
+{
+  "id": "zlbigger-story-video-director-story-video-director",
+  "name": "story-video-director",
+  "version": "synced",
+  "summary": "把任意故事变成图片素材、分镜、中文视听提示词与 API 调用清单",
+  "stages": [
+    "character",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

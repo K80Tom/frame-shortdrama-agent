@@ -1,0 +1,23 @@
+{
+  "id": "mengxiujie-manjuforge-manjuforge",
+  "name": "manjuforge",
+  "version": "synced",
+  "summary": "漫剧/短剧连载引擎：一句话 → 剧本、分镜、配音、提示词，7 个记忆文件 + 22 项一致性检查防人设崩坏",
+  "stages": [
+    "episode-outline",
+    "production",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT-0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

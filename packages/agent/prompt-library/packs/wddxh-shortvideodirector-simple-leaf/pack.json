@@ -1,0 +1,21 @@
+{
+  "id": "wddxh-shortvideodirector-simple-leaf",
+  "name": "simple-leaf",
+  "version": "synced",
+  "summary": "4 个子代理协作，把故事创意转成视频分镜和资产提示词，可调用即梦 CLI 出图、提交视频任务",
+  "stages": [
+    "character",
+    "episode-outline",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

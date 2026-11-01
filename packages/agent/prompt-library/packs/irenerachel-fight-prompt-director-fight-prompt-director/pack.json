@@ -1,0 +1,20 @@
+{
+  "id": "irenerachel-fight-prompt-director-fight-prompt-director",
+  "name": "fight-prompt-director",
+  "version": "synced",
+  "summary": "AI 打戏提示词：角色差异化动作、交锋因果链、跨镜连续性，出高强度/慢节奏/中间型三版，适配 Seedance 与 H3",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

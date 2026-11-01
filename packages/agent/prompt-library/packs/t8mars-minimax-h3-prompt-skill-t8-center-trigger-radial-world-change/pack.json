@@ -1,0 +1,19 @@
+{
+  "id": "t8mars-minimax-h3-prompt-skill-t8-center-trigger-radial-world-change",
+  "name": "center-trigger-radial-world-change",
+  "version": "synced",
+  "summary": "MiniMax H3 / Seedance 2.0 视频提示词案例库与可安装 skill，附视频浏览器",
+  "stages": [
+    "video-prompt"
+  ],
+  "models": [
+    "minimax",
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

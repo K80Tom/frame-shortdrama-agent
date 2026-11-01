@@ -1,0 +1,23 @@
+{
+  "id": "zenstory-ai-drama-skills-short-drama-image-prompts",
+  "name": "short-drama-image-prompts",
+  "version": "synced",
+  "summary": "短剧/漫剧全链路：拆小说、开发、剧本、角色资产、分镜、图/视频提示词、审查",
+  "stages": [
+    "adaptation",
+    "character",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

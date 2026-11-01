@@ -1,0 +1,19 @@
+{
+  "id": "wuwangzhang1216-directorskill-cinematic-director",
+  "name": "cinematic-director",
+  "version": "synced",
+  "summary": "AI 拍片：镜头清单、关键帧与视频提示词，内置斯皮尔伯格等 20 种导演风格",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}
