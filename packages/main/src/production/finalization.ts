@@ -7,6 +7,11 @@ import type { ProductionMediaStore } from '../production-media';
 
 const LOCAL_MEDIA_URI = /^\/api\/production-media\/(media_[a-f0-9]{64})$/u;
 
+/** Per-shot accounting ceiling for the optional vision frame assessment.
+ * Suppliers do not return a settled charge, so this is a run-budget cap,
+ * not a measured invoice. */
+export const DEFAULT_FRAME_ASSESSMENT_COST_MICROS = 1_000_000;
+
 /** 抽帧评估器的结构化契约：编排层只依赖这一小块能力，避免与模型实现耦合。 */
 export interface FrameAssessorLike {
   assess(inputs: readonly { shotId: string; mediaId: string; label: string; hint: string }[]): Promise<FrameAssessmentReport>;
@@ -20,6 +25,21 @@ function prepared(name: string, value: unknown): PreparedProductionExecution {
 function mediaId(artifact: ProductionArtifact): string | null {
   const matched = artifact.uri ? LOCAL_MEDIA_URI.exec(artifact.uri) : null;
   return matched?.[1] ?? null;
+}
+
+function availableBudgetMicros(run: Readonly<StoredProductionRun>): number {
+  const spent = run.budgetLedger.filter(item => item.kind === 'charge').reduce((sum, item) => sum + item.amountMicros, 0);
+  const reserved = Math.max(0, run.budgetLedger.reduce((sum, item) => sum
+    + (item.kind === 'reserve' ? item.amountMicros : 0)
+    - (item.kind === 'charge' || item.kind === 'release' ? item.amountMicros : 0), 0));
+  return run.budgetMicros - spent - reserved;
+}
+
+function storyboardShots(run: Readonly<StoredProductionRun>): Record<string, unknown>[] {
+  const board = run.artifacts.filter(artifact => artifact.status === 'current' && Array.isArray(artifact.metadata.shots))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+  return (Array.isArray(board?.metadata.shots) ? board.metadata.shots : []).filter((item): item is Record<string, unknown> =>
+    Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string'));
 }
 
 function taskArtifacts(run: Readonly<StoredProductionRun>, taskIds: readonly string[], kind?: ProductionArtifact['kind']) {
@@ -171,26 +191,43 @@ export interface ComposeProductionExecutorOptions {
   resolveProjectTitle?: (projectId: string) => Promise<string>;
   /** 合成前镜头抽帧评估：只有注入时才启用；评估失败自动降级为无指令，不阻塞成片。 */
   assessFrames?: FrameAssessorLike;
+  /** Per-shot ceiling reserved before the vision call. Defaults to the shared accounting cap. */
+  frameAssessmentCostMicros?: number;
 }
 
 export class ComposeProductionExecutor implements ProductionExecutor {
   readonly stage = 'compose' as const;
+  private readonly frameAssessmentCostMicros: number;
   constructor(private readonly composer: TimelineComposer,
-    private readonly options: ComposeProductionExecutorOptions = {}) {}
-
-  async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
-    return prepared('timeline-composer', { runId: run.id, taskId: task.id,
-      selectedCandidates: run.candidateSets.filter(set => set.status === 'selected').map(set => set.selectedCandidateId) });
+    private readonly options: ComposeProductionExecutorOptions = {}) {
+    const cost = options.frameAssessmentCostMicros ?? DEFAULT_FRAME_ASSESSMENT_COST_MICROS;
+    if (!Number.isSafeInteger(cost) || cost < 0) throw new Error('frameAssessmentCostMicros must be a non-negative safe integer');
+    this.frameAssessmentCostMicros = cost;
   }
 
-  async execute({ run, task }: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+  async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
+    const shots = storyboardShots(run);
+    const full = this.assessmentCostFor(shots.length);
+    // Decide from the pre-claim balance. Execute must not repeat this check:
+    // the scheduler's reserve is already on the ledger by the time the call runs.
+    const reserve = full > 0 && full <= availableBudgetMicros(run) ? full : 0;
+    return { executor: 'ohao-timeline-composer/1', inputDigest: canonicalDigest({
+      runId: run.id, taskId: task.id,
+      selectedCandidates: run.candidateSets.filter(set => set.status === 'selected').map(set => set.selectedCandidateId),
+      frameAssessment: reserve > 0 ? 'reserved' : this.assessmentConfigured(shots.length) ? 'unbudgeted' : 'off',
+      frameAssessmentShots: shots.map(shot => String(shot.id)),
+      frameAssessmentCostMicros: reserve,
+    }), estimateCostMicros: reserve, requiresPaid: reserve > 0,
+      provider: reserve > 0 ? 'configured-general-model' : null };
+  }
+
+  async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+    const { run, task } = context;
     if (task.scope.kind !== 'episode') return { state: 'blocked', issue: { code: 'COMPOSE_SCOPE_INVALID',
       title: '时间线范围错误', message: '成片时间线只能在整集范围组装。', severity: 'error' } };
+    let assessmentCost = 0;
     try {
-      const board = run.artifacts.filter(artifact => artifact.status === 'current' && Array.isArray(artifact.metadata.shots))
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
-      const shots = (Array.isArray(board?.metadata.shots) ? board.metadata.shots : []).filter((item): item is Record<string, unknown> =>
-        Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string'));
+      const shots = storyboardShots(run);
       if (!shots.length) return { state: 'blocked', issue: { code: 'STORYBOARD_SHOTS_MISSING', title: '分镜不可用',
         message: '没有已采用分镜的镜头清单，不会空编成片。', severity: 'error' } };
       const ids: string[] = [];
@@ -201,25 +238,32 @@ export class ComposeProductionExecutor implements ProductionExecutor {
         ids.push(id);
       }
       const title = await this.resolveTitle(run.projectId);
-      // Frame review is advisory: any model/ffmpeg failure degrades to "no
-      // directives" so a paid shot set never fails to compose just because the
-      // quality pass is unavailable.
+      // The vision call runs only after the scheduler has reserved its ceiling.
+      // A model failure still degrades to a plain compose so already-paid shots
+      // are not stuck, but the ceiling stays charged because the call may have billed.
       let assessment: Awaited<ReturnType<ComposeProductionExecutor['assessShots']>> = null;
-      try { assessment = await this.assessShots(shots, ids); }
-      catch { assessment = null; }
+      let frameAssessmentSkip: 'budget' | 'error' | null = null;
+      const claimed = this.assessmentCostFor(shots.length);
+      if (claimed > 0 && context.operationKey) {
+        assessmentCost = claimed;
+        try { assessment = await this.assessShots(shots, ids); }
+        catch { assessment = null; frameAssessmentSkip = 'error'; }
+      } else if (claimed > 0) frameAssessmentSkip = 'budget';
       const manifest = await this.composer.compose({ videoIds: ids, title, edit: {
         titleCardText: title, titleCardSubtitle: 'AI 自动制作短片',
         endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4,
         targetSeconds: run.targetDurationSec,
         ...(assessment ? { clipDirectives: assessment.directives } : {}) } });
       const edited = manifest.composition.strategy === 'ffmpeg-auto-edit';
-      return { state: 'succeeded', artifacts: [{ key: 'timeline-video', kind: 'video',
+      return { state: 'succeeded', actualCostMicros: assessmentCost, artifacts: [{ key: 'timeline-video', kind: 'video',
         title: edited ? '整集自动剪辑成片' : '整集时间线 MP4',
         uri: `/api/production-media/${manifest.output.id}`, sha256: manifest.output.sha256,
         metadata: { mediaId: manifest.output.id, timelineId: manifest.id, inputMediaIds: ids,
           durationSeconds: manifest.output.probe.durationSeconds, width: manifest.output.probe.width,
           height: manifest.output.probe.height, hasAudio: manifest.output.probe.hasAudio,
           autoEdit: edited, frameAssessment: assessment ? 'applied' : 'skipped',
+          ...(assessmentCost > 0 ? { frameAssessmentCostMicros: assessmentCost } : {}),
+          ...(frameAssessmentSkip ? { frameAssessmentSkip } : {}),
           ...(edited ? {
             titleCardText: manifest.composition.edit?.titleCardText ?? null,
             endCardText: manifest.composition.edit?.endCardText ?? null,
@@ -229,7 +273,20 @@ export class ComposeProductionExecutor implements ProductionExecutor {
       qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: edited ? 'local-auto-edit/1' : 'local-timeline-compose/1',
         summary: edited ? '镜头按分镜顺序叠化剪辑，附加片头片尾卡，输出本地 MP4'
           : '所有已选镜头已按分镜顺序合成为本地 MP4' }] };
-    } catch (error) { return safeMediaFailure(error, 'TIMELINE_COMPOSE_FAILED', '整集时间线合成失败。'); }
+    } catch (error) {
+      const failure = safeMediaFailure(error, 'TIMELINE_COMPOSE_FAILED', '整集时间线合成失败。');
+      return assessmentCost > 0 ? { ...failure, actualCostMicros: assessmentCost } : failure;
+    }
+  }
+
+  private assessmentConfigured(shotCount: number): boolean {
+    return this.assessmentCostFor(shotCount) > 0;
+  }
+
+  private assessmentCostFor(shotCount: number): number {
+    if (!this.options.assessFrames || shotCount <= 0 || this.frameAssessmentCostMicros <= 0) return 0;
+    const full = shotCount * this.frameAssessmentCostMicros;
+    return Number.isSafeInteger(full) ? full : 0;
   }
 
   private async resolveTitle(projectId: string): Promise<string> {

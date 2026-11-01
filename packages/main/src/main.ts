@@ -28,7 +28,8 @@ import { ProductionService } from './production/service';
 import { BreakdownProductionExecutor, StoryboardProductionExecutor, VideoProductionExecutor } from './production/runtime';
 import { AssetsProductionExecutor, DirectorProductionExecutor } from './production/executors';
 import {
-  CandidateProductionExecutor, ComposeProductionExecutor, DeliveryProductionExecutor, ReviewProductionExecutor,
+  CandidateProductionExecutor, ComposeProductionExecutor, DEFAULT_FRAME_ASSESSMENT_COST_MICROS,
+  DeliveryProductionExecutor, ReviewProductionExecutor,
 } from './production/finalization';
 import {
   BoundedProcessRunner, FfprobeVideoProber, FrameAssessor, ProductionMediaIngestor, ProductionMediaStore, TimelineComposer,
@@ -77,6 +78,7 @@ const PRODUCTION_COST_CEILINGS = Object.freeze({
   storyboard: 2_000_000,
   image: 2_000_000,
   video: 5_000_000,
+  frameAssessment: DEFAULT_FRAME_ASSESSMENT_COST_MICROS,
 });
 
 async function main() {
@@ -178,8 +180,10 @@ async function main() {
             new ReviewProductionExecutor(productionMediaStore),
             new ComposeProductionExecutor(timelineComposer, {
               resolveProjectTitle: projectId => breakdown.getProject(projectId).then(project => project.title),
-              // 合成前的镜头抽帧评估：默认开启，可用 Lyra_FRAME_ASSESSMENT=0 关闭；
-              // 评估器内部任何失败都会降级为“无剪辑指令”，不会阻塞已付费的成片。
+              frameAssessmentCostMicros: PRODUCTION_COST_CEILINGS.frameAssessment,
+              // 合成前的镜头抽帧评估：默认开启，可用 Lyra_FRAME_ASSESSMENT=0 关闭。
+              // 开启时按镜头预留费用上限；剩余预算不够则跳过评估并继续合片。
+              // 评估器内部失败仍降级为无剪辑指令，但已发起的调用按上限入账。
               ...(process.env.Lyra_FRAME_ASSESSMENT === '0' ? {} : {
                 assessFrames: new FrameAssessor(productionMediaStore, mediaRunner,
                   { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
