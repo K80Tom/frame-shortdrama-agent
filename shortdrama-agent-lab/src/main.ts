@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -88,11 +89,15 @@ async function main() {
           new PostgresNovelRepository(database), novelService, assetService,
           new DoubaoImageApiAdapter(() => configForRole(config, 'image')));
       }
-      if (await database.hasMigrations(['001', '002', '003', '004', '005', '006', '007'])) {
+      if (await database.hasMigrations(BREAKDOWN_PERSISTENCE_MIGRATIONS)) {
         const repository = new PostgresBreakdownRepository(database);
         breakdownService = new BreakdownService(repository, config);
-        stageRunner = new ExtractFactsStageRunner(repository, breakdownService,
-          new PiExtractFactsStageExecutor(), new MaasStageModelAdapter(config));
+        // 017 adds model_calls.response_json. Without it, a successful paid
+        // extract cannot be recorded and must not be started.
+        if (await database.hasMigrations(EXTRACT_FACTS_LEDGER_MIGRATIONS)) {
+          stageRunner = new ExtractFactsStageRunner(repository, breakdownService,
+            new PiExtractFactsStageExecutor(), new MaasStageModelAdapter(config));
+        }
         storyboardService = new StoryboardService(database, breakdownService, config);
       } else {
         breakdownService = new UnavailableBreakdownService(
@@ -159,8 +164,9 @@ async function main() {
   await productionService?.start();
   await app.listen(config.port, '127.0.0.1');
   const persistence = breakdownService instanceof BreakdownService ? 'PostgreSQL ready' : 'breakdown persistence unavailable';
+  const extractFacts = stageRunner ? 'extract-facts ledger ready' : 'extract-facts ledger unavailable';
   const production = productionService ? 'production orchestration ready' : 'production orchestration unavailable';
-  console.log(`Local backend ready: http://127.0.0.1:${config.port} (${persistence}, ${production}, local only)`);
+  console.log(`Local backend ready: http://127.0.0.1:${config.port} (${persistence}, ${extractFacts}, ${production}, local only)`);
 }
 main().catch(() => {
   console.error('本机后端启动失败：请检查 .env、本机 PostgreSQL 和端口占用。未输出凭据或原始错误。');

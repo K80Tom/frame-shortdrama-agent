@@ -20,7 +20,7 @@ if (!process.env.DATABASE_URL) {
     let projectId;
     try {
       await database.verifyConnection();
-      assert.equal(await database.hasMigrations(['001', '002', '003', '004', '005', '006', '007']), true, 'Run npm run db:migrate before test:db.');
+      assert.equal(await database.hasMigrations(['001', '002', '003', '004', '005', '006', '007', '017']), true, 'Run npm run db:migrate before test:db. Extract-facts ledger persistence requires migration 017.');
       const repository = new PostgresBreakdownRepository(database);
       const service = new BreakdownService(repository, modelConfig);
       const source = { url: 'https://www.qidian.com/chapter/1049358005/906767983/' };
@@ -179,6 +179,11 @@ if (!process.env.DATABASE_URL) {
       assert.equal(executed.execution.attempt.status, 'succeeded');
       assert.equal(executed.execution.modelCalls[0].status, 'succeeded');
       assert.equal(executed.plan.attemptId, executed.execution.attempt.id);
+      const ledger = await database.query('SELECT response_json FROM model_calls WHERE attempt_id = $1', [executed.execution.attempt.id]);
+      assert.equal(ledger.rowCount, 1);
+      assert.deepEqual(ledger.rows[0].response_json, {
+        synopsis: null, characters: [], locations: [], props: [], scenes: [], dialogues: [],
+      });
       const waiting = await service.getRun(executionRun.id);
       assert.equal(waiting.status, 'waiting');
       assert.equal(waiting.task.state, 'waitingHuman');

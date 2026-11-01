@@ -41,3 +41,24 @@ test('local browser can use production routes; paid stages require explicit opt-
     assert.equal(boardCalls, 1);
   } finally { await app.close(); }
 });
+
+test('paid extract-facts stays closed when the stage runner is not ready', async () => {
+  const config = readConfig({});
+  const service = new BreakdownService(new InMemoryBreakdownRepository(), config);
+  const app = await createApp(config, async () => { throw new Error('must not call a provider'); }, { breakdownService: service });
+  const request = (method, url, payload) => app.inject({ method, url,
+    headers: { host: '127.0.0.1:8788', origin: 'http://127.0.0.1:5173', 'x-shortdrama-call': '1' },
+    payload });
+  try {
+    const project = JSON.parse((await request('POST', '/api/projects', { title: '未迁移账本' })).body);
+    await request('POST', `/api/projects/${project.id}/script-versions`, { rawText: '第1场 走廊 夜 内\n林晚：你好。' });
+    const run = JSON.parse((await request('POST', `/api/projects/${project.id}/breakdown-runs`, {
+      maxModelCalls: 1, maxOutputTokens: 4096,
+    })).body);
+    const blocked = await request('POST', `/api/breakdown-runs/${run.id}/execute`, { allowPaid: true });
+    assert.equal(blocked.statusCode, 503);
+    assert.equal(blocked.json().error.code, 'STAGE_RUNNER_UNAVAILABLE');
+    assert.match(blocked.json().error.message, /017/);
+    assert.equal(blocked.body.includes('response_json'), false);
+  } finally { await app.close(); }
+});
