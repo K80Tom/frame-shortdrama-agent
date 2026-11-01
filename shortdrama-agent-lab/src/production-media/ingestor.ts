@@ -123,13 +123,25 @@ export class PinnedHttpsMediaFetcher implements PinnedMediaFetcher {
   }
 }
 
-export interface ProductionMediaIngestorOptions { timeoutMs?: number; maxBytes?: number; maxDnsAddresses?: number }
+export interface ProductionMediaIngestorOptions {
+  timeoutMs?: number;
+  maxBytes?: number;
+  maxDnsAddresses?: number;
+  /**
+   * Opt-in for vendor video CDNs that only resolve inside the corporate network.
+   * When enabled, private-range addresses are accepted for provider-returned URLs;
+   * loopback, link-local and local hostnames remain blocked and the fetch stays
+   * pinned to the resolved address with full TLS hostname verification.
+   */
+  allowIntranetMediaSources?: boolean;
+}
 
 /** Downloads a provider result into verified local storage; the URL itself is never a deliverable. */
 export class ProductionMediaIngestor {
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
   private readonly maxDnsAddresses: number;
+  private readonly allowIntranetMediaSources: boolean;
 
   constructor(private readonly store: ProductionMediaStore,
     private readonly resolver: MediaDnsResolver = new SystemMediaDnsResolver(),
@@ -138,9 +150,11 @@ export class ProductionMediaIngestor {
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maxBytes = options.maxBytes ?? store.limits.maxBytes;
     this.maxDnsAddresses = options.maxDnsAddresses ?? 16;
+    this.allowIntranetMediaSources = options.allowIntranetMediaSources ?? false;
     if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1
       || !Number.isSafeInteger(this.maxBytes) || this.maxBytes < 1 || this.maxBytes > store.limits.maxBytes
-      || !Number.isSafeInteger(this.maxDnsAddresses) || this.maxDnsAddresses < 1 || this.maxDnsAddresses > 64) {
+      || !Number.isSafeInteger(this.maxDnsAddresses) || this.maxDnsAddresses < 1 || this.maxDnsAddresses > 64
+      || typeof this.allowIntranetMediaSources !== 'boolean') {
       throw new ProductionMediaError(500, 'REMOTE_MEDIA_INGEST_CONFIG_INVALID', '远程媒体入库配置无效。');
     }
   }
@@ -203,13 +217,34 @@ export class ProductionMediaIngestor {
     const unique = new Map<string, ResolvedAddress>();
     for (const value of addresses) {
       const family = value && typeof value.address === 'string' ? isIP(value.address) : 0;
-      if ((family !== 4 && family !== 6) || value.family !== family || !isPublicInternetAddress(value.address)) {
+      const addressAllowed = this.allowIntranetMediaSources
+        ? isNonLocalIntranetAddress(value.address, family)
+        : isPublicInternetAddress(value.address);
+      if ((family !== 4 && family !== 6) || value.family !== family || !addressAllowed) {
         throw new ProductionMediaError(403, 'REMOTE_MEDIA_ADDRESS_FORBIDDEN', '远程视频地址指向私网、本机或保留网络。');
       }
       unique.set(`${family}:${value.address.toLowerCase()}`, { address: value.address, family });
     }
     return [...unique.values()];
   }
+}
+
+/** Intranet mode: accept private ranges but never loopback, unspecified or link-local targets. */
+function isNonLocalIntranetAddress(address: string, family: number): boolean {
+  if (family === 4) {
+    const parts = address.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    const [a, b] = parts as [number, number, number, number];
+    return !(a === 0 || a === 127 || (a === 169 && b === 254));
+  }
+  if (family !== 6) return false;
+  const value = ipv6ToBigInt(address);
+  if (value === null) return false;
+  const unspecified = value === 0n;
+  const loopback = value === 1n;
+  const ipv4MappedLoopback = matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96) && (value & 0xff000000n) === (0x7fn << 24n);
+  const linkLocal = matchesPrefix(value, ipv6ToBigInt('fe80::')!, 10);
+  return !unspecified && !loopback && !ipv4MappedLoopback && !linkLocal;
 }
 
 export function isPublicInternetAddress(address: string): boolean {

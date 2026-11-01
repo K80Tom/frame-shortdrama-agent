@@ -2,9 +2,15 @@ import { Type, type Static } from '@sinclair/typebox';
 import Ajv from 'ajv';
 
 const Text = Type.String({ minLength: 1, maxLength: 1000000, pattern: '\\S' });
+const ContentPart = Type.Union([
+  Type.Object({ type: Type.Literal('text'), text: Text }, { additionalProperties: false }),
+  Type.Object({ type: Type.Literal('image'),
+    mediaType: Type.Union([Type.Literal('image/jpeg'), Type.Literal('image/png')]),
+    dataBase64: Type.String({ minLength: 1, maxLength: 400000 }) }, { additionalProperties: false }),
+]);
 const Message = Type.Object({
   role: Type.Union([Type.Literal('system'), Type.Literal('assistant'), Type.Literal('user')]),
-  content: Text,
+  content: Type.Union([Text, Type.Array(ContentPart, { minItems: 1, maxItems: 8 })]),
 }, { additionalProperties: false });
 
 export const CallSchema = Type.Object({

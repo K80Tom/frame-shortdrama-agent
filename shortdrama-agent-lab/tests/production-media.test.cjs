@@ -246,6 +246,40 @@ test('provider ingest rejects local, private, documentation and mixed DNS answer
   assert.equal(fetches, 0);
 });
 
+test('allowIntranetMediaSources lets vendor intranet CDNs through while local targets stay blocked', async t => {
+  const f = await fixture(t, { intranet: probe({ durationSeconds: 4 }) });
+  await t.test('private DNS answer is fetched and stored', async () => {
+    const fetchCalls = [];
+    const ingestor = new ProductionMediaIngestor(f.store,
+      { resolve: async () => [{ address: '10.35.10.197', family: 4 }] },
+      { fetch: async (url, options) => {
+        fetchCalls.push({ url: url.toString(), addresses: structuredClone(options.addresses) });
+        return { status: 200, headers: { 'content-type': 'video/mp4', 'content-length': String(Buffer.byteLength('intranet')) }, body: Buffer.from('intranet') };
+      } }, { allowIntranetMediaSources: true });
+    const media = await ingestor.ingestProviderUrl('https://tos-cdn.vendor-cdn.example/video.mp4?x=1');
+    assert.equal(media.sourceKind, 'providerDownload');
+    assert.equal(fetchCalls.length, 1);
+    assert.deepEqual(fetchCalls[0].addresses, [{ address: '10.35.10.197', family: 4 }]);
+    assert.equal(fetchCalls[0].url, 'https://tos-cdn.vendor-cdn.example/video.mp4?x=1');
+  });
+  await t.test('loopback, link-local and local hostnames remain forbidden', async () => {
+    let fetches = 0;
+    const mustNotFetch = { fetch: async () => { fetches++; throw new Error('must not fetch'); } };
+    for (const address of ['127.0.0.1', '169.254.169.254', '::1', '::ffff:127.0.0.1', 'fe80::1', '0.0.0.0']) {
+      const family = address.includes(':') ? 6 : 4;
+      const ingestor = new ProductionMediaIngestor(f.store,
+        { resolve: async () => [{ address, family }] }, mustNotFetch, { allowIntranetMediaSources: true });
+      await assert.rejects(ingestor.ingestProviderUrl('https://media.provider.example/video.mp4'),
+        rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'), address);
+    }
+    const localName = new ProductionMediaIngestor(f.store,
+      { resolve: async () => [{ address: '10.1.2.3', family: 4 }] }, mustNotFetch, { allowIntranetMediaSources: true });
+    await assert.rejects(localName.ingestProviderUrl('https://assets.localhost/video.mp4'),
+      rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+    assert.equal(fetches, 0);
+  });
+});
+
 test('provider ingest forbids redirects and rejects non-MP4, encoded, oversized or inconsistent responses', async t => {
   const f = await fixture(t, { valid: probe() }, { limits: { maxBytes: 16 } });
   const resolver = { resolve: async () => [{ address: '93.184.216.34', family: 4 }] };
@@ -349,6 +383,161 @@ test('timeline composition uses only validated local objects, saves a manifest, 
   assert.deepEqual(await composer.compose({ videoIds: [first.id, second.id], title: '第一集' }), manifest);
   assert.equal(calls.length, 1, 'saved timeline must not rerun ffmpeg');
   assert.deepEqual(await f.store.readManifest(manifest.id), manifest);
+});
+
+test('auto edit adds title and end cards with crossfades and keeps a deterministic manifest', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 1, width: 721, height: 1279 }),
+    'clip-b': probe({ durationSeconds: 2, width: 1080, height: 1920 }),
+    edited: probe({ durationSeconds: 6.5, width: 722, height: 1280 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  const calls = [];
+  const runner = { run: async (command, args) => {
+    if (args.includes('-filters')) {
+      return { stdout: Buffer.from(' Filters:\n TSC drawtext          V->V       Draw text on top of video frames.\n'),
+        stderr: Buffer.alloc(0) };
+    }
+    calls.push([...args]);
+    await writeFile(args.at(-1), 'edited');
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
+    edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
+      endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  assert.equal(manifest.composition.edit.titleCardText, '吞噬星空');
+  assert.equal(manifest.composition.edit.titleCardSubtitle, 'AI 自动制作短片');
+  assert.equal(manifest.composition.edit.endCardText, '本片由 AI 流水线自动生成');
+  assert.equal(manifest.composition.edit.transitionSeconds, 0.4);
+  assert.equal(manifest.composition.edit.titleCardSeconds, 2.5);
+  assert.equal(manifest.composition.edit.endCardSeconds, 2.2);
+  // 1 + 2 + 2.5 + 2.2 - 3 x 0.4 = 6.5
+  assert.equal(manifest.composition.expectedDurationSeconds, 6.5);
+  assert.equal(calls.length, 1);
+  const flat = calls[0].join(' ');
+  assert.ok(flat.includes('xfade=transition=fade:duration=0.400:offset=2.100'));
+  assert.ok(flat.includes('acrossfade=d=0.400'));
+  assert.ok(flat.includes('color=c=0x0A0A0F:s=722x1280:r=30'));
+  assert.ok(flat.includes('anullsrc=channel_layout=stereo:sample_rate=48000'));
+  const graph = calls[0][calls[0].indexOf('-filter_complex') + 1];
+  assert.ok(graph.split(';').every(segment => segment.startsWith('[')),
+    'every filter segment must open with an input label so ffmpeg can parse the graph');
+  assert.ok(flat.includes("drawtext=fontfile="), 'drawtext-capable ffmpeg must render card text');
+  assert.ok(flat.includes("text='吞噬星空'"), 'title card text must be drawn');
+  assert.equal(calls[0].some(value => value.includes('concat=n=')), false, 'crossfade path must not use concat');
+  assert.deepEqual(await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
+    edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
+      endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } }), manifest);
+  assert.equal(calls.length, 1, 'saved auto-edit timeline must not rerun ffmpeg');
+});
+
+test('auto edit degrades to textless cards when the ffmpeg build lacks drawtext', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 1, width: 721, height: 1279 }),
+    'clip-b': probe({ durationSeconds: 2, width: 1080, height: 1920 }),
+    edited: probe({ durationSeconds: 6.5, width: 722, height: 1280 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  const calls = [];
+  const runner = { run: async (command, args) => {
+    if (args.includes('-filters')) {
+      return { stdout: Buffer.from(' Filters:\n TSC scale             V->V       Scale the input video size.\n'),
+        stderr: Buffer.alloc(0) };
+    }
+    calls.push([...args]);
+    await writeFile(args.at(-1), 'edited');
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
+    edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
+      endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  // 卡片时长与转场结构保持不变：1 + 2 + 2.5 + 2.2 - 3 x 0.4 = 6.5
+  assert.equal(manifest.composition.expectedDurationSeconds, 6.5);
+  assert.equal(calls.length, 1);
+  const flat = calls[0].join(' ');
+  const graph = calls[0][calls[0].indexOf('-filter_complex') + 1];
+  assert.ok(graph.split(';').every(segment => segment.startsWith('[')),
+    'every filter segment must open with an input label so ffmpeg can parse the graph');
+  assert.equal(flat.includes('drawtext'), false, 'textless fallback must not reference a missing ffmpeg filter');
+  assert.ok(flat.includes('color=c=0x0A0A0F:s=722x1280:r=30'), 'cards keep the solid background');
+  assert.ok(flat.includes('xfade=transition=fade:duration=0.400:offset=2.100'));
+});
+
+test('target duration trims every clip proportionally so the film lands on the frozen length', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 4, width: 1080, height: 1920 }),
+    'clip-b': probe({ durationSeconds: 6, width: 1080, height: 1920 }),
+    edited: probe({ durationSeconds: 10, width: 1080, height: 1920 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  const calls = [];
+  const runner = { run: async (command, args) => {
+    if (args.includes('-filters')) {
+      return { stdout: Buffer.from(' Filters:\n TSC drawtext V->V Draw text.\n'), stderr: Buffer.alloc(0) };
+    }
+    calls.push([...args]);
+    await writeFile(args.at(-1), 'edited');
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner);
+  const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
+    edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
+      endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4, targetSeconds: 10 } });
+  // pieces = title + 2 clips + end = 4, transitions = 3 x 0.4 = 1.2 overlap
+  // scale = (10 - 4.7 + 1.2) / 10 = 0.65 -> clip durations 2.6s and 3.9s
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  assert.ok(Math.abs(manifest.composition.expectedDurationSeconds - 10) < 0.01);
+  const flat = calls[0].join(' ');
+  assert.ok(flat.includes('trim=duration=2.600'), 'first clip must be trimmed to 2.6s');
+  assert.ok(flat.includes('trim=duration=3.900'), 'second clip must be trimmed to 3.9s');
+  assert.ok(flat.includes('atrim=duration=2.600'), 'audio must be trimmed in sync');
+  assert.ok(flat.includes('trim=duration=2.500') === false, 'cards keep their own fixed durations');
+  assert.ok(flat.includes('xfade=transition=fade:duration=0.400:offset=4.300'), 'crossfade offsets follow trimmed durations');
+});
+
+test('frame-assessment directives drop, trim and speed up clips before the timeline is built', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 4, width: 1080, height: 1920 }),
+    'clip-b': probe({ durationSeconds: 6, width: 1080, height: 1920 }),
+    'clip-c': probe({ durationSeconds: 5, width: 1080, height: 1920 }),
+    edited: probe({ durationSeconds: 10.7, width: 1080, height: 1920 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  const third = await f.store.putVideoBuffer(Buffer.from('clip-c'));
+  const calls = [];
+  const runner = { run: async (command, args) => {
+    if (args.includes('-filters')) return { stdout: Buffer.from(' Filters:\n TSC drawtext V->V Draw text.\n'), stderr: Buffer.alloc(0) };
+    calls.push([...args]);
+    await writeFile(args.at(-1), 'edited');
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner);
+  const manifest = await composer.compose({ videoIds: [first.id, second.id, third.id], title: '吞噬星空',
+    edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片', endCardText: '本片由 AI 流水线自动生成',
+      transitionSeconds: 0.4, targetSeconds: null,
+      clipDirectives: [
+        { videoId: first.id, action: 'speedup', speedFactor: 1.25 },
+        { videoId: second.id, action: 'trim', trimSeconds: 4 },
+        { videoId: third.id, action: 'drop' },
+      ] } });
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  // kept = 2 clips (3.2s after 1.25x speed + 4s trimmed) + title 2.5 + end 2.2, 3 x 0.4 overlap
+  assert.ok(Math.abs(manifest.composition.expectedDurationSeconds - 10.7) < 0.05);
+  const flat = calls.join(' ');
+  assert.ok(flat.includes('setpts=PTS/1.25'), 'speedup clip must use setpts division');
+  assert.ok(flat.includes('atempo=1.25'), 'speedup clip must keep audio in sync');
+  assert.ok(flat.includes('trim=duration=4.000'), 'trim directive must shorten the clip');
+  const mediaInputs = calls[0].filter((arg, index) => calls[0][index - 1] === '-i' && arg.endsWith('.mp4'));
+  assert.equal(mediaInputs.length, 2, 'dropped clip must not be passed as an input file');
+  assert.equal(manifest.inputs.length, 2, 'dropped clip must not appear in the manifest inputs');
 });
 
 test('composition blocks missing local video, remote URLs, mixed audio and invalid outputs', async t => {

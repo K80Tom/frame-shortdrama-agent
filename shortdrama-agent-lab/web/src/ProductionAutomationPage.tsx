@@ -13,7 +13,7 @@ import {
 import './production-automation.css';
 
 const pendingKey = 'ohao:production-run-pending:v1';
-const createStages = ['剧本拆解', '资产准备', '分镜设计', '3D 预演', '镜头生产包', '视频抽卡', '自动技术复核', '成片时间线合成', '最终出片'];
+const createStages = ['剧本拆解', '资产准备', '分镜设计', '3D 预演', '镜头生产包', '视频抽卡', '自动技术复核', '自动剪辑', '最终出片'];
 const runLabels: Record<string, string> = { queued: '准备中', running: '制作中', waitingHuman: '等待处理', paused: '已暂停', pausedBudget: '预算已暂停', reconciling: '正在对账', completed: '已完成', partial: '部分完成', failed: '未完成', cancelled: '已取消' };
 const taskLabels: Record<string, string> = { pending: '等待', ready: '就绪', running: '进行中', waitingExternal: '等待模型', validating: '校验中', retryWait: '等待重试', reconciling: '正在对账', waitingHuman: '待处理', succeeded: '完成', failed: '失败', skipped: '按需跳过', cancelled: '已取消', invalidated: '已失效', superseded: '已替代', needsAttention: '需处理' };
 const stageStateLabels: Record<string, string> = { pending: '未开始', running: '进行中', needsAttention: '需处理', succeeded: '已完成', skipped: '按需跳过' };
@@ -26,7 +26,7 @@ const stageDescriptions: Record<string, string> = {
   video: '逐镜头调用视频模型生成片段，受预算与候选上限约束。',
   candidates: '同一镜头的多个候选并排比较，由你或自动策略选优。',
   review: '本地技术复核：容器、哈希、画幅、时长与音轨逐一校验。',
-  compose: '把已选镜头按时间线合成为整集成片。',
+  compose: '把已选镜头叠化剪辑成整集成片，自动附加片头片尾卡。',
   deliver: '成片通过最终技术校验后交付，保留完整溯源记录。',
 };
 const stageAliases = {
@@ -467,7 +467,7 @@ function StageView({ run, stageKey, selectedTaskId, busy, onBack, onStage, onTas
         </section>
         {stageKey === 'deliver' && <section className="pa-panel pa-delivery">
           <div className="pa-section-head"><div><span>DELIVERY</span><h2>最终交付</h2></div><Film size={16} /></div>
-          {run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与成片时间线合成完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}
+          {run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}
         </section>}
         <div className="pa-stage-nav">
           {prev ? <button onClick={() => onStage(prev.key)}><ChevronLeft size={14} />上一阶段 · {prev.label}</button> : <span />}
@@ -512,7 +512,7 @@ function OverviewView({ run, busy, onStage, onMatrix, onTask, onResolve, onRetry
     </section>
     <div className="pa-bottom-grid">
       <section className="pa-panel pa-timeline"><div className="pa-section-head"><div><span>ACTIVITY</span><h2>运行记录</h2></div><Activity size={16} /></div>{run.timeline.length ? <ol>{run.timeline.slice(0, 10).map(item => <li key={item.id}><i /><div><strong>{item.message}</strong><small>{dateText(item.createdAt)}</small></div></li>)}</ol> : <p className="pa-empty-copy">运行建立后，真实状态变化和人工决定会记录在这里。</p>}</section>
-      <section className="pa-panel pa-delivery"><div className="pa-section-head"><div><span>DELIVERY</span><h2>最终交付</h2></div><Film size={16} /></div>{run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与成片时间线合成完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}</section>
+      <section className="pa-panel pa-delivery"><div className="pa-section-head"><div><span>DELIVERY</span><h2>最终交付</h2></div><Film size={16} /></div>{run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}</section>
     </div>
   </>;
 }

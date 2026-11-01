@@ -180,6 +180,65 @@ test('DoubaoImageClient rejects DNS names resolving to any non-public address an
   });
 });
 
+test('DoubaoImageClient defaults to inline b64_json and still falls back to guarded URL download', async t => {
+  await t.test('default request asks for b64_json', async () => {
+    let requestBody = null;
+    const client = new DoubaoImageClient(config(async (url, init) => {
+      requestBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ data: [{ b64_json: IMAGE.toString('base64') }] }));
+    }));
+    const result = await client.generateImage({ prompt: '默认内联' });
+    assert.equal(requestBody.response_format, 'b64_json');
+    assert.equal(result.source, 'b64_json');
+  });
+  await t.test('URL-only response still downloads through the guard', async () => {
+    const calls = [];
+    const client = new DoubaoImageClient(config(async url => {
+      calls.push(url);
+      if (calls.length === 1) return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example.test/generated.png' }] }));
+      return new Response(IMAGE, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+    }));
+    const result = await client.generateImage({ prompt: '仅返回链接' });
+    assert.equal(calls.length, 2);
+    assert.equal(result.source, 'url');
+  });
+});
+
+test('allowIntranetMediaSources permits vendor intranet CDNs but keeps local targets blocked', async t => {
+  await t.test('private-range DNS answer is downloaded', async () => {
+    const calls = [];
+    const client = new DoubaoImageClient(config(async url => {
+      calls.push(url);
+      if (calls.length === 1) return new Response(JSON.stringify({ data: [{ url: 'https://tos-cdn.vendor.test/generated.png' }] }));
+      return new Response(IMAGE, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+    }, { allowIntranetMediaSources: true, lookup: async () => [{ address: '10.35.10.197', family: 4 }] }));
+    const result = await client.generateImage({ prompt: '内网 CDN', responseFormat: 'url' });
+    assert.equal(calls.length, 2);
+    assert.equal(result.source, 'url');
+  });
+  await t.test('loopback and link-local literals stay blocked', async () => {
+    for (const unsafeUrl of ['https://127.0.0.1/generated.png', 'https://169.254.169.254/latest/meta-data',
+      'https://[::1]/generated.png', 'https://[fe80::1]/generated.png', 'https://[::ffff:127.0.0.1]/generated.png']) {
+      let calls = 0;
+      const client = new DoubaoImageClient(config(async () => {
+        calls++;
+        return new Response(JSON.stringify({ data: [{ url: unsafeUrl }] }));
+      }, { allowIntranetMediaSources: true }));
+      await assert.rejects(client.generateImage({ prompt: '本机仍拒绝', responseFormat: 'url' }), isCode('MEDIA_DOWNLOAD_UNSAFE'));
+      assert.equal(calls, 1);
+    }
+  });
+  await t.test('localhost-style hostnames stay blocked', async () => {
+    let calls = 0;
+    const client = new DoubaoImageClient(config(async () => {
+      calls++;
+      return new Response(JSON.stringify({ data: [{ url: 'https://assets.localhost/generated.png' }] }));
+    }, { allowIntranetMediaSources: true }));
+    await assert.rejects(client.generateImage({ prompt: '本机域名仍拒绝', responseFormat: 'url' }), isCode('MEDIA_DOWNLOAD_UNSAFE'));
+    assert.equal(calls, 1);
+  });
+});
+
 test('DoubaoImageClient rejects non-HTTPS, oversized and invalid image output without retrying', async t => {
   await t.test('non-HTTPS URL', async () => {
     let calls = 0;

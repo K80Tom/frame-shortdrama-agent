@@ -45,6 +45,29 @@ export interface LocalVideoContent {
 export interface ComposeTimelineRequest {
   videoIds: string[];
   title?: string;
+  /** 提供该字段即启用自动剪辑：片头/片尾卡 + 镜头间叠化。 */
+  edit?: TimelineEditRequest;
+}
+
+export interface TimelineEditRequest {
+  titleCardText?: string;
+  titleCardSubtitle?: string;
+  endCardText?: string;
+  /** 叠化时长，0 表示硬切；默认 0.4s，上限 1.5s。 */
+  transitionSeconds?: number;
+  /** 目标总时长（秒，含卡片与转场）。提供时各镜头按比例裁剪，保证成片落在目标时长附近。 */
+  targetSeconds?: number;
+  /** 逐镜头剪辑指令（来自抽帧质量评估）：保留/裁短/加速/剔除。 */
+  clipDirectives?: TimelineClipDirective[];
+}
+
+export interface TimelineClipDirective {
+  videoId: string;
+  action: 'keep' | 'trim' | 'speedup' | 'drop';
+  /** action=trim 时保留的秒数。 */
+  trimSeconds?: number;
+  /** action=speedup 时的倍速（1.2–2）。 */
+  speedFactor?: number;
 }
 
 export interface TimelineManifest {
@@ -64,13 +87,24 @@ export interface TimelineManifest {
   }>;
   output: LocalVideoObject;
   composition: {
-    strategy: 'ffmpeg-concat-filter';
+    strategy: 'ffmpeg-concat-filter' | 'ffmpeg-auto-edit';
     videoCodec: 'libx264';
     audioCodec: 'aac' | null;
     width: number;
     height: number;
     expectedDurationSeconds: number;
+    /** 仅 strategy === 'ffmpeg-auto-edit' 时存在。 */
+    edit?: TimelineEditPlan;
   };
+}
+
+export interface TimelineEditPlan {
+  titleCardText: string | null;
+  titleCardSubtitle: string | null;
+  endCardText: string | null;
+  transitionSeconds: number;
+  titleCardSeconds: number | null;
+  endCardSeconds: number | null;
 }
 
 export interface ProductionMediaLimits {

@@ -17,6 +17,12 @@ export interface AppConfig {
   /** Runtime-only service. Never serialize AppConfig or return it to the browser. */
   modelConnections?: ModelConnections;
   callBudget?: { active: number };
+  /**
+   * Opt-in: provider-returned media download URLs may resolve to intranet addresses
+   * (e.g. a vendor TOS CDN reachable only inside the corporate network). Localhost
+   * and link-local hostnames remain blocked regardless of this flag.
+   */
+  mediaAllowIntranetSources?: boolean;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -47,8 +53,14 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('LLM_REASONING_EFFORT is unsupported for LLM_DEFAULT_MODEL');
   }
   const port = integer('PORT', 8788, 1024, 65535);
+  const intranetFlag = env.MEDIA_ALLOW_INTRANET_SOURCES;
+  if (intranetFlag !== undefined && !['1', 'true', '0', 'false'].includes(intranetFlag.trim().toLowerCase())) {
+    throw new Error('Invalid MEDIA_ALLOW_INTRANET_SOURCES');
+  }
   return Object.freeze({ port, provider: 'maas', baseUrl, apiKey, defaultModel, reasoningEffort,
     maxOutputTokens: integer('LLM_MAX_OUTPUT_TOKENS', 8192, 256, 32768),
     timeoutMs: integer('LLM_TIMEOUT_MS', 180000, 1000, 600000),
-    maxConcurrentCalls: integer('LLM_MAX_CONCURRENT_CALLS', 2, 1, 8) });
+    maxConcurrentCalls: integer('LLM_MAX_CONCURRENT_CALLS', 2, 1, 8),
+    mediaAllowIntranetSources: intranetFlag !== undefined
+      && ['1', 'true'].includes(intranetFlag.trim().toLowerCase()) });
 }

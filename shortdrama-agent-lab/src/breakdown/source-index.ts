@@ -553,15 +553,35 @@ function parseDialogueLine(value: string): { speaker: string; body: string } | n
  * leave it for explicit review instead of guessing or silently dropping words.
  * This derives ranges from the existing index without changing its stored schema.
  */
-export function dialogueBodyRange(span: SourceSpan): { start: number; end: number } | null {
+const DIALOGUE_QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["\u201c", "\u201d"], ['"', '"'], ["'", "'"], ["\u300c", "\u300d"], ["\u300e", "\u300f"],
+];
+
+/** 口语正文不含包裹的成对引号（“……念叨：“去哪。”” 引用为 去哪。）；
+ * 模型若引用带引号的形式，`quoted` 保留含引号区间，两种都能通过完整性校验。 */
+export function dialogueBodySpans(span: SourceSpan): {
+  inner: { start: number; end: number };
+  quoted: { start: number; end: number } | null;
+} | null {
   if (span.kind !== "dialogueTurnCandidate") return null;
   const trimmed = span.quote.trim();
   const parsed = parseDialogueLine(trimmed);
   if (!parsed || /[（）()]/u.test(parsed.body)) return null;
   const leadingWhitespace = Array.from(span.quote).length - Array.from(span.quote.trimStart()).length;
-  const prefixLength = Array.from(trimmed).length - Array.from(parsed.body).length;
+  const bodyChars = Array.from(parsed.body);
+  const prefixLength = Array.from(trimmed).length - bodyChars.length;
   const start = span.start + leadingWhitespace + prefixLength;
-  return { start, end: start + Array.from(parsed.body).length };
+  const open = bodyChars[0];
+  const close = bodyChars[bodyChars.length - 1];
+  const pair = bodyChars.length >= 2
+    ? DIALOGUE_QUOTE_PAIRS.find(([o, c]) => o === open && c === close) : undefined;
+  if (!pair) return { inner: { start, end: start + bodyChars.length }, quoted: null };
+  const inner = { start: start + 1, end: start + bodyChars.length - 1 };
+  return { inner, quoted: { start: inner.start - 1, end: inner.end + 1 } };
+}
+
+export function dialogueBodyRange(span: SourceSpan): { start: number; end: number } | null {
+  return dialogueBodySpans(span)?.inner ?? null;
 }
 
 function isSpeakerLabel(value: string): boolean {

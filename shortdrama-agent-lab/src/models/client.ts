@@ -60,7 +60,10 @@ export class ModelClient {
       const response = await this.transport(this.config.endpointUrl ?? `${this.config.baseUrl}/chat/completions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json',
           ...(this.config.authType === 'bearer' ? { Authorization: `Bearer ${this.config.apiKey}` } : { 'api-key': this.config.apiKey }) }, redirect: 'error', signal,
-        body: JSON.stringify({ model: model.id, messages: request.messages, stream: false,
+        body: JSON.stringify({ model: model.id, messages: request.messages.map(message =>
+          typeof message.content === 'string' ? message : { role: message.role, content: message.content.map(part =>
+            part.type === 'text' ? { type: 'text', text: part.text }
+              : { type: 'image_url', image_url: { url: `data:${part.mediaType};base64,${part.dataBase64}` } }) }), stream: false,
           ...(request.thinking && this.config.provider === 'maas' ? { thinking: { type: request.thinking } } : {}),
           ...(request.jsonOutput ? { response_format: { type: 'json_object' } } : {}),
           max_tokens: Math.min(request.maxOutputTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens) }),

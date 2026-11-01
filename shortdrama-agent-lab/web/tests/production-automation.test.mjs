@@ -92,7 +92,7 @@ test('review, compose and delivery copy describe only implemented technical chec
   value.artifacts[0].uri = '/api/production-media/media_123';
   const run = production.parseProductionRun(value);
   assert.equal(run.stages.at(-2).label, '镜头技术复核');
-  assert.equal(run.stages.at(-1).label, '成片时间线合成');
+  assert.equal(run.stages.at(-1).label, '自动剪辑合成');
   assert.equal(run.delivery.message, '整集成片已完成本地技术校验。');
 });
 

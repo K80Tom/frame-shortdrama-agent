@@ -17,6 +17,12 @@ export interface MediaClientConfig {
   fetch?: typeof globalThis.fetch;
   /** Test/runtime injection point used only to validate provider-returned media download hosts. */
   lookup?: MediaDnsLookup;
+  /**
+   * Opt-in for networks where the provider's media CDN only resolves to intranet
+   * addresses. When enabled, provider-returned download URLs skip the public-IP
+   * DNS check (localhost-style hostnames stay blocked).
+   */
+  allowIntranetMediaSources?: boolean;
 }
 
 export interface GenerateImageInput {
@@ -118,9 +124,13 @@ function resolveConfig(value: MediaClientConfig): ResolvedConfig {
   if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1_000 || value.timeoutMs > 600_000) {
     throw mediaError(503, 'MEDIA_NOT_CONFIGURED', '媒体模型超时时间不正确。');
   }
+  if (value.allowIntranetMediaSources !== undefined && typeof value.allowIntranetMediaSources !== 'boolean') {
+    throw mediaError(503, 'MEDIA_NOT_CONFIGURED', '媒体内网源开关配置不正确。');
+  }
   return { endpoint, model, authType: value.authType, apiKey, timeoutMs: value.timeoutMs,
     fetch: value.fetch ?? globalThis.fetch,
-    lookup: value.lookup ?? (hostname => dnsLookup(hostname, { all: true, verbatim: true })) };
+    lookup: value.lookup ?? (hostname => dnsLookup(hostname, { all: true, verbatim: true })),
+    allowIntranetMediaSources: value.allowIntranetMediaSources ?? false };
 }
 
 function authHeaders(config: ResolvedConfig): Record<string, string> {
@@ -297,12 +307,36 @@ function isPublicIpAddress(value: string): boolean {
     && !ipv6Prefix(ipv6, [0x3f, 0xff, 0x00], 20);
 }
 
+/** Intranet mode: allow private ranges but never loopback, unspecified or link-local targets. */
+function isNonLocalIntranetAddress(value: string): boolean {
+  const ipv4 = ipv4Parts(value);
+  if (ipv4) {
+    const [a, b] = ipv4 as [number, number, number, number];
+    return !(a === 0 || a === 127 || (a === 169 && b === 254));
+  }
+  const ipv6 = ipv6Bytes(value);
+  if (!ipv6) return false;
+  const unspecified = ipv6.every(byte => byte === 0);
+  const loopback = ipv6[0] === 0 && ipv6.slice(1, 15).every(byte => byte === 0) && ipv6[15] === 1;
+  const ipv4MappedLoopback = ipv6[10] === 0xff && ipv6[11] === 0xff && ipv6[12] === 0x7f;
+  const linkLocal = ipv6[0] === 0xfe && ((ipv6[1] ?? 0) & 0xc0) === 0x80;
+  return !unspecified && !loopback && !ipv4MappedLoopback && !linkLocal;
+}
+
 async function safeDownloadUrl(value: unknown, config: ResolvedConfig): Promise<string> {
   const href = publicHttpsUrl(value, '图片 URL');
   const parsed = new URL(href);
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
   if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
     throw mediaError(502, 'MEDIA_DOWNLOAD_UNSAFE', '上游返回的媒体下载地址不是公网地址。');
+  }
+  if (config.allowIntranetMediaSources) {
+    // Opt-in mode for vendor CDNs that only resolve inside the corporate network.
+    // Loopback, unspecified and link-local targets stay blocked; TLS still verifies the hostname.
+    if (isIP(hostname) && !isNonLocalIntranetAddress(hostname)) {
+      throw mediaError(502, 'MEDIA_DOWNLOAD_UNSAFE', '上游返回的媒体下载地址指向本机或链路本地地址。');
+    }
+    return href;
   }
   if (isIP(hostname)) {
     if (!isPublicIpAddress(hostname)) {
@@ -361,8 +395,11 @@ export class DoubaoImageClient {
     const response = await configuredRequest(this.config, this.config.endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(this.config) },
+      // Default to inline bytes: many gateways return CDN URLs that are only
+      // resolvable inside corporate networks. A URL-only response still works
+      // through the guarded download path below.
       body: JSON.stringify({ model: this.config.model, prompt, size, n: 1,
-        response_format: input.responseFormat ?? 'url', stream: false, watermark: input.watermark ?? false }),
+        response_format: input.responseFormat ?? 'b64_json', stream: false, watermark: input.watermark ?? false }),
     });
     const payload = object(await boundedJson(response));
     const data = payload.data;

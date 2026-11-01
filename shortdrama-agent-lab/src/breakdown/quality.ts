@@ -1,5 +1,5 @@
 import type { ExtractFactsPlanContent, PlanRevisionRecord } from "./plan";
-import { dialogueBodyRange, sliceCodePoints, type ScriptSourceIndex, type SourceRef, type SourceSpan } from "./source-index";
+import { dialogueBodySpans, sliceCodePoints, type ScriptSourceIndex, type SourceRef, type SourceSpan } from "./source-index";
 
 export const FACT_CHECK_RULE_VERSION = "extract-facts-completeness/2";
 export type FactCheckRuleVersion = "extract-facts-completeness/1" | typeof FACT_CHECK_RULE_VERSION;
@@ -70,18 +70,19 @@ export function inspectExtractFactsPlan(plan: PlanRevisionRecord, sourceIndex: S
     if (covering.length > 1) add("DIALOGUE_DUPLICATED", "同一段原文对白被拆解为多条，请核对是否重复。", [refForSpan(sourceIndex, span)]);
     if (covering.length !== 1) continue;
     const dialogue = covering[0]!;
-    const body = dialogueBodyRange(span);
+    const body = dialogueBodySpans(span);
     if (!body) {
       add("DIALOGUE_BOUNDARY_UNCERTAIN", "对白正文含括号说明等不确定边界，暂不能自动确认完整性，请人工核对原文。",
         [refForSpan(sourceIndex, span)], dialogue.sceneId, "storyAmbiguity");
       continue;
     }
-    const expected: SourceRef = { scriptVersionId: sourceIndex.scriptVersion.id, ...body,
-      quote: sliceCodePoints(span.quote, body.start - span.start, body.end - span.start) };
+    const expected: SourceRef = { scriptVersionId: sourceIndex.scriptVersion.id, ...body.inner,
+      quote: sliceCodePoints(span.quote, body.inner.start - span.start, body.inner.end - span.start) };
     if (!contains(dialogue.sourceRef, expected)) {
       add("DIALOGUE_INCOMPLETE", "对白只提取了原文的一部分，缺少开头、结尾或标点，请保留完整正文。", [expected], dialogue.sceneId);
     }
-    if (!contains(expected, dialogue.sourceRef)) {
+    if (!contains(expected, dialogue.sourceRef)
+      && !(body.quoted && contains(body.quoted, dialogue.sourceRef))) {
       add("DIALOGUE_BOUNDARY_INVALID", "对白包含说话人标注或正文之外的内容，请只引用要说的完整原文。", [expected], dialogue.sceneId);
     }
   }

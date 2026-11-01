@@ -59,7 +59,7 @@ test('image API adapter sends one bounded request, saves verified bytes and neve
     assert.deepEqual({ model: body.model, prompt: body.prompt, size: body.size, n: body.n,
       response_format: body.response_format, stream: body.stream, watermark: body.watermark },
     { model: 'doubao-image-test', prompt: '原创资产提示词', size: '2K', n: 1,
-      response_format: 'url', stream: false, watermark: false });
+      response_format: 'b64_json', stream: false, watermark: false });
     return new Response(JSON.stringify({ data: [{ b64_json: image.toString('base64') }] }), {
       headers: { 'content-type': 'application/json' },
     });

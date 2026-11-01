@@ -38,6 +38,7 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
       apiKey: config.apiKey,
       timeoutMs: config.timeoutMs,
       connectionRevision: config.connectionRevision,
+      allowIntranetMediaSources: config.mediaAllowIntranetSources ?? false,
     };
   }
 
@@ -80,7 +81,7 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
     let generated: Awaited<ReturnType<DoubaoImageClient['generateImage']>>;
     try {
       const client = new DoubaoImageClient({ ...config, fetch: this.transport });
-      generated = await client.generateImage({ prompt: input.prompt, size: '2K', responseFormat: 'url', watermark: false });
+      generated = await client.generateImage({ prompt: input.prompt, size: '2K', responseFormat: 'b64_json', watermark: false });
     } catch {
       // Once transport begins, even a timeout or malformed reply may have spent
       // quota. Persist uncertainty and never turn it into an automatic retry.

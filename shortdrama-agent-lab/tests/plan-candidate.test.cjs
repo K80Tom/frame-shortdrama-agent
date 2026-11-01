@@ -267,6 +267,38 @@ test('P0.5 accepts complete Unicode dialogue with colon, speaker cues and name c
   }
 });
 
+test('P0.5 accepts colon-introduced quoted dialogue citing inner text or marked form', async () => {
+  const line = '林晚念叨：“你终于来了。🙂”';
+  for (const cited of ['你终于来了。🙂', '“你终于来了。🙂”']) {
+    const { service } = fixture();
+    const { script, run } = await prepared(service, line);
+    const value = candidate(script, line);
+    value.dialogues[0].sourceRef = sourceRef(script.id, script.rawText, cited);
+    const plan = await service.createExtractFactsCandidate(run.id, value);
+    const result = await service.checkPlan(plan.id);
+    assert.deepEqual(result.issues, [], cited);
+    assert.equal(result.check.result, 'passed', cited);
+  }
+});
+
+test('P0.5 still rejects truncated or speaker-prefixed quoted dialogue', async () => {
+  const line = '林晚念叨：“你终于来了。🙂”';
+  const cases = [
+    ['你终于来了', 'DIALOGUE_INCOMPLETE'],
+    ['林晚念叨：“你终于来了。🙂”', 'DIALOGUE_BOUNDARY_INVALID'],
+  ];
+  for (const [cited, code] of cases) {
+    const { service } = fixture();
+    const { script, run } = await prepared(service, line);
+    const value = candidate(script, line);
+    value.dialogues[0].sourceRef = sourceRef(script.id, script.rawText, cited);
+    const plan = await service.createExtractFactsCandidate(run.id, value);
+    const result = await service.checkPlan(plan.id);
+    assert.equal(result.check.result, 'failed', cited);
+    assert.ok(result.issues.some((item) => item.code === code), `${cited} -> ${code}`);
+  }
+});
+
 test('P0.5 flags dialogue containing ambiguous stage cues instead of silently accepting a fragment', async () => {
   const line = '林晚：你终于来了。🙂（停住）我还以为你不来了。';
   const { service } = fixture();

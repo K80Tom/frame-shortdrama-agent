@@ -13,7 +13,7 @@ export const productionStageLabels: Record<ProductionStage, string> = {
   video: '镜头视频生成',
   candidates: '候选抽卡与选优',
   review: '镜头技术复核',
-  compose: '成片时间线合成',
+  compose: '自动剪辑合成',
   deliver: '成片技术校验与交付',
 };
 

@@ -135,7 +135,7 @@ function parseCandidateSet(value: unknown): ProductionCandidateSet | null {
 function parseStage(value: unknown): ProductionStage | null {
   const row = record(value); if (!row || !text(row.key)) return null;
   const key = text(row.key);
-  const labelOverrides: Record<string, string> = { review: '镜头技术复核', compose: '成片时间线合成' };
+  const labelOverrides: Record<string, string> = { review: '镜头技术复核', compose: '自动剪辑合成' };
   return { key, label: labelOverrides[key] ?? text(row.label, key), state: enumValue(row.state, productionStageStates, 'pending'),
     completed: Math.max(0, Math.floor(number(row.completed))), total: Math.max(0, Math.floor(number(row.total))),
     needsAttention: Math.max(0, Math.floor(number(row.needsAttention))) };

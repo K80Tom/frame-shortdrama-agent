@@ -165,8 +165,13 @@ export class VideoAutomationService {
     }
     const status = task.status.toLowerCase();
     if (['failed', 'cancelled', 'expired'].includes(status)) {
+      // Surface the provider's own failure reason (e.g. output content policy
+      // violations) instead of a generic label, so operators can tell provider
+      // policy rejections apart from infrastructure errors.
+      const providerDetail = task.errorMessage?.trim() ? `供应商原因：${task.errorMessage.trim()}` : '';
       return this.change(run, { status: 'failed', result: null, errorNode: 'generate',
-        error: { code: `VIDEO_PROVIDER_${status.toUpperCase()}`, message: '供应商已将此视频任务标记为失败、取消或过期；不会自动重试。' } });
+        error: { code: `VIDEO_PROVIDER_${status.toUpperCase()}`,
+          message: `供应商已将此视频任务标记为失败、取消或过期；不会自动重试。${providerDetail ? `（${providerDetail}）` : ''}` } });
     }
     if (status === 'succeeded') {
       let videoUrl: string;

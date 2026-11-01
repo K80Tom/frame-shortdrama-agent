@@ -115,7 +115,8 @@ export function resolveProductionImageConnection(config: AppConfig): ProductionI
     return { state: 'missing', revision, model, reason: '生图连接的超时时间不正确。' };
   }
   return { state: 'configured', revision, model,
-    clientConfig: { endpoint, model, apiKey, authType, timeoutMs: selected.timeoutMs } };
+    clientConfig: { endpoint, model, apiKey, authType, timeoutMs: selected.timeoutMs,
+      allowIntranetMediaSources: config.mediaAllowIntranetSources ?? false } };
 }
 
 export class AssetsProductionExecutor implements ProductionExecutor {
@@ -284,7 +285,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
         ['对本资产任务局部重试，以新配置重新冻结输入与预算']);
     }
     const generated = await this.clientFactory(connection.clientConfig).generateImage({
-      prompt: assetPrompt(ref, context.run.visualStyle), size: '2K', responseFormat: 'url', watermark: false,
+      prompt: assetPrompt(ref, context.run.visualStyle), size: '2K', responseFormat: 'b64_json', watermark: false,
     });
     const description = importDescription(ref, plan, context.run.visualStyle, connection.model);
     const saved = await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,
