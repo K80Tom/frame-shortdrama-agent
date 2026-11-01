@@ -39,7 +39,7 @@ import { AssistantOrchestrator } from '@lyra/agent';
 import { AssistantService } from '@lyra/agent';
 import { PostgresEvolutionRepository } from './evolution/postgres-repository';
 import { AssetEvolutionService } from './evolution/service';
-import { PostgresPromptPackStateRepository } from './prompt-packs/repository';
+import { PostgresPromptPackImportRepository, PostgresPromptPackStateRepository } from './prompt-packs/repository';
 import { PromptPackService } from './prompt-packs/service';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
@@ -154,8 +154,11 @@ async function main() {
         if (await database.hasMigrations(['019'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
         }
-        if (await database.hasMigrations(['020'])) {
-          promptPacksService = new PromptPackService(new PostgresPromptPackStateRepository(database));
+        if (await database.hasMigrations(['020', '021'])) {
+          promptPacksService = new PromptPackService(
+            new PostgresPromptPackStateRepository(database),
+            new PostgresPromptPackImportRepository(database),
+          );
         }
         productionService = new ProductionService(productionRepository, {
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,

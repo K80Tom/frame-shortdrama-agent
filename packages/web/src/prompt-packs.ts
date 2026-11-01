@@ -10,6 +10,8 @@ export type PromptPackItem = {
   quality: string;
   enabled: boolean;
   source: string;
+  /** library=第三方入库；imported=本机自己导入。 */
+  origin: 'library' | 'imported';
 };
 
 export type PromptPackList = { packs: PromptPackItem[]; total: number };
@@ -63,6 +65,30 @@ export async function setPromptPackState(id: string, enabled: boolean): Promise<
   const data = await readJson(response);
   if (!response.ok) throw new PromptPackApiError(messageOf(data) || `请求失败（${response.status}）`, response.status);
   return data as { id: string; enabled: boolean; updatedAt: string };
+}
+
+/** 自己导入方法：正文与元数据一起提交，默认不启用。 */
+export type PromptPackImportInput = {
+  name: string;
+  stages: string[];
+  summary?: string;
+  license?: string;
+  content: string;
+  id?: string;
+};
+
+export async function importPromptPack(
+  input: PromptPackImportInput,
+): Promise<{ id: string; name: string; stages: string[]; total: number }> {
+  const response = await fetch('/api/prompt-packs/import', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' },
+    body: JSON.stringify(input),
+  });
+  const data = await readJson(response);
+  if (!response.ok) throw new PromptPackApiError(messageOf(data) || `请求失败（${response.status}）`, response.status);
+  return data as { id: string; name: string; stages: string[]; total: number };
 }
 
 export const PROMPT_PACK_STAGE_LABELS: Record<string, string> = {

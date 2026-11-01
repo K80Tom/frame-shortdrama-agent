@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Check, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, Check, FileUp, Loader2, RefreshCw, Search, ShieldCheck, Upload, X } from 'lucide-react';
 import {
   fetchPromptPackContent,
   fetchPromptPacks,
+  importPromptPack,
+  PROMPT_PACK_STAGE_LABELS,
   PromptPackApiError,
   setPromptPackState,
   stageLabel,
@@ -12,10 +14,19 @@ import {
 import './prompt-packs.css';
 
 const STAGE_ORDER = ['topic', 'adaptation', 'character', 'episode-outline', 'script', 'script-review', 'storyboard', 'video-prompt', 'production'];
+const MAX_CONTENT_BYTES = 512 * 1024;
 
 type Props = { notify: (text: string) => void };
 
 type DetailState = { id: string; name: string; license: string; content: string } | null;
+
+type ImportForm = { name: string; summary: string; license: string; content: string; stages: string[] };
+
+const EMPTY_IMPORT: ImportForm = { name: '', summary: '', license: '', content: '', stages: [] };
+
+function bytesOf(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
 
 export default function PromptPacksPage({ notify }: Props) {
   const [packs, setPacks] = useState<PromptPackItem[]>([]);
@@ -27,8 +38,13 @@ export default function PromptPacksPage({ notify }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [saving, setSaving] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importForm, setImportForm] = useState<ImportForm>(EMPTY_IMPORT);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
   const detailRequest = useRef(0);
   const abort = useRef<AbortController | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     abort.current?.abort();
@@ -42,7 +58,7 @@ export default function PromptPacksPage({ notify }: Props) {
     } catch (cause) {
       if (controller.signal.aborted) return;
       if (cause instanceof PromptPackApiError && cause.status === 404) {
-        setError('方法包接口未启用：请先在 packages/main 执行 npm run db:migrate（020 迁移）。');
+        setError('方法包接口未启用：请先在 packages/main 执行 npm run db:migrate（020–021 迁移）。');
       } else {
         setError(cause instanceof Error ? cause.message : '方法包列表读取失败。');
       }
@@ -129,15 +145,98 @@ export default function PromptPacksPage({ notify }: Props) {
     setDetailError('');
   }
 
+  function openImport() {
+    setImportError('');
+    setImportOpen(true);
+  }
+
+  function closeImport() {
+    if (importing) return;
+    setImportOpen(false);
+    setImportForm(EMPTY_IMPORT);
+    setImportError('');
+  }
+
+  function toggleStage(key: string) {
+    setImportForm((form) => ({
+      ...form,
+      stages: form.stages.includes(key) ? form.stages.filter((item) => item !== key) : [...form.stages, key],
+    }));
+  }
+
+  async function onPickFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_CONTENT_BYTES) {
+      setImportError('文件超过 512KB 上限，请精简后再导入。');
+      return;
+    }
+    try {
+      const content = await file.text();
+      setImportForm((form) => ({
+        ...form,
+        content,
+        name: form.name || file.name.replace(/\.(md|markdown|txt)$/iu, '').slice(0, 80),
+      }));
+      setImportError('');
+    } catch {
+      setImportError('文件读取失败，请重试或直接粘贴正文。');
+    }
+  }
+
+  async function submitImport() {
+    if (importing) return;
+    const name = importForm.name.trim();
+    if (!name) {
+      setImportError('请填写方法名称。');
+      return;
+    }
+    if (importForm.stages.length === 0) {
+      setImportError('请至少选择一个适用阶段。');
+      return;
+    }
+    if (!importForm.content.trim()) {
+      setImportError('请粘贴正文，或选择一个 .md / .txt 文件。');
+      return;
+    }
+    if (bytesOf(importForm.content) > MAX_CONTENT_BYTES) {
+      setImportError('正文超过 512KB 上限，请精简后再导入。');
+      return;
+    }
+    setImporting(true);
+    setImportError('');
+    try {
+      const result = await importPromptPack({
+        name,
+        stages: importForm.stages,
+        summary: importForm.summary,
+        license: importForm.license,
+        content: importForm.content,
+      });
+      notify(`已导入「${result.name}」，默认关闭`);
+      setImportOpen(false);
+      setImportForm(EMPTY_IMPORT);
+      await load();
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : '导入失败，请重试。');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const importBytes = bytesOf(importForm.content);
+
   return <div className="methods-page">
     <header className="methods-head">
       <div>
         <span className="methods-kicker">METHOD LIBRARY</span>
         <h1>方法包</h1>
-        <p>第三方短剧方法论文本，按阶段注册；默认全部关闭，只在审稿等阶段显式启用后才进入提示词。</p>
+        <p>第三方短剧方法论文本，按阶段注册；默认全部关闭，只在审稿等阶段显式启用后才进入提示词。也可以导入自己的方法。</p>
       </div>
       <div className="methods-head-actions">
         <span className="methods-stat"><strong>{packs.length}</strong> 个包 · <strong>{enabledCount}</strong> 已启用</span>
+        <button className="methods-import" onClick={openImport}><Upload size={13} /> 导入方法</button>
         <button className="methods-refresh" onClick={() => void load()} disabled={loading}>
           {loading ? <Loader2 size={13} className="methods-spin" /> : <RefreshCw size={13} />} 刷新
         </button>
@@ -162,7 +261,7 @@ export default function PromptPacksPage({ notify }: Props) {
 
     {loading && packs.length === 0 && <div className="methods-loading"><Loader2 size={18} className="methods-spin" /> 正在读取注册表…</div>}
     {!loading && !error && filtered.length === 0 && <div className="methods-empty">
-      <BookOpen size={22} /><h3>没有匹配的方法包</h3><p>换个关键词，或切回“全部”阶段。</p>
+      <BookOpen size={22} /><h3>没有匹配的方法包</h3><p>换个关键词、切回“全部”阶段，或者导入一个自己的方法。</p>
     </div>}
 
     <div className={`methods-body ${detail ? 'with-detail' : ''}`}>
@@ -177,6 +276,7 @@ export default function PromptPacksPage({ notify }: Props) {
                 <div className="methods-card-title">
                   <h3>{pack.name}</h3>
                   {pack.enabled && <span className="methods-on"><Check size={11} /> 启用中</span>}
+                  {pack.origin === 'imported' && <span className="methods-self">自导入</span>}
                 </div>
                 <p>{pack.summary || '（来源仓库未提供摘要）'}</p>
                 <div className="methods-card-meta">
@@ -218,5 +318,71 @@ export default function PromptPacksPage({ notify }: Props) {
         {!detailLoading && !detailError && <pre className="methods-content">{detail.content}</pre>}
       </aside>}
     </div>
+
+    {importOpen && <div
+      className="methods-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) closeImport(); }}
+    >
+      <div className="methods-modal" role="dialog" aria-modal="true" aria-labelledby="methods-import-title">
+        <div className="methods-modal-head">
+          <div>
+            <span className="methods-kicker">IMPORT</span>
+            <h2 id="methods-import-title">导入方法</h2>
+          </div>
+          <button className="methods-close" onClick={closeImport} aria-label="关闭导入"><X size={16} /></button>
+        </div>
+        <p className="methods-modal-hint">把你自己的方法论文本（SKILL.md、提示词、流程笔记）注册进来。导入后默认关闭，只有打开开关才会进入审稿提示词。</p>
+        <div className="methods-modal-body">
+          <label className="methods-field">
+            <span>名称 <i>必填</i></span>
+            <input value={importForm.name} maxLength={80} placeholder="例如：我的三幕反转法" onChange={(event) => setImportForm((form) => ({ ...form, name: event.target.value }))} />
+          </label>
+          <div className="methods-field">
+            <span>适用阶段 <i>至少一个</i></span>
+            <div className="methods-stage-picker">
+              {Object.entries(PROMPT_PACK_STAGE_LABELS).map(([key, label]) => <button
+                key={key}
+                type="button"
+                aria-pressed={importForm.stages.includes(key)}
+                onClick={() => toggleStage(key)}
+              >{label}</button>)}
+            </div>
+          </div>
+          <div className="methods-field-row">
+            <label className="methods-field">
+              <span>摘要 <i>选填</i></span>
+              <input value={importForm.summary} maxLength={200} placeholder="一句话说明它能解决什么" onChange={(event) => setImportForm((form) => ({ ...form, summary: event.target.value }))} />
+            </label>
+            <label className="methods-field">
+              <span>许可 <i>选填</i></span>
+              <input value={importForm.license} maxLength={60} placeholder="自建（未声明许可）" onChange={(event) => setImportForm((form) => ({ ...form, license: event.target.value }))} />
+            </label>
+          </div>
+          <div className="methods-field">
+            <span>正文 <i>必填</i><em>{Math.round(importBytes / 1024)} / 512KB</em></span>
+            <textarea
+              className="methods-content-input"
+              rows={12}
+              value={importForm.content}
+              placeholder="粘贴 SKILL.md 或方法论正文…"
+              onChange={(event) => setImportForm((form) => ({ ...form, content: event.target.value }))}
+            />
+            <div className="methods-file-row">
+              <button type="button" onClick={() => fileInput.current?.click()}><FileUp size={13} /> 选择 .md / .txt 文件</button>
+              <input ref={fileInput} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden onChange={(event) => void onPickFile(event)} />
+              <span>导入内容只存本机数据库，不写进仓库目录。</span>
+            </div>
+          </div>
+          {importError && <div className="methods-modal-error">{importError}</div>}
+        </div>
+        <div className="methods-modal-actions">
+          <button className="methods-cancel" onClick={closeImport} disabled={importing}>取消</button>
+          <button className="methods-submit" onClick={() => void submitImport()} disabled={importing}>
+            {importing ? <Loader2 size={13} className="methods-spin" /> : <Upload size={13} />} 导入并关闭
+          </button>
+        </div>
+      </div>
+    </div>}
   </div>;
 }

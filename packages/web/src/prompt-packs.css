@@ -94,3 +94,49 @@
   .methods-grid{grid-template-columns:minmax(0,1fr)}
   .methods-detail{right:8px;left:8px;top:70px;bottom:10px;width:auto}
 }
+
+/* 导入按钮与自导入标记 */
+.methods-import{display:flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid #f18b6244;border-radius:7px;background:#2a2019;color:#f0c5a8;font:inherit;font-size:10px;cursor:pointer;transition:border-color .18s,background .18s,color .18s}
+.methods-import:hover{border-color:#f18b6277;background:#332419;color:#ffd8bc}
+.methods-self{padding:2px 6px;border:1px solid #f18b6238;border-radius:4px;background:#f18b620f;color:#eab694;font-size:8px;flex-shrink:0}
+
+/* 导入弹窗 */
+.methods-modal-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(6,7,10,.72);backdrop-filter:blur(4px)}
+.methods-modal{display:flex;flex-direction:column;width:min(720px,100%);max-height:calc(100vh - 48px);border:1px solid #ffffff1a;border-radius:14px;background:#181817;box-shadow:0 32px 90px #000b;overflow:hidden}
+.methods-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 20px 10px;border-bottom:1px solid #ffffff0b}
+.methods-modal-head h2{margin:0;font-size:17px;font-weight:540}
+.methods-modal-head .methods-kicker{margin-bottom:4px}
+.methods-modal-hint{margin:0;padding:12px 20px 0;color:#8b877c;font-size:10px;line-height:1.85}
+.methods-modal-body{flex:1;display:grid;gap:13px;padding:16px 20px 18px;overflow:auto}
+.methods-field{display:grid;gap:6px;font-size:10px;color:#a9a59a}
+.methods-field>span{display:flex;align-items:center;gap:6px}
+.methods-field>span i{color:#6f6c64;font-style:normal;font-size:8px}
+.methods-field>span em{margin-left:auto;color:#7c786f;font-style:normal;font-size:8px}
+.methods-field input,.methods-content-input{width:100%;border:1px solid #ffffff12;border-radius:7px;background:#121211;color:#ece9e4;font:inherit;font-size:11px;padding:9px 10px;outline:none;transition:border-color .18s}
+.methods-field input:focus,.methods-content-input:focus{border-color:#f18b6255}
+.methods-field textarea{resize:vertical}
+.methods-field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.methods-stage-picker{display:flex;flex-wrap:wrap;gap:5px}
+.methods-stage-picker button{min-height:30px;padding:0 11px;border:1px solid #ffffff12;border-radius:6px;background:#191918;color:#8b877c;font:inherit;font-size:10px;cursor:pointer;transition:color .18s,border-color .18s,background .18s}
+.methods-stage-picker button:hover{color:#d8cbb6;border-color:#ffffff26}
+.methods-stage-picker button[aria-pressed=true]{border-color:#f18b6255;background:#33241a;color:#f0c5a8}
+.methods-content-input{min-height:190px;line-height:1.7;font-family:inherit;resize:vertical}
+.methods-file-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#77756f;font-size:9px}
+.methods-file-row button{display:flex;align-items:center;gap:5px;min-height:30px;padding:0 10px;border:1px solid #ffffff14;border-radius:6px;background:#232320;color:#b5b0a4;font:inherit;font-size:10px;cursor:pointer}
+.methods-file-row button:hover{color:#f6a482;border-color:#f18b6238}
+.methods-modal-error{padding:9px 11px;border:1px solid #d9755936;border-radius:8px;background:#2a1a16;color:#e3a68f;font-size:10px;line-height:1.7}
+.methods-modal-actions{display:flex;justify-content:flex-end;gap:9px;padding:12px 20px 16px;border-top:1px solid #ffffff0b}
+.methods-cancel{min-height:34px;padding:0 14px;border:1px solid #ffffff14;border-radius:7px;background:#1d1d1b;color:#9b978b;font:inherit;font-size:10px;cursor:pointer}
+.methods-cancel:hover{color:#d8cbb6}
+.methods-submit{display:flex;align-items:center;gap:6px;min-height:34px;padding:0 16px;border:1px solid #f18b6266;border-radius:7px;background:#3a271b;color:#ffd6b8;font:inherit;font-size:10px;cursor:pointer}
+.methods-submit:hover:not(:disabled){background:#49301f}
+.methods-submit:disabled,.methods-cancel:disabled{cursor:wait;opacity:.6}
+
+@media(max-width:720px){
+  .methods-modal-backdrop{padding:10px}
+  .methods-modal{max-height:calc(100vh - 20px)}
+  .methods-modal-body{padding:14px 14px 16px}
+  .methods-modal-head,.methods-modal-actions{padding-left:14px;padding-right:14px}
+  .methods-field-row{grid-template-columns:1fr}
+  .methods-modal-hint{padding-left:14px;padding-right:14px}
+}

@@ -37,4 +37,10 @@ export class PromptPacksController {
   state(@Param('packId') packId: string, @Body() body: unknown) {
     return this.packs.setState(packId, parseStateBody(body));
   }
+
+  @Post('import')
+  @HttpCode(201)
+  importPack(@Body() body: unknown) {
+    return this.packs.importPack(body);
+  }
 }
