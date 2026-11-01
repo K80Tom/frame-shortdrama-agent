@@ -1,0 +1,19 @@
+{
+  "name": "frame-shortdrama-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OHAO monorepo：main 数据与付费主权 · agent 智能能力层 · web/cli 客户端 · shared 公共契约",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "setup": "npm --prefix packages/shared install && npm --prefix packages/agent install && npm --prefix packages/main install && npm --prefix packages/cli install && npm --prefix packages/web install",
+    "build": "npm --prefix packages/shared run build && npm --prefix packages/agent run build && npm --prefix packages/main run build && npm --prefix packages/cli run build && npm --prefix packages/web run build",
+    "test": "npm run build && npm --prefix packages/main test && npm --prefix packages/web test",
+    "dev": "npm --prefix packages/main run dev",
+    "dev:web": "npm --prefix packages/web run dev",
+    "db:up": "npm --prefix packages/main run db:up",
+    "db:migrate": "npm --prefix packages/main run db:migrate",
+    "cli": "node packages/cli/dist/index.js"
+  }
+}

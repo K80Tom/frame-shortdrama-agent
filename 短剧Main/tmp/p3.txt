@@ -1,7 +1,0 @@
-*** Begin Patch
-*** Update File: frontend/shortdrama-rag-demo/src/pages/global-pages.tsx
-@@
--import { ApiClientError, api, optionalString, visualSearchFetchKey, type VisualSearchImage } from "../api";
-+import { ApiClientError, api, visualSearchFetchKey, type VisualSearchImage } from "../api";
-+import { isRecord } from "../generation-quotes";
-*** End Patch

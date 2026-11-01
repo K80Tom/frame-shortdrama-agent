@@ -1,4 +1,0 @@
-interface:
-  display_name: "Shortdrama CLI"
-  short_description: "通过冻结的 v0.3 CLI 管理短剧生产域"
-  default_prompt: "Use $shortdrama-cli to inspect before writing. For paid generation, require estimate, human review, confirm, and submit as separate commands."

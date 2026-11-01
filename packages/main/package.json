@@ -1,0 +1,49 @@
+{
+  "name": "@ohao/main",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "desktop:build": "node scripts/build-desktop-helper.mjs",
+    "start": "node --env-file=.env dist/main.js",
+    "dev": "npm run build && npm start",
+    "test": "npm run build && node --test tests/migration-checksums.test.cjs tests/models.test.cjs tests/model-connections.test.cjs tests/model-library.test.cjs tests/media-client.test.cjs tests/source-index.test.cjs tests/breakdown-persistence.test.cjs tests/plan-candidate.test.cjs tests/entity-edits.test.cjs tests/extract-facts-execution.test.cjs tests/pi-executor.test.cjs tests/storyboard.test.cjs tests/http-production.test.cjs tests/novel-domain.test.cjs tests/novel-workflow.test.cjs tests/novel-persistence.test.cjs tests/novel-http.test.cjs tests/assets.test.cjs tests/asset-import.test.cjs tests/asset-vector-rag.test.cjs tests/novel-assets.test.cjs tests/novel-assets-http.test.cjs tests/desktop-assets.test.cjs tests/desktop-adapter.test.cjs tests/image-api-adapter.test.cjs tests/video-automation.test.cjs tests/production-orchestration.test.cjs tests/production-runtime.test.cjs tests/production-assets-director.test.cjs tests/production-media.test.cjs tests/production-finalization.test.cjs tests/production-http.test.cjs tests/assistant.test.cjs",
+    "db:setup": "node scripts/setup-local-db.mjs",
+    "db:up": "docker compose up -d --wait --wait-timeout 120 postgres",
+    "db:down": "docker compose down",
+    "db:status": "docker compose ps",
+    "db:logs": "docker compose logs --tail=100 postgres",
+    "db:psql": "docker compose exec postgres sh -c 'exec psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"'",
+    "db:migrate": "npm run build && node --env-file-if-exists=.env dist/db/migrate.js",
+    "assets:vector-rebuild": "npm run build && node --env-file-if-exists=.env dist/assets/vector/rebuild.js",
+    "test:db": "npm run build && node --env-file-if-exists=.env scripts/test-db.mjs",
+    "test:novel-db": "npm run build && node --test tests/novel-persistence.db.test.cjs",
+    "test:assets-db": "npm run build && node --test tests/assets.db.test.cjs tests/novel-assets.db.test.cjs",
+    "models:list": "node --env-file=.env examples/models-client.mjs list",
+    "models:text": "node --env-file=.env examples/models-client.mjs text",
+    "models:smoke": "node --env-file=.env scripts/model-smoke.mjs"
+  },
+  "dependencies": {
+    "@ohao/shared": "file:../shared",
+    "@ohao/agent": "file:../agent",
+    "@earendil-works/pi-agent-core": "^0.80.6",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-fastify": "12.1.2",
+    "@sinclair/typebox": "0.34.52",
+    "@zilliz/milvus2-sdk-node": "^2.6.17",
+    "ajv": "8.20.0",
+    "pg": "^8.16.3",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "@types/pg": "^8.15.4",
+    "typescript": "5.9.3"
+  }
+}

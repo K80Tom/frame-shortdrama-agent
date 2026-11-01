@@ -1,4 +1,0 @@
-veadk-python[extensions]==0.5.40
-google-adk==1.32.0
-agentkit-sdk-python==0.2.0
-a2a-sdk>=0.3.7,<1.0.0

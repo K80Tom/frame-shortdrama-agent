@@ -1,5 +1,0 @@
-agentkit-sdk-python==0.2.0
-veadk-python[extensions]==0.5.40
-python-dotenv>=1.0
-httpx>=0.27
-redis>=5.0

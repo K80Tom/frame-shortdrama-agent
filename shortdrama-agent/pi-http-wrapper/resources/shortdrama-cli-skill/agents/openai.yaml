@@ -1,5 +1,0 @@
-interface:
-  display_name: "Shortdrama CLI"
-  short_description: "使用官方 Python CLI 编排完整短剧生产工作流"
-  default_prompt: "Use $shortdrama-cli to run the requested short-drama production workflow with verified CLI results."
-

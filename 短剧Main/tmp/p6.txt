@@ -1,7 +1,0 @@
-*** Begin Patch
-*** Update File: frontend/shortdrama-rag-demo/src/pages/global-pages.tsx
-@@
-     const direct = [asset.selected_media, asset.current_media]
--      .find((media) => media?.id && mediaVersionKind(media) === "image");
-+      .find((media) => media?.id && media.media_kind === "image");
-*** End Patch

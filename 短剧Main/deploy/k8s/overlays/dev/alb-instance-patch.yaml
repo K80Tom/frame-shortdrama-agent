@@ -1,7 +1,0 @@
-# ALBInstance/IngressClass 是集群级对象;多环境同集群时必须按环境改名防互相劫持。
-- op: replace
-  path: /metadata/name
-  value: shortdrama-dev-alb
-- op: replace
-  path: /spec/instanceID
-  value: REPLACE_WITH_DEV_ALB_INSTANCE_ID
