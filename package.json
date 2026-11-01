@@ -2,7 +2,7 @@
   "name": "frame-shortdrama-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "OHAO monorepo：main 数据与付费主权 · agent 智能能力层 · web/cli 客户端 · shared 公共契约",
+  "description": "Lyra monorepo：main 数据与付费主权 · agent 智能能力层 · web/cli 客户端 · shared 公共契约",
   "engines": {
     "node": ">=22.19.0"
   },
