@@ -8,7 +8,7 @@ import {
 import './novel.css';
 import NovelAssetPanel from './NovelAssetPanel';
 import { assetBindingSummary, type AssetBindingInput } from './asset-library';
-import type { EntityRegistryEntry } from '@lyra/shared';
+import type { EntityMergeCandidate, EntityRegistryEntry } from '@lyra/shared';
 import { useDesktopAssetTasks } from './DesktopAssetGeneration';
 import { desktopCompletionNeedsRefresh, desktopReloadAllowed, desktopTaskActive, desktopTaskLabels } from './desktop-asset-generation';
 
@@ -49,6 +49,7 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
   const [allowPaid, setAllowPaid] = useState(false);
   const [extractionMode, setExtractionMode] = useState<'single' | 'reviewed'>('reviewed');
   const [registry, setRegistry] = useState<EntityRegistryEntry[]>([]);
+  const [mergeCandidates, setMergeCandidates] = useState<EntityMergeCandidate[]>([]);
   const [filter, setFilter] = useState<NovelFilter>('all');
   const [pendingOnly, setPendingOnly] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState('');
@@ -80,9 +81,10 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
   const activeDesktopTasks = desktop.tasks.filter(desktopTaskActive);
   useEffect(() => {
     let disposed = false;
-    if (!source) { setRegistry([]); return; }
-    void api<{ entries: EntityRegistryEntry[] }>(`/api/novels/${source.id}/entities`)
-      .then(result => { if (!disposed) setRegistry(result.entries); }).catch(() => { if (!disposed) setRegistry([]); });
+    if (!source) { setRegistry([]); setMergeCandidates([]); return; }
+    void api<{ entries: EntityRegistryEntry[]; mergeCandidates?: EntityMergeCandidate[] }>(`/api/novels/${source.id}/entities`)
+      .then(result => { if (!disposed) { setRegistry(result.entries); setMergeCandidates(result.mergeCandidates ?? []); } })
+      .catch(() => { if (!disposed) { setRegistry([]); setMergeCandidates([]); } });
     return () => { disposed = true; };
   }, [source]);
 
@@ -278,7 +280,7 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
           <label>拆解方式<select aria-label="拆解方式" value={extractionMode} disabled={Boolean(busy)} onChange={event => { setExtractionMode(event.target.value as 'single' | 'reviewed'); setAllowPaid(false); }}><option value="reviewed">拆解＋逐段查漏＋证据复核（最多五次调用）</option><option value="single">单次初稿（一次调用）</option></select></label>
           <label className="novel-consent"><input type="checkbox" checked={allowPaid} disabled={Boolean(busy) || !modelReady || dirty || assetDraftDirty} onChange={event => setAllowPaid(event.target.checked)} /><span>允许向已配置模型发送本章原文{extractionMode === 'reviewed' ? '及前章实体依据，完成三阶段检查；有问题再局部修复与复核一次，最多五次调用' : '，调用一次'}，可能计费；请求失败不自动重试。</span></label>
           <button className="novel-primary" disabled={Boolean(busy) || !modelReady || !allowPaid || dirty || assetDraftDirty} onClick={() => generate('extract')}>{chapter.latestRevisionId ? '重新提取本章（新版本）' : '提取本章人物、场景、道具与对白'}</button>{!modelReady && <small>模型未配置或服务未连接；仍可使用免费初稿和人工校对。</small>}{(dirty || assetDraftDirty) && <small>先保存或放弃本章校对与引用草稿，再运行模型。</small>}</div></section>
-        {registry.length > 0 && <details className="novel-card"><summary>跨章实体表 · {registry.length} 项</summary><p>根据各章最新保存版本汇总；模型身份仍需核对。名称相似不自动合并。</p><table><thead><tr><th>名称 / 别名</th><th>分类</th><th>章节 / 确认</th></tr></thead><tbody>{registry.map(entry => <tr key={entry.id}><td>{entry.name}<small> · {entry.aliases.filter(a => a !== entry.name).join('、')}</small></td><td>{entry.entityType ? entityTypeLabels[entry.entityType] : '旧记录未分类'}</td><td>{new Set(entry.occurrences.map(o => o.chapterId)).size} 章 · {entry.occurrences.filter(o => o.confirmed).length} 项已确认</td></tr>)}</tbody></table></details>}
+        {registry.length > 0 && <EntityRegistryPanel entries={registry} mergeCandidates={mergeCandidates} />}
         {revision?.content.analysis && <details className="novel-card" open><summary>模型检查记录 · {revision.content.analysis.calls.length} 次调用 · {{ partial: '未完成，成果已保留', needsReview: '有问题待确认', reviewed: '模型复核完成，待人工确认', humanEdited: '已有人工修改，检查记录仅供追溯' }[revision.content.analysis.status]}</summary><p>逐段扫描 {revision.content.analysis.paragraphCoverage.length} 段 · 前章上下文 {revision.content.analysis.contextRevisionIds.length} 个版本。扫描覆盖不等于语义完整。</p><ol>{revision.content.analysis.issues.map((issue, index) => <li key={index}>{issue.reason}（{issue.paragraphIds.join('、')}）</li>)}</ol></details>}
 
         {revision && <section className="novel-card novel-revision-bar"><div className="novel-row"><label htmlFor="novel-revision">版本历史</label><select id="novel-revision" value={revision.id} disabled={Boolean(busy)} onChange={event => { if (confirmSwitch()) { setRevisionId(event.target.value); setSelectedItemId(''); setSelection(null); } }}>{revisions.map((item, index) => <option key={item.id} value={item.id}>V{index + 1} · {revisionLabels[item.createdBy]} · {new Date(item.createdAt).toLocaleString()}{item.id === chapter.latestRevisionId ? ' · 最新' : ''}</option>)}</select></div><p>{editable ? '只编辑当前章的最新版本。保存会追加新版本，不覆盖原文或历史。' : dirty ? '此基准已不是最新版本。当前显示保留的未保存草稿，不是服务器历史原版；可先导出留存，再放弃草稿查看原版。不能覆盖最新保存结果。' : '这是历史版本，只读。切回最新版本后可继续校对。'} · 当前 {items.length} 项，{pendingCount} 项待确认 / 未校对。</p>{revision.content.warnings.length > 0 && <details className="novel-warnings" open><summary>本版本检查提示 · 不等于语义验收通过</summary><ul>{revision.content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
@@ -297,6 +299,24 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
           </section></div>
       </div></div>}
   </div>;
+}
+
+export function describeEntityMergeCandidate(candidate: EntityMergeCandidate): string {
+  const quotes = candidate.evidence.map(item => item.quote).filter(quote => quote.length > 0);
+  const evidence = quotes.length ? `依据：${quotes.join('；')}。` : '';
+  if (candidate.relation === 'duplicate-chapter') {
+    return `「${candidate.names[0] ?? ''}」在同一章有 ${candidate.evidence.length} 条记录，仍属于同一身份，章节条目没有被合并。${evidence}`;
+  }
+  const [left, right] = candidate.names;
+  const shared = candidate.sharedTerms.join('、');
+  const reason = candidate.relation === 'shared-name' ? `名称同为「${shared}」` : `共用称呼「${shared}」`;
+  return `「${left ?? ''}」与「${right ?? ''}」${reason}，目前仍是两个独立身份。${evidence}`;
+}
+
+export function EntityRegistryPanel({ entries, mergeCandidates }: {
+  entries: EntityRegistryEntry[]; mergeCandidates: EntityMergeCandidate[];
+}) {
+  return <details className="novel-card"><summary>跨章实体表 · {entries.length} 项</summary><p>根据各章最新保存版本汇总；模型身份仍需核对。名称相似不自动合并。</p>{mergeCandidates.length > 0 && <div className="novel-merge-candidates"><p>待核对身份 · {mergeCandidates.length} 组。这些只是候选，没有写入统一身份，也没有改写任何章节。</p><ul>{mergeCandidates.map(candidate => <li key={candidate.id}>{describeEntityMergeCandidate(candidate)}</li>)}</ul></div>}<table><thead><tr><th>名称 / 别名</th><th>分类</th><th>章节 / 确认</th></tr></thead><tbody>{entries.map(entry => <tr key={entry.id}><td>{entry.name}<small> · {entry.aliases.filter(alias => alias !== entry.name).join('、')}</small></td><td>{entry.entityType ? entityTypeLabels[entry.entityType] : '旧记录未分类'}</td><td>{new Set(entry.occurrences.map(occurrence => occurrence.chapterId)).size} 章 · {entry.occurrences.filter(occurrence => occurrence.confirmed).length} 项已确认</td></tr>)}</tbody></table></details>;
 }
 
 export function ItemEditor({ item, source, chapter, items, selection, disabled, onChange, onLocate, onDelete }: {
