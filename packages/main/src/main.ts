@@ -39,6 +39,8 @@ import { AssistantOrchestrator } from '@lyra/agent';
 import { AssistantService } from '@lyra/agent';
 import { PostgresEvolutionRepository } from './evolution/postgres-repository';
 import { AssetEvolutionService } from './evolution/service';
+import { PostgresPromptPackStateRepository } from './prompt-packs/repository';
+import { PromptPackService } from './prompt-packs/service';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -96,6 +98,7 @@ async function main() {
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
   let evolutionService: AssetEvolutionService | undefined;
+  let promptPacksService: PromptPackService | undefined;
   const mediaRunner = new BoundedProcessRunner();
   const productionMediaStore = new ProductionMediaStore(
     resolve('outputs/private/production-media'),
@@ -150,6 +153,9 @@ async function main() {
         const productionRepository = new PostgresProductionRepository(database);
         if (await database.hasMigrations(['019'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
+        }
+        if (await database.hasMigrations(['020'])) {
+          promptPacksService = new PromptPackService(new PostgresPromptPackStateRepository(database));
         }
         productionService = new ProductionService(productionRepository, {
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
@@ -225,6 +231,7 @@ async function main() {
     productionMediaStore,
     assistantService,
     evolutionService,
+    promptPacksService,
     close: async () => {
       await Promise.all([desktopAssetService?.stop(), videoAutomationService?.stop(), productionService?.stop()]);
       await database?.close();

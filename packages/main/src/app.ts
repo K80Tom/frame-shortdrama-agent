@@ -43,6 +43,8 @@ import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
+import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
+import { PromptPackError, type PromptPackService } from './prompt-packs/service';
 
 const CONFIG = Symbol('APP_CONFIG');
 const TRANSPORT = Symbol('MODEL_TRANSPORT');
@@ -63,6 +65,7 @@ export interface AppDependencies {
   productionMediaStore?: ProductionMediaStore;
   assistantService?: AssistantService;
   evolutionService?: AssetEvolutionService;
+  promptPacksService?: PromptPackService;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
 }
@@ -373,7 +376,7 @@ class SafeErrors implements ExceptionFilter {
     }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
-      || error instanceof AssistantError) {
+      || error instanceof AssistantError || error instanceof PromptPackError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message } });
     }
     const status = error instanceof HttpException ? error.getStatus() :
@@ -391,7 +394,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController,
-    ...(dependencies.evolutionService ? [EvolutionController] : [])], providers: [ModelsService,
+    ...(dependencies.evolutionService ? [EvolutionController] : []),
+    ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
@@ -403,6 +407,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
+    { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
@@ -412,6 +417,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
       || request.url.startsWith('/api/assistant')
+      || request.url.startsWith('/api/prompt-packs')
       || request.url.includes('/desktop-asset')
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');
     const origin = request.headers.origin;
