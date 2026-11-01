@@ -83,6 +83,20 @@ test('stale selection and unsafe output paths fail before any paid request', asy
   assert.equal(calls, 0);
 });
 
+test('a local rejection before the image request is blocked and does not call the provider', async t => {
+  let calls = 0;
+  const f = await fixture(t, async () => { calls++; throw new Error('must not call'); });
+  const invalid = await f.adapter.submit({ jobId: JOB, prompt: '\ud800', outputPath: f.outputPath,
+    expectedModelConnectionRevision: 'image-revision-1' });
+  assert.equal(invalid.state, 'blocked'); assert.equal(invalid.code, 'INVALID_MEDIA_REQUEST');
+  const misconfigured = await fixture(t, async () => { calls++; throw new Error('must not call'); },
+    configured({ endpointUrl: 'http://image.test/insecure' }));
+  const blocked = await misconfigured.adapter.submit({ jobId: JOB, prompt: '原创提示词', outputPath: misconfigured.outputPath,
+    expectedModelConnectionRevision: 'image-revision-1' });
+  assert.equal(blocked.state, 'blocked'); assert.equal(blocked.code, 'MEDIA_NOT_CONFIGURED');
+  assert.equal(calls, 0);
+});
+
 test('an upstream failure is persisted as unknown and is never presented as safe to retry', async t => {
   let calls = 0;
   const f = await fixture(t, async () => { calls++; throw new Error('network unavailable'); });

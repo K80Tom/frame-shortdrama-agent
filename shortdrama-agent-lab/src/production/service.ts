@@ -10,7 +10,10 @@ import {
   type IssueDraft, type ProductionExecutionContext, type ProductionExecutor, type ProductionExecutorOutcome,
   type QualityCheckDraft, type SpawnTaskDraft, type TimelineDraft,
 } from './executor';
+import { classifyPaidProviderError } from '../models/submit-disposition';
+import { ModelError } from '../models/contracts';
 import type { ProductionRepository } from './repository';
+import { preserveMaybeSentOutcome } from './paid-submit';
 import { publicProductionRun } from './view';
 
 export interface ProductionSourceCatalog {
@@ -272,6 +275,19 @@ export class ProductionService {
       await this.save(run, 'production.task.retry_limit_reached', { taskId: task.id });
       return;
     }
+    const unresolved = this.activeOperation(run, task.id);
+    if (unresolved) {
+      const at = this.timestamp();
+      unresolved.status = 'unknown'; unresolved.updatedAt = at;
+      task.status = 'waitingHuman'; task.version++; task.updatedAt = at;
+      task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '已有未结束的付费操作，不会自动创建第二次提交。' };
+      this.addIssue(run, task, { code: 'EXTERNAL_SUBMISSION_UNKNOWN', title: '已有未结束的付费操作',
+        message: task.blockingReason.message, severity: 'error',
+        recommendedActions: ['查询原供应商任务', '不要重复提交'] }, at);
+      this.refreshRunStatus(run);
+      await this.save(run, 'production.external.duplicate_submit_blocked', { taskId: task.id, operationId: unresolved.id });
+      return;
+    }
     let prepared;
     try { prepared = await executor.prepare({ run: clone(run), task: clone(task) }); }
     catch { return this.blockPrepare(run, task); }
@@ -314,15 +330,26 @@ export class ProductionService {
       if (error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT') return;
       const failed = await this.requireRun(claimed.id); const currentTask = failed.tasks.find(item => item.id === task.id)!;
       const currentAttempt = failed.attempts.find(item => item.id === attemptId)!; const end = this.timestamp();
+      const notSent = prepared.requiresPaid && classifyPaidProviderError(error) === 'notSent';
       currentAttempt.status = 'failed'; currentAttempt.endedAt = end;
-      currentAttempt.error = { code: prepared.requiresPaid ? 'EXTERNAL_SUBMISSION_UNKNOWN' : 'EXECUTOR_FAILED',
-        message: prepared.requiresPaid ? '付费提交结果不明，不会自动重发。' : '执行器运行失败，原始错误未暴露。' };
+      currentAttempt.error = notSent
+        ? { code: error instanceof ModelError ? error.code : 'PAID_REQUEST_NOT_SENT',
+          message: '付费请求在发送前被本地拒绝，未调用供应商，可以安全重试。' }
+        : { code: prepared.requiresPaid ? 'EXTERNAL_SUBMISSION_UNKNOWN' : 'EXECUTOR_FAILED',
+          message: prepared.requiresPaid ? '付费提交结果不明，不会自动重发。' : '执行器运行失败，原始错误未暴露。' };
       const operation = this.activeOperation(failed, currentTask.id);
-      if (operation) { operation.status = 'unknown'; operation.updatedAt = end; currentTask.status = 'reconciling'; }
-      else currentTask.status = 'failed';
+      if (operation && notSent) {
+        this.charge(failed, currentTask, currentAttempt, 0, end, true);
+        operation.status = 'failed'; operation.updatedAt = end;
+        currentTask.status = currentTask.attemptCount < currentTask.maxAttempts ? 'waitingHuman' : 'failed';
+      } else if (operation) {
+        operation.status = 'unknown'; operation.updatedAt = end; currentTask.status = 'reconciling';
+      } else currentTask.status = 'failed';
       currentTask.blockingReason = clone(currentAttempt.error); currentTask.updatedAt = end; currentTask.version++;
-      this.addIssue(failed, currentTask, { code: currentAttempt.error.code, title: '执行未完成', message: currentAttempt.error.message,
-        severity: 'error', recommendedActions: operation ? ['查询原供应商任务', '不要重复提交'] : ['检查执行器后重试'] }, end);
+      this.addIssue(failed, currentTask, { code: currentAttempt.error.code, title: notSent ? '付费请求未发出' : '执行未完成',
+        message: currentAttempt.error.message, severity: 'error',
+        recommendedActions: notSent ? ['修正输入后局部重试']
+          : operation ? ['查询原供应商任务', '不要重复提交'] : ['检查执行器后重试'] }, end);
       this.refreshRunStatus(failed); await this.save(failed, 'production.task.execution_failed', { taskId: task.id });
       return;
     }
@@ -449,6 +476,7 @@ export class ProductionService {
   }
 
   private async applyOutcome(run: StoredProductionRun, task: ProductionTask, attemptId: string, outcome: ProductionExecutorOutcome) {
+    outcome = preserveMaybeSentOutcome(outcome);
     const at = this.timestamp(); const attempt = run.attempts.find(item => item.id === attemptId); if (!attempt) return;
     const operation = this.activeOperation(run, task.id);
     if (outcome.state === 'waitingExternal') {

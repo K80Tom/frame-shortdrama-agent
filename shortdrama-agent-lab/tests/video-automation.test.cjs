@@ -512,6 +512,19 @@ test('real video adapter health is local-only and cached queries keep the exact 
   assert.doesNotMatch(JSON.stringify(await f.service.get(run.id)), /synthetic-old-video-key|video-first\.example/);
 });
 
+test('real video adapter rejects an invalid request before any paid submit', async t => {
+  const f = await fixture(t);
+  const run = await f.stored(await f.service.create(input()));
+  let calls = 0;
+  const config = { ...readConfig({}), endpointUrl: 'https://video.example.test/v1/tasks', defaultModel: HEALTH.model,
+    connectionRevision: HEALTH.connectionRevision, apiKey: 'synthetic-secret-must-not-leak', authType: 'bearer' };
+  const adapter = new SeedanceVideoAutomationAdapter(() => config, async () => { calls++; throw new Error('must not call'); });
+  const result = await adapter.submit({ ...run, duration: 2 });
+  assert.equal(result.state, 'blocked');
+  assert.equal(result.code, 'VIDEO_REFERENCE_ASSET_INVALID');
+  assert.equal(calls, 0);
+});
+
 test('real video adapter treats network and malformed successful-submit responses as uncertain without retry', async t => {
   const f = await fixture(t);
   const run = await f.stored(await f.service.create(input()));

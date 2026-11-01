@@ -3,6 +3,7 @@ import { AssetError, localAssetUrl } from '../assets/contracts';
 import type { AssetService } from '../assets/service';
 import { SeedanceVideoClient, type SeedanceTask } from '../models/media-client';
 import { ModelError } from '../models/contracts';
+import { classifyPaidProviderError } from '../models/submit-disposition';
 import { VideoAutomationError, type StoredVideoRun, type VideoAvailability } from './contracts';
 
 export type VideoSubmitResult = { state: 'submitted'; task: SeedanceTask }
@@ -49,9 +50,13 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
         duration: run.duration, resolution: run.resolution, generateAudio: run.generateAudio,
         referenceImageUrls: references.sources, watermark: false }) };
     } catch (error) {
-      if (error instanceof ModelError && error.code === 'INVALID_MEDIA_REQUEST') {
-        return { state: 'blocked', code: 'VIDEO_REFERENCE_ASSET_INVALID',
-          message: '视频参考图片未通过本地校验，未调用模型。' };
+      if (classifyPaidProviderError(error) === 'notSent') {
+        if (error instanceof ModelError && error.code === 'INVALID_MEDIA_REQUEST') {
+          return { state: 'blocked', code: 'VIDEO_REFERENCE_ASSET_INVALID',
+            message: '视频参考图片未通过本地校验，未调用模型。' };
+        }
+        return { state: 'blocked', code: error instanceof ModelError ? error.code : 'VIDEO_REQUEST_NOT_SENT',
+          message: '视频请求在发送前被拒绝，未调用模型，可以在修正后重试。' };
       }
       return { state: 'unknown', code: 'VIDEO_SUBMISSION_UNCERTAIN',
         message: '无法确认供应商是否已收到视频请求，可能已消耗额度；不会自动重发。' };

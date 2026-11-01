@@ -51,6 +51,18 @@ function breakdownFixture(mode = 'auto') {
   return { candidate, check, project, draft, adoptions, breakdown, runner, run, calls: () => runnerCalls };
 }
 
+test('an in-flight breakdown submit stays unknown and is not sent again', async () => {
+  const f = breakdownFixture('auto');
+  f.draft.status = 'running'; f.draft.task.state = 'running';
+  const executor = new BreakdownProductionExecutor(f.breakdown, f.runner, { estimateCostMicros: 200 });
+  const running = await executor.reconcile(context(f.run, 'breakdown'), { providerTaskId: f.draft.id });
+  assert.equal(running.state, 'waitingHuman'); assert.equal(running.operationUnknown, true);
+  assert.equal(running.issue.code, 'BREAKDOWN_SUBMISSION_UNKNOWN');
+  const missing = await executor.reconcile(context(f.run, 'breakdown'), { providerTaskId: null });
+  assert.equal(missing.operationUnknown, true); assert.equal(missing.issue.code, 'BREAKDOWN_RUN_ID_MISSING');
+  assert.equal(f.calls(), 0);
+});
+
 test('breakdown adapter persists a draft boundary, auto-adopts checked output, and is replay-idempotent', async () => {
   const f = breakdownFixture('auto');
   const executor = new BreakdownProductionExecutor(f.breakdown, f.runner, { estimateCostMicros: 200 });
@@ -163,7 +175,7 @@ test('paid model failures distinguish confirmed cost, uncertain submission, and 
   for (const [paidModelCallState, expected] of [
     ['confirmed', { state: 'failed', actualCostMicros: 300 }],
     ['unknown', { state: 'waitingHuman', operationUnknown: true }],
-    ['none', { state: 'failed', actualCostMicros: 0 }],
+    ['none', { state: 'failed', actualCostMicros: 0, retryable: true }],
   ]) {
     const run = runFor({ clientRequestId: `paid-${paidModelCallState}` });
     const storyboards = { async get() { throw new Error('not adopted'); },
@@ -174,6 +186,7 @@ test('paid model failures distinguish confirmed cost, uncertain submission, and 
     const outcome = await executor.execute(context(run, 'storyboard'));
     assert.equal(outcome.state, expected.state);
     if ('actualCostMicros' in expected) assert.equal(outcome.actualCostMicros, expected.actualCostMicros);
+    if ('retryable' in expected) assert.equal(outcome.retryable, expected.retryable);
     if ('operationUnknown' in expected) {
       assert.equal(outcome.operationUnknown, true); assert.equal(outcome.issue.code, 'MODEL_EXECUTION_UNKNOWN');
       assert.equal('actualCostMicros' in outcome, false);
@@ -352,6 +365,18 @@ test('video failure before provider submission costs zero while a submitted fail
     const outcome = await executor.execute(context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest }));
     assert.equal(outcome.state, 'failed'); assert.equal(outcome.actualCostMicros, expectedCost);
   }
+});
+
+test('video reconciliation without a saved run id stays unknown and does not create another task', async () => {
+  const f = videoFixture(); let creates = 0;
+  const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
+    async create() { creates++; throw new Error('must not create'); },
+    async get() { throw new Error('must not get'); }, async reconcile() { throw new Error('must not reconcile'); } };
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+    { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { throw new Error('must not ingest'); } } });
+  const outcome = await executor.reconcile(context(f.run, 'video', { task: f.task }), { providerTaskId: null });
+  assert.equal(outcome.state, 'waitingHuman'); assert.equal(outcome.operationUnknown, true);
+  assert.equal(outcome.issue.code, 'VIDEO_RUN_ID_MISSING'); assert.equal(creates, 0);
 });
 
 test('unknown video submission without a provider ID becomes a durable human reconciliation gate', async () => {

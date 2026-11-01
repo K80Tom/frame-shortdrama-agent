@@ -5,6 +5,7 @@ const { join } = require('node:path');
 const { MemoryProductionRepository } = require('../dist/production/repository');
 const { ProductionService } = require('../dist/production/service');
 const { ProductionError } = require('../dist/production/contracts');
+const { ModelError } = require('../dist/models/contracts');
 
 const input = (changes = {}) => ({
   projectId: 'project_0123456789abcdef0123456789abcdef',
@@ -668,6 +669,116 @@ test('a manual retry reconciles a definitively failed external operation and res
   assert.equal(run.summary.budget.spentMicros, 60);
   assert.equal(run.summary.budget.reservedMicros, 0);
 });
+test('a lost paid submit is not sent again by later ticks or by retry', async () => {
+  let calls = 0;
+  const paid = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-paid/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { calls++; throw new Error('provider response lost after the request may have been accepted'); },
+  };
+  const { service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'lost-paid-submit' }));
+  await service.tick(created.id); await service.tick(created.id);
+  await ticks(service, 4);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(calls, 1);
+  assert.equal(task.blockingReason.code, 'EXTERNAL_RECONCILIATION_REQUIRED');
+  assert.equal(run.externalOperations.length, 1);
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '再提交一次' }),
+    error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
+  await ticks(service, 3);
+  run = await service.get(created.id);
+  assert.equal(calls, 1);
+  assert.equal(run.externalOperations.length, 1);
+  assert.equal(run.externalOperations[0].status, 'unknown');
+});
+
+test('an explicitly unsent paid request releases its reservation and can be retried once', async () => {
+  let calls = 0;
+  const paid = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-paid/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() {
+      calls++;
+      if (calls === 1) throw new ModelError(400, 'INVALID_MEDIA_REQUEST', '参数不正确。');
+      return { state: 'succeeded', actualCostMicros: 0 };
+    },
+  };
+  const { service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'paid-request-not-sent' }));
+  await service.tick(created.id); await service.tick(created.id);
+  let run = await service.get(created.id);
+  let task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(calls, 1);
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(task.blockingReason.code, 'INVALID_MEDIA_REQUEST');
+  assert.equal(run.externalOperations[0].status, 'failed');
+  assert.equal(run.summary.budget.reservedMicros, 0);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  run = await service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '参数已修正' });
+  await ticks(service);
+  run = await service.get(created.id);
+  task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(calls, 2);
+  assert.equal(task.status, 'succeeded');
+  assert.equal(run.externalOperations.length, 2);
+  assert.equal(run.externalOperations[1].status, 'succeeded');
+});
+
+test('a maybe-sent blocked outcome stays unknown and retry does not create a second paid call', async () => {
+  const paid = executor('breakdown', { state: 'blocked', issue: {
+    code: 'BREAKDOWN_SUBMISSION_UNKNOWN', title: '拆解执行结果不明',
+    message: '已有拆解执行处于运行记录，不会重复提交付费请求。', severity: 'error' } },
+  { estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' });
+  const { service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'maybe-sent-blocked' }));
+  await service.tick(created.id); await service.tick(created.id);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(paid.calls(), 1);
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(task.blockingReason.code, 'BREAKDOWN_SUBMISSION_UNKNOWN');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.externalOperations[0].actualCostMicros, null);
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '当作失败重提' }),
+    error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
+  await ticks(service, 3);
+  run = await service.get(created.id);
+  assert.equal(paid.calls(), 1);
+  assert.equal(run.externalOperations.length, 1);
+  assert.equal(run.externalOperations[0].status, 'unknown');
+});
+
+test('the scheduler does not open a second paid call while an earlier operation is unresolved', async () => {
+  const paid = executor('breakdown', { state: 'waitingHuman', operationUnknown: true, issue: {
+    code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '响应丢失', severity: 'error' } },
+  { estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' });
+  const { repo, service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'ready-with-unknown-operation' }));
+  await service.tick(created.id); await service.tick(created.id);
+  assert.equal(paid.calls(), 1);
+  const stored = await repo.get(created.id);
+  const task = stored.tasks.find(item => item.stage === 'breakdown');
+  task.status = 'ready'; task.blockingReason = null;
+  await repo.replace(stored, stored.version);
+  await ticks(service, 3);
+  const run = await service.get(created.id);
+  assert.equal(paid.calls(), 1);
+  assert.equal(run.externalOperations.length, 1);
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'waitingHuman');
+  assert.equal(run.tasks.find(item => item.id === task.id).blockingReason.code, 'EXTERNAL_SUBMISSION_UNKNOWN');
+  assert.equal(run.summary.budget.reservedMicros, 100);
+});
+
 test('direct candidate policy skips the gacha stage and re-routes review to the video stage', async () => {
   const { service } = await make();
   const run = await service.create(input({ candidatePolicy: 'direct', candidateLimit: 1, clientRequestId: 'production-direct-1' }));

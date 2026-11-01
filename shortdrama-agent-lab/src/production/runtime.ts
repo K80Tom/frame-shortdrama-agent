@@ -47,6 +47,9 @@ function paidModelFailure(error: unknown, fallbackCode: string, fallbackMessage:
         message: `${safe.message}原付费请求可能已发生，已保留预算预留并禁止自动重发。`, severity: 'error',
         recommendedActions: ['核对原模型请求和账单', '不要重复提交', '人工确认结果后再处理'] } };
   }
+  if (error instanceof PaidModelExecutionError && error.paidModelCallState === 'none') {
+    return { state: 'failed', code: safe.code, message: safe.message, retryable: true, actualCostMicros: 0 };
+  }
   return { ...safe, actualCostMicros: error instanceof PaidModelExecutionError
     && error.paidModelCallState === 'confirmed' && operationKey ? estimateCostMicros : 0 };
 }
@@ -86,8 +89,9 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
   }
 
   async reconcile(context: ProductionExecutionContext, operation: { providerTaskId: string | null }): Promise<ProductionExecutorOutcome> {
-    if (!operation.providerTaskId) return { state: 'blocked', issue: { code: 'BREAKDOWN_RUN_ID_MISSING',
-      title: '拆解任务无法对账', message: '没有保存拆解 Run ID，不会重新调用模型。', severity: 'error' } };
+    if (!operation.providerTaskId) return { state: 'waitingHuman', operationUnknown: true, issue: { code: 'BREAKDOWN_RUN_ID_MISSING',
+      title: '拆解任务无法对账', message: '没有保存拆解 Run ID，不会重新调用模型。', severity: 'error',
+      recommendedActions: ['核对原拆解执行记录', '不要重复提交'] } };
     try {
       let draft = await this.breakdown.getRun(operation.providerTaskId);
       let plan: PlanRevisionRecord;
@@ -100,9 +104,9 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
           title: '拆解结果缺失', message: '拆解 Run 已结束，但没有找到候选版本。', severity: 'error' } };
         plan = found;
       } else if (draft.status === 'running' || draft.task.state === 'running') {
-        return { state: 'blocked', issue: { code: 'BREAKDOWN_SUBMISSION_UNKNOWN', title: '拆解执行结果不明',
+        return { state: 'waitingHuman', operationUnknown: true, issue: { code: 'BREAKDOWN_SUBMISSION_UNKNOWN', title: '拆解执行结果不明',
           message: '已有拆解执行处于运行记录，不会重复提交付费请求。', severity: 'error',
-          recommendedActions: ['核对原拆解执行记录'] } };
+          recommendedActions: ['核对原拆解执行记录', '不要重复提交'] } };
       } else return { state: 'failed', code: 'BREAKDOWN_RUN_FAILED', message: '剧本拆解任务未成功。', retryable: false };
       return await this.reviewablePlan(context.run as StoredProductionRun, plan,
         context.operationKey ? this.options.estimateCostMicros : 0);
@@ -326,8 +330,9 @@ export class VideoProductionExecutor implements ProductionExecutor {
     } catch (error) { return safeFailure(error, 'VIDEO_TASK_CREATE_FAILED', '镜头视频任务创建失败，未自动重试。'); }
   }
   async reconcile(context: ProductionExecutionContext, operation: { providerTaskId: string | null }): Promise<ProductionExecutorOutcome> {
-    if (!operation.providerTaskId) return { state: 'blocked', issue: { code: 'VIDEO_RUN_ID_MISSING', title: '视频任务无法对账',
-      message: '没有本地视频 Run ID，不会重新提交。', severity: 'error' } };
+    if (!operation.providerTaskId) return { state: 'waitingHuman', operationUnknown: true, issue: { code: 'VIDEO_RUN_ID_MISSING', title: '视频任务无法对账',
+      message: '没有本地视频 Run ID，不会重新提交。', severity: 'error',
+      recommendedActions: ['核对原视频任务', '不要重复提交'] } };
     try {
       let run = await this.videos.get(operation.providerTaskId);
       if (run.status === 'unknown') run = await this.videos.reconcile(operation.providerTaskId, {});

@@ -4,6 +4,8 @@ import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { AppConfig } from '../config';
 import { DoubaoImageClient } from '../models/media-client';
+import { ModelError } from '../models/contracts';
+import { classifyPaidProviderError } from '../models/submit-disposition';
 import type { DesktopAssetAdapter, DesktopBridgeHealth, DesktopSubmitInput, DesktopSubmitResult } from './adapter';
 
 export interface DoubaoImageApiAdapterOptions {
@@ -81,7 +83,11 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
     try {
       const client = new DoubaoImageClient({ ...config, fetch: this.transport });
       generated = await client.generateImage({ prompt: input.prompt, size: '2K', responseFormat: 'url', watermark: false });
-    } catch {
+    } catch (error) {
+      if (classifyPaidProviderError(error) === 'notSent') {
+        return { state: 'blocked', code: error instanceof ModelError ? error.code : 'IMAGE_REQUEST_NOT_SENT',
+          message: '生图请求在发送前被拒绝，未调用模型，可以在修正后重试。' };
+      }
       // Once transport begins, even a timeout or malformed reply may have spent
       // quota. Persist uncertainty and never turn it into an automatic retry.
       return { state: 'unknown', code: 'IMAGE_SUBMISSION_UNCERTAIN',
