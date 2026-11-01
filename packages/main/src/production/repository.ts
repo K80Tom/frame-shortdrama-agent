@@ -33,6 +33,9 @@ function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean
   // with a different budget keeps failing with PRODUCTION_REQUEST_REUSED.
   const frozen = CREATE_KEYS.filter(key => key !== 'budgetMicros');
   return a.id === b.id && a.createdAt === b.createdAt && a.workflowVersion === b.workflowVersion
+    && a.assetRetrievalPolicy?.policyDigest === b.assetRetrievalPolicy?.policyDigest
+    && a.assetRetrievalPolicy?.registryRevision === b.assetRetrievalPolicy?.registryRevision
+    && a.assetRetrievalPolicy?.sourceCandidateId === b.assetRetrievalPolicy?.sourceCandidateId
     && frozen.every(key => a[key] === b[key]);
 }
 

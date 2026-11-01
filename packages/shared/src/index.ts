@@ -6,6 +6,8 @@
  */
 export * from './models';
 export * from './production';
+export * from './asset-retrieval';
+export * from './evolution';
 export * from './assets';
 export * from './novel-analysis';
 export * from './novel-domain';

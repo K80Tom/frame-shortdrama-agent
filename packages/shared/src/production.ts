@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { FrozenAssetRetrievalPolicy } from './asset-retrieval';
 
 export const PRODUCTION_WORKFLOW_VERSION = 'ohao-production/1';
 export const productionStageOrder = [
@@ -209,6 +210,8 @@ export interface OutboxEvent {
 export interface StoredProductionRun extends CreateProductionRun {
   id: string;
   workflowVersion: typeof PRODUCTION_WORKFLOW_VERSION;
+  /** Missing only in runs persisted before policy Registry P2; they retain the built-in baseline. */
+  assetRetrievalPolicy?: FrozenAssetRetrievalPolicy;
   status: ProductionRunStatus;
   version: number;
   pausedAt: string | null;

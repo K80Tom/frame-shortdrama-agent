@@ -1,3 +1,5 @@
+import type { FrozenAssetRetrievalPolicy } from '@lyra/shared';
+
 export const productionRunStatuses = ['queued', 'running', 'waitingHuman', 'paused', 'pausedBudget', 'reconciling', 'completed', 'partial', 'failed', 'cancelled'] as const;
 export type ProductionRunStatus = typeof productionRunStatuses[number];
 export const productionTaskStatuses = ['pending', 'ready', 'running', 'waitingExternal', 'validating', 'retryWait', 'reconciling', 'waitingHuman', 'succeeded', 'failed', 'cancelled', 'invalidated', 'superseded', 'skipped'] as const;
@@ -60,6 +62,7 @@ export type ProductionRun = {
   id: string; clientRequestId: string; projectId: string; scriptVersionId: string; status: ProductionRunStatus; version: number;
   projectTitle?: string; ratio?: string; targetDurationSec?: number; visualStyle?: string; qualityPreset?: string;
   automationMode?: string; candidatePolicy?: string; candidateLimit?: number; directorPolicy?: string; createdAt: string; updatedAt: string; pausedAt: string | null;
+  assetRetrievalPolicy?: FrozenAssetRetrievalPolicy;
   summary: ProductionSummary; stages: ProductionStage[]; tasks: ProductionTask[]; issues: ProductionIssue[];
   candidateSets: ProductionCandidateSet[]; artifacts: ProductionArtifact[]; qualityChecks: ProductionQualityCheck[];
   reviews: ProductionReview[]; timeline: ProductionTimelineItem[]; delivery: ProductionDelivery;
@@ -87,6 +90,14 @@ function safeLink(value: unknown) {
   if (typeof value !== 'string') return undefined;
   if (/^\/api\/[A-Za-z0-9_?&=/%.-]+$/u.test(value)) return value;
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : undefined; } catch { return undefined; }
+}
+function parseFrozenAssetRetrievalPolicy(value: unknown): FrozenAssetRetrievalPolicy | undefined {
+  const row = record(value); if (!row || !text(row.policyDigest)) return undefined;
+  const threshold = number(row.threshold, -1); const ambiguityMargin = number(row.ambiguityMargin, -1); const semanticWeight = number(row.semanticWeight, -1);
+  if (threshold < 0 || threshold > 1 || ambiguityMargin < 0 || ambiguityMargin > 0.5 || semanticWeight < 0 || semanticWeight > 1) return undefined;
+  return { schemaVersion: 'asset-retrieval-policy/1', threshold, ambiguityMargin, semanticWeight,
+    registryRevision: Math.max(0, Math.floor(number(row.registryRevision))), policyDigest: text(row.policyDigest),
+    sourceCandidateId: nullableText(row.sourceCandidateId) };
 }
 function jsonSafe(value: unknown): unknown {
   if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return value;
@@ -151,6 +162,7 @@ export function parseProductionRun(value: unknown): ProductionRun {
   const shotCounts = counts(summary.shots, ['completed', 'total']); const issueCounts = counts(summary.issues, ['open', 'total']);
   const budget = record(summary.budget) ?? {};
   const deliveryRow = record(row.delivery);
+  const assetRetrievalPolicy = parseFrozenAssetRetrievalPolicy(row.assetRetrievalPolicy);
   return {
     id: text(row.id), clientRequestId: text(row.clientRequestId), projectId: text(row.projectId), scriptVersionId: text(row.scriptVersionId),
     status: enumValue(row.status, productionRunStatuses, 'queued'), version: Math.max(0, Math.floor(number(row.version))),
@@ -160,6 +172,7 @@ export function parseProductionRun(value: unknown): ProductionRun {
     ...(text(row.candidatePolicy) ? { candidatePolicy: text(row.candidatePolicy) } : {}),
     ...(number(row.candidateLimit, -1) >= 0 ? { candidateLimit: number(row.candidateLimit) } : {}), ...(text(row.directorPolicy) ? { directorPolicy: text(row.directorPolicy) } : {}),
     createdAt: text(row.createdAt), updatedAt: text(row.updatedAt), pausedAt: nullableText(row.pausedAt),
+    ...(assetRetrievalPolicy ? { assetRetrievalPolicy } : {}),
     summary: { tasks: taskCounts as ProductionSummary['tasks'], shots: shotCounts as ProductionSummary['shots'], issues: issueCounts as ProductionSummary['issues'],
       budget: { limitMicros: Math.max(0, number(budget.limitMicros)), reservedMicros: Math.max(0, number(budget.reservedMicros)), spentMicros: Math.max(0, number(budget.spentMicros)), currency: text(budget.currency, 'CNY') } },
     stages: list(row.stages).map(parseStage).filter(Boolean) as ProductionStage[], tasks: list(row.tasks).map(parseTask).filter(Boolean) as ProductionTask[],

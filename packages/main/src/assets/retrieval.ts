@@ -1,10 +1,11 @@
 import type { AssetKind, AssetRecord } from '@lyra/shared';
+import { DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
 
 export const ASSET_RETRIEVAL_RULE_VERSION = 'asset-rag-structured/1';
 export const ASSET_RETRIEVAL_HYBRID_RULE_VERSION = 'asset-rag-hybrid/1';
-export const ASSET_RETRIEVAL_THRESHOLD = 0.62;
-export const ASSET_RETRIEVAL_AMBIGUITY_MARGIN = 0.08;
-export const ASSET_RETRIEVAL_SEMANTIC_WEIGHT = 0.95;
+export const ASSET_RETRIEVAL_THRESHOLD = DEFAULT_ASSET_RETRIEVAL_POLICY.threshold;
+export const ASSET_RETRIEVAL_AMBIGUITY_MARGIN = DEFAULT_ASSET_RETRIEVAL_POLICY.ambiguityMargin;
+export const ASSET_RETRIEVAL_SEMANTIC_WEIGHT = DEFAULT_ASSET_RETRIEVAL_POLICY.semanticWeight;
 const RECALL_THRESHOLD = 0.34;
 const MAX_TOKENS = 24;
 const MAX_CANDIDATES = 5;
@@ -48,7 +49,7 @@ export interface AssetRetrievalProvider {
 
 export interface AssetRetriever {
   readonly semanticProvider?: AssetRetrievalProvider;
-  retrieve(query: AssetRetrievalQuery, assets: AssetRecord[]): Promise<AssetRetrievalResult>;
+  retrieve(query: AssetRetrievalQuery, assets: AssetRecord[], policy?: AssetRetrievalPolicy): Promise<AssetRetrievalResult>;
 }
 
 export interface AssetRetrievalResult {
@@ -74,6 +75,7 @@ export interface AssetRetrievalResult {
 export function retrieveAssetForGeneration(
   query: AssetRetrievalQuery,
   assets: AssetRecord[],
+  policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY,
 ): AssetRetrievalResult {
   const names = [...new Set([query.name, ...query.aliases]
     .map(value => normalizeSearchText(value)).filter(value => codePointLength(value) >= 2))];
@@ -129,13 +131,14 @@ export function retrieveAssetForGeneration(
     ruleVersion: ASSET_RETRIEVAL_RULE_VERSION,
     mode: 'structured_lexical',
     semantic: { status: 'disabled', attempted: false, model: null, candidateCount: 0, reason: 'not_configured' },
-  });
+  }, policy);
 }
 
 /** Shared ranking/ambiguity gate for lexical-only and hydrated hybrid candidates. */
 export function finalizeAssetRetrieval(
   recalled: AssetRetrievalCandidate[],
   metadata: Pick<AssetRetrievalResult, 'ruleVersion' | 'mode' | 'semantic'>,
+  policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY,
 ): AssetRetrievalResult {
   const candidates = recalled.filter(candidate => candidate.score >= RECALL_THRESHOLD
       && (candidate.matchedTerms.length > 0 || candidate.semanticScore !== undefined))
@@ -143,17 +146,17 @@ export function finalizeAssetRetrieval(
       || right.asset.createdAt.localeCompare(left.asset.createdAt)
       || left.asset.id.localeCompare(right.asset.id));
   const top = candidates[0] ?? null;
-  const close = top ? candidates.filter(candidate => top.score - candidate.score < ASSET_RETRIEVAL_AMBIGUITY_MARGIN) : [];
+  const close = top ? candidates.filter(candidate => top.score - candidate.score < policy.ambiguityMargin) : [];
   const status = !top ? 'no_candidates'
-    : top.score < ASSET_RETRIEVAL_THRESHOLD ? 'below_threshold'
+    : top.score < policy.threshold ? 'below_threshold'
       : close.length > 1 ? 'ambiguous' : 'unique';
   return {
     ...metadata,
     status,
     asset: status === 'unique' ? top!.asset : null,
     score: top?.score ?? null,
-    threshold: ASSET_RETRIEVAL_THRESHOLD,
-    ambiguityMargin: ASSET_RETRIEVAL_AMBIGUITY_MARGIN,
+    threshold: policy.threshold,
+    ambiguityMargin: policy.ambiguityMargin,
     candidates: candidates.slice(0, MAX_CANDIDATES),
     ambiguousCandidates: status === 'ambiguous' ? close : [],
   };

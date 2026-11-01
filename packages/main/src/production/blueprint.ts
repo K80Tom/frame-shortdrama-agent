@@ -1,6 +1,6 @@
 import {
-  PRODUCTION_WORKFLOW_VERSION, canonicalDigest, productionId, productionStageOrder,
-  type CreateProductionRun, type OutboxEvent, type ProductionStage, type ProductionTask,
+  PRODUCTION_WORKFLOW_VERSION, DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY, canonicalDigest, productionId, productionStageOrder,
+  type CreateProductionRun, type FrozenAssetRetrievalPolicy, type OutboxEvent, type ProductionStage, type ProductionTask,
   type StoredProductionRun,
 } from '@lyra/shared';
 
@@ -26,7 +26,8 @@ function initialEvent(runId: string, at: string): OutboxEvent {
     payload: { workflowVersion: PRODUCTION_WORKFLOW_VERSION }, createdAt: at };
 }
 
-export function compileProductionRun(input: CreateProductionRun, now: string, id = productionId('production')): StoredProductionRun {
+export function compileProductionRun(input: CreateProductionRun, now: string, id = productionId('production'),
+  assetRetrievalPolicy: FrozenAssetRetrievalPolicy = DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY): StoredProductionRun {
   const requestDigest = canonicalDigest(input);
   const taskIds = Object.fromEntries(productionStageOrder.map(stage => [stage, productionId('ptask')])) as Record<ProductionStage, string>;
   const tasks: ProductionTask[] = productionStageOrder.map((stage, index) => {
@@ -45,6 +46,7 @@ export function compileProductionRun(input: CreateProductionRun, now: string, id
       inputManifest: [
         { kind: 'script', id: input.scriptVersionId, revisionId: input.scriptVersionId, digest: requestDigest },
         { kind: 'productionPolicy', id, revisionId: PRODUCTION_WORKFLOW_VERSION, digest: requestDigest },
+        { kind: 'assetRetrievalPolicy', id: assetRetrievalPolicy.sourceCandidateId ?? 'builtin', revisionId: String(assetRetrievalPolicy.registryRevision), digest: assetRetrievalPolicy.policyDigest },
       ],
       createdAt: now, updatedAt: now,
     };
@@ -54,7 +56,7 @@ export function compileProductionRun(input: CreateProductionRun, now: string, id
   // re-routed to the nearest stage that actually produces the required input.
   // Readiness is promoted by the scheduler after every durable transition.
   return {
-    ...structuredClone(input), id, workflowVersion: PRODUCTION_WORKFLOW_VERSION,
+    ...structuredClone(input), id, workflowVersion: PRODUCTION_WORKFLOW_VERSION, assetRetrievalPolicy,
     status: 'queued', version: 0, pausedAt: null, createdAt: now, updatedAt: now,
     tasks, attempts: [], externalOperations: [], artifacts: [], candidateSets: [], issues: [],
     qualityChecks: [], reviews: [], timeline: [], delivery: null, budgetLedger: [], outbox: [initialEvent(id, now)],

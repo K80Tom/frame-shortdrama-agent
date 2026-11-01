@@ -1,6 +1,7 @@
 import {
   ProductionError, canonicalDigest, parseCreateProductionRun, parseProductionAction, parseProductionReview,
   parseProductionRunId, productionId, sameProductionRequest, type BudgetEntry, type CandidateSet,
+  type FrozenAssetRetrievalPolicy,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
 } from '@lyra/shared';
@@ -22,6 +23,8 @@ export interface ProductionServiceOptions {
   pollIntervalMs?: number;
   executors?: ProductionExecutor[];
   sourceCatalog?: ProductionSourceCatalog;
+  /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
+  assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
 }
 
 const terminal = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -49,6 +52,7 @@ export class ProductionService {
   private readonly pollIntervalMs: number;
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
   private readonly sourceCatalog?: ProductionSourceCatalog;
+  private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   private timer: NodeJS.Timeout | null = null;
   private tickTail: Promise<void> = Promise.resolve();
 
@@ -56,6 +60,7 @@ export class ProductionService {
     this.now = options.now ?? (() => new Date());
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
+    this.assetRetrievalPolicy = options.assetRetrievalPolicy;
     for (const executor of [new ProductionPreflightExecutor(), ...(options.executors ?? [])]) this.executors.set(executor.stage, executor);
   }
 
@@ -73,7 +78,8 @@ export class ProductionService {
       await this.sourceCatalog.getProject(input.projectId);
       await this.sourceCatalog.getScriptVersion(input.projectId, input.scriptVersionId);
     }
-    const created = await this.repository.create(compileProductionRun(input, this.timestamp()));
+    const policy = this.assetRetrievalPolicy ? await this.assetRetrievalPolicy() : undefined;
+    const created = await this.repository.create(compileProductionRun(input, this.timestamp(), undefined, policy));
     if (!sameProductionRequest(created, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
     return publicProductionRun(created);
   }

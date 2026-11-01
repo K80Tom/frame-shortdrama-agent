@@ -1,7 +1,7 @@
 import type { AssetRecord } from '@lyra/shared';
+import { DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
 import {
   ASSET_RETRIEVAL_HYBRID_RULE_VERSION,
-  ASSET_RETRIEVAL_SEMANTIC_WEIGHT,
   finalizeAssetRetrieval,
   retrieveAssetForGeneration,
   type AssetRetrievalCandidate,
@@ -33,8 +33,9 @@ export class HybridAssetRetriever implements AssetRetriever {
     };
   }
 
-  async retrieve(query: AssetRetrievalQuery, assets: AssetRecord[]): Promise<AssetRetrievalResult> {
-    const lexical = retrieveAssetForGeneration(query, assets);
+  async retrieve(query: AssetRetrievalQuery, assets: AssetRecord[],
+    policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY): Promise<AssetRetrievalResult> {
+    const lexical = retrieveAssetForGeneration(query, assets, policy);
     try {
       const vector = await this.dependencies.embedding.embedText(assetQueryVectorText(query));
       const hits = await this.dependencies.store.search(vector, query.kind, 12);
@@ -51,8 +52,8 @@ export class HybridAssetRetriever implements AssetRetriever {
         const semanticScore = Math.max(0, Math.min(1, hit.score));
         const current = combined.get(asset.id);
         const lexicalScore = current?.lexicalScore ?? current?.score ?? 0;
-        const hybridScore = semanticScore * ASSET_RETRIEVAL_SEMANTIC_WEIGHT
-          + lexicalScore * (1 - ASSET_RETRIEVAL_SEMANTIC_WEIGHT);
+        const hybridScore = semanticScore * policy.semanticWeight
+          + lexicalScore * (1 - policy.semanticWeight);
         const matchedFields = new Set(current?.matchedFields ?? []);
         matchedFields.add('semantic');
         combined.set(asset.id, {
@@ -68,7 +69,7 @@ export class HybridAssetRetriever implements AssetRetriever {
         ruleVersion: ASSET_RETRIEVAL_HYBRID_RULE_VERSION, mode: 'hybrid_semantic_lexical',
         semantic: { status: 'available', attempted: true, model: this.dependencies.model,
           candidateCount: hydrated, reason: 'available' },
-      });
+      }, policy);
     } catch (error) {
       if (!isRebuildableVectorDependencyFailure(error)) throw error;
       return {

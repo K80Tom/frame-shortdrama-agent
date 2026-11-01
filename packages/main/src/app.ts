@@ -41,6 +41,8 @@ import type { ProductionMediaStore } from './production-media/store';
 import { ASSISTANT_SERVICE, AssistantController } from './assistant/controller';
 import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
+import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
+import type { AssetEvolutionService } from './evolution/service';
 
 const CONFIG = Symbol('APP_CONFIG');
 const TRANSPORT = Symbol('MODEL_TRANSPORT');
@@ -60,6 +62,7 @@ export interface AppDependencies {
   productionService?: ProductionService;
   productionMediaStore?: ProductionMediaStore;
   assistantService?: AssistantService;
+  evolutionService?: AssetEvolutionService;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
 }
@@ -387,7 +390,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   const breakdownService = dependencies.breakdownService ?? new UnavailableBreakdownService();
   @Module({ controllers: [ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, AssistantController], providers: [ModelsService,
+    ProductionController, ProductionMediaController, AssistantController,
+    ...(dependencies.evolutionService ? [EvolutionController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
@@ -398,6 +402,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_SERVICE, useValue: dependencies.productionService ?? null },
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
+    { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
@@ -405,6 +410,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     if (request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
+      || request.url.startsWith('/api/evolution')
       || request.url.startsWith('/api/assistant')
       || request.url.includes('/desktop-asset')
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');

@@ -37,6 +37,8 @@ import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
 import { AssistantOrchestrator } from '@lyra/agent';
 import { AssistantService } from '@lyra/agent';
+import { PostgresEvolutionRepository } from './evolution/postgres-repository';
+import { AssetEvolutionService } from './evolution/service';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -93,6 +95,7 @@ async function main() {
   let videoAutomationService: VideoAutomationService | undefined;
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
+  let evolutionService: AssetEvolutionService | undefined;
   const mediaRunner = new BoundedProcessRunner();
   const productionMediaStore = new ProductionMediaStore(
     resolve('outputs/private/production-media'),
@@ -144,7 +147,12 @@ async function main() {
         && breakdownService instanceof BreakdownService && stageRunner && storyboardService
         && assetService && videoAutomationService) {
         const breakdown = breakdownService;
-        productionService = new ProductionService(new PostgresProductionRepository(database), {
+        const productionRepository = new PostgresProductionRepository(database);
+        if (await database.hasMigrations(['019'])) {
+          evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
+        }
+        productionService = new ProductionService(productionRepository, {
+          assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
           sourceCatalog: breakdownService,
           executors: [
             new BreakdownProductionExecutor(breakdownService, stageRunner,
@@ -216,6 +224,7 @@ async function main() {
     productionService,
     productionMediaStore,
     assistantService,
+    evolutionService,
     close: async () => {
       await Promise.all([desktopAssetService?.stop(), videoAutomationService?.stop(), productionService?.stop()]);
       await database?.close();
