@@ -3,3 +3,96 @@
 @media(max-width:1250px){.novel-workspace{grid-template-columns:1fr}.novel-chapters{position:static;max-height:none}.novel-chapters nav{display:flex;overflow-x:auto;margin-top:12px}.novel-chapters nav>button{flex:0 0 170px}.novel-chapters>h2{display:inline}.novel-chapters>p{display:inline-block}.novel-chapters>a{display:inline-block}.novel-chapter-head{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.novel-proofread{grid-template-columns:1fr}.novel-source{position:static}.novel-page .novel-source>textarea{height:330px}.novel-chapter-head{grid-template-columns:1fr}.novel-extract-actions{max-width:none}.novel-save-bar{align-items:flex-start;flex-direction:column}}
 @media(max-width:600px){.novel-card{padding:17px}.novel-hero{padding:24px 21px;gap:12px}.novel-hero>svg{width:30px}.novel-import-fields,.novel-two-fields{grid-template-columns:1fr}.novel-library>.novel-row>select{flex-basis:100%;order:2}.novel-library>.novel-row>label{flex:1}.novel-filter{flex-wrap:wrap}.novel-filter select{flex-basis:100%}.novel-item-list>button{grid-template-columns:50px minmax(0,1fr) auto;gap:5px}.novel-item-list>button>span{font-size:8px}.novel-revision-bar>.novel-row>select{flex-basis:100%}.novel-item-list>button>small{font-size:8px}}
+
+/* Lyra 拆解工作区：原文优先、设置收纳、蓝黑与淡金。 */
+.novel-page{gap:16px;color:#dfe6f1}
+.novel-page button{border-color:#e8c8782d;background:#e8c8780b;color:#d8bb7f;border-radius:7px;transition:background .18s,border-color .18s,color .18s}
+.novel-page button:hover:not(:disabled){background:#e8c87818;border-color:#e8c8784a}
+.novel-page .novel-primary{background:linear-gradient(135deg,#f0d99a,#e8c878 65%,#d9b968);color:#241f12;border-color:#f4e2b0;font-weight:600}
+.novel-page .novel-primary:hover:not(:disabled){background:#f4dfa9}
+.novel-page input:not([type=checkbox]),.novel-page select,.novel-page textarea{background:#0c1320;border-color:#ffffff16;color:#e1e8f3}
+.novel-page label{color:#a8b3c4}
+.novel-page :is(button,input,textarea,select,summary):focus-visible{outline-color:#e8c878}
+.novel-page input[type=checkbox]{accent-color:#e8c878}
+.novel-card{padding:18px;border-color:#ffffff0e;border-radius:12px;background:linear-gradient(150deg,#131a26,#101721);box-shadow:inset 0 1px 0 #ffffff03}
+.novel-row>small{color:#7f8b9f}
+.novel-hero{gap:10px 24px;padding:22px 24px;border-color:#e8c87824;border-radius:13px;background:radial-gradient(ellipse 65% 130% at 90% 0%,#e8c87810,transparent 62%),radial-gradient(ellipse 60% 130% at 0% 120%,#4f7cff14,transparent 65%),#101722;box-shadow:0 18px 42px #00000024}
+.novel-hero>div>span{color:#c8ad72;font-size:9px;letter-spacing:2.4px}
+.novel-hero h1{margin:8px 0;color:#f4f7ff;font-size:28px;font-weight:600;letter-spacing:.2px}
+.novel-hero p{color:#98a4b7;font-size:12px;line-height:1.8}
+.novel-hero>svg{margin-top:8px;color:#e8c878}
+.novel-hero .novel-boundary{margin:0;padding-top:10px;border-top-color:#ffffff0d;color:#7f8b9e}
+.novel-boundary>summary{cursor:pointer;color:#b8a575;font-size:10px;list-style:none}
+.novel-boundary>summary::-webkit-details-marker{display:none}
+.novel-boundary>summary::after{content:'＋';margin-left:8px;color:#e8c878}
+.novel-boundary[open]>summary::after{content:'－'}
+.novel-hero .novel-boundary>p{max-width:none;margin-top:10px;color:#7f8b9e;font-size:10px;line-height:1.8}
+.novel-library{padding:13px 16px}
+.novel-import{border-top-color:#ffffff0d;margin-top:14px;padding-top:16px}
+.novel-message{border-color:#e8c87830;background:#e8c8780b;color:#d9bd84}
+.novel-message small{color:#9a8f79}
+.novel-busy{border-color:#8ea9c438;background:#8ea9c40a;color:#a9bdd2}
+.novel-workspace{grid-template-columns:190px minmax(0,1fr);gap:16px}
+.novel-chapters{padding:18px 11px;top:16px}
+.novel-chapters>h2{color:#e5ebf4;font-size:14px}
+.novel-chapters>p{color:#7e8a9e}
+.novel-chapters>a{color:#c8ad72}
+.novel-chapters nav{gap:5px;margin-top:15px}
+.novel-chapters nav>button{border-color:transparent;color:#aab5c6;background:transparent}
+.novel-chapters nav>button.active{border-color:#e8c87830;background:#e8c8780d;color:#e8c878}
+.novel-chapters nav>button>span{color:#6f7d92}
+.novel-chapters nav>button>small{color:#718095}
+.novel-main{gap:14px}
+.novel-chapter-head{grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start;padding:17px 19px}
+.novel-chapter-summary>span{color:#b8a575;font-size:9px;letter-spacing:.6px}
+.novel-chapter-head h2{margin:6px 0 7px;color:#edf2f9;font-size:20px;font-weight:550}
+.novel-chapter-head p{max-width:none;color:#7f8da2;font-size:10px}
+.novel-extract-panel{width:min(360px,38vw);min-width:260px;border-left:1px solid #ffffff0d;padding-left:18px}
+.novel-extract-panel>summary{display:flex;align-items:center;gap:8px;min-height:34px;cursor:pointer;list-style:none;color:#d8bb7f;font-size:11px}
+.novel-extract-panel>summary::-webkit-details-marker{display:none}
+.novel-extract-panel>summary>small{margin-left:auto;color:#78879b;font-size:9px}
+.novel-extract-panel>summary::after{content:'展开';margin-left:4px;color:#8d99aa;font-size:9px}
+.novel-extract-panel[open]>summary::after{content:'收起'}
+.novel-extract-panel[open]{padding-bottom:2px}
+.novel-extract-actions{margin-top:12px}
+.novel-extract-actions>small{color:#7f8da2}
+.novel-page .novel-consent{color:#a6b0bf}
+.novel-main>details.novel-card{padding:14px 18px}
+.novel-main>details.novel-card>summary{cursor:pointer;color:#d6dee9;font-size:12px}
+.novel-main>details.novel-card>p{color:#7f8da2}
+.novel-revision-bar{padding:15px 18px}
+.novel-revision-bar>p{margin-top:8px;color:#8592a5}
+.novel-warnings{border-top-color:#ffffff0d;color:#c7ae7a}
+.novel-save-bar{border-color:#e8c87830;background:#e8c8780c}
+.novel-save-bar strong{color:#e2c98f}
+.novel-save-bar small{color:#968c78}
+.novel-proofread{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.novel-source{top:16px}
+.novel-source>header,.novel-results>header{margin-bottom:13px;padding-bottom:12px;border-bottom:1px solid #ffffff0b}
+.novel-source h3,.novel-results h3{display:flex;align-items:center;gap:8px;color:#e4ebf5;font-size:14px}
+.novel-source h3::before,.novel-results h3::before{color:#e8c878;font-size:9px;font-weight:500;letter-spacing:.6px}
+.novel-source h3::before{content:'01'}
+.novel-results h3::before{content:'02'}
+.novel-source>header>span,.novel-results>header>span{color:#758499}
+.novel-page .novel-source>textarea{height:490px;padding:15px;border-color:#ffffff10;border-radius:8px;background:#0b1320;color:#d5deea;font-size:13px;line-height:1.95}
+.novel-selection{border-color:#e8c87824;background:#e8c87805}
+.novel-selection strong{color:#c8ad72}
+.novel-selection p,.novel-note{color:#8190a4}
+.novel-item-list{gap:6px;max-height:230px;scrollbar-color:#e8c87830 transparent}
+.novel-item-list>button{border-color:#ffffff0b;background:#0e1622;color:#b9c4d3}
+.novel-item-list>button.active{border-color:#e8c87845;background:#e8c8780d}
+.novel-item-list>button>span{color:#8996a9}
+.novel-item-list .pending{color:#d8b774}
+.novel-item-list .confirmed{color:#9dbca9}
+.novel-item-editor{border-top-color:#ffffff0d}
+.novel-item-heading small{color:#a89470}
+.novel-quote{background:#0d1622!important;color:#d5deea!important}
+.novel-review{border-color:#9dbca922;background:#9dbca908}
+.novel-evidence{border-top-color:#ffffff0d}
+.novel-evidence blockquote{border-left-color:#e8c87855;color:#aeb9c8}
+.novel-evidence details{border-color:#ffffff14}
+.novel-evidence summary{color:#bfa976}
+.novel-page :is(input,textarea)::selection{background:#e8c87855;color:#fff}
+@media(max-width:1250px){.novel-workspace{grid-template-columns:1fr}.novel-chapters{position:static;max-height:none}}
+@media(max-width:900px){.novel-extract-panel{width:100%;min-width:0;border-top:1px solid #ffffff0d;border-left:0;padding:12px 0 0}.novel-chapter-head{grid-template-columns:1fr}.novel-page .novel-source>textarea{height:360px}}
+@media(max-width:600px){.novel-hero{padding:20px}.novel-hero h1{font-size:25px}.novel-chapter-head{padding:16px}.novel-proofread{grid-template-columns:1fr}}

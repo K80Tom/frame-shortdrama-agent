@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { AlertCircle, BookOpen, Box, Check, ChevronRight, Clapperboard, FileText, Film, ImageIcon, Images, LoaderCircle, Plus, Puzzle, RefreshCw, Search, Workflow, X } from 'lucide-react';
 import { sampleImage, type Draft, type Page } from './model';
 import { formatProjectDate, projectKindLabels, useProjectCatalog, type ProjectEntry } from './project-catalog';
@@ -28,6 +28,14 @@ const references: { id: string; title: string; category: string; detail: string;
   { id: 'stage', title: '白模站位 · 空间与机位', category: '空间预演', detail: '赴约白模 · 手工练习截图', page: 'director' },
 ];
 const referenceFilters = ['全部', '画面构图', '人物参考', '空间预演'];
+const productionFlow = ['故事拆解', '资产准备', '分镜设计', '白模预演', '合成复核'];
+
+function trackSpotlight(event: MouseEvent<HTMLSpanElement>) {
+  const target = event.currentTarget;
+  const rect = target.getBoundingClientRect();
+  target.style.setProperty('--spot-x', `${event.clientX - rect.left}px`);
+  target.style.setProperty('--spot-y', `${event.clientY - rect.top}px`);
+}
 type Props = {
   go: (page: Page, step?: number) => void; draft: Draft; onNew: () => void;
   onOpenProject: (id: string) => void; onOpenNovel: (id: string) => void;
@@ -61,12 +69,17 @@ export default function WorkspaceHome({ go, draft, onNew, onOpenProject, onOpenN
   return <div className="workspace-home">
     <h1 className="home-sr-only">创作首页</h1>
     <section className="home-hero" aria-label="Lyra 品牌与新建项目">
-      <div className="home-hero-copy"><span className="home-hero-eyebrow">LYRA · STORY STUDIO</span><h2 className="home-hero-title">每一集短剧，都是一颗新星。</h2><p className="home-hero-sub">从故事、分镜到白模预演，让创作看得见。</p></div>
+      <div className="home-hero-copy">
+        <span className="home-hero-eyebrow">LYRA · STORY STUDIO</span>
+        <h2 className="home-hero-title">每一集短剧，都是一颗新星。</h2>
+        <p className="home-hero-sub">从故事、分镜到白模预演，让创作看得见。</p>
+        <ol className="home-hero-flow" aria-label="自动化制片流程">{productionFlow.map((step, index) => <li key={step}><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>
+      </div>
       <button className="home-hero-cta" onClick={onNew}><Plus size={17} strokeWidth={2} aria-hidden="true" />新建创作项目</button>
       <img className="home-hero-mark" src="/brand/lyra-mark.svg" alt="" aria-hidden="true" />
     </section>
 
-    <nav className="home-tools" aria-label="快捷创作工具">{tools.map(tool => <button key={tool.page} onClick={() => go(tool.page)}><span className="home-tool-icon"><tool.icon size={24} strokeWidth={1.6} aria-hidden="true" /></span><span>{tool.title}</span></button>)}</nav>
+    <nav className="home-tools" aria-label="快捷创作工具">{tools.map((tool, index) => <button key={tool.page} onClick={() => go(tool.page)}><span className="home-tool-icon" onMouseMove={trackSpotlight}><i className="home-tool-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</i><tool.icon size={24} strokeWidth={1.6} aria-hidden="true" /></span><span>{tool.title}</span></button>)}</nav>
 
     <section aria-labelledby="home-recent-title">
       <div className="home-section-heading"><h2 id="home-recent-title">最近项目</h2><button onClick={() => go('projects')}>查看全部<ChevronRight size={14} aria-hidden="true" /></button></div>

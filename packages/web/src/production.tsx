@@ -226,15 +226,15 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
   }
 
   return <div className="production-page">
-    <section className="production-create" aria-labelledby="create-project-title">
-      <div><span>NEW PROJECT / 开始创作</span><h1 id="create-project-title">新建项目</h1><p>给故事起名，创建后粘贴原文。来源链接可选，保存为出处，不会自动抓取网页。</p></div>
-      <form onSubmit={event => { event.preventDefault(); if (!busy && title.trim()) createProject(); }}>
+    <header className="production-hero"><span>SCRIPT · SOURCE FIRST</span><h1>剧本事实拆解</h1><p>对照原文校对人物、场景和道具，保存为新的候选版本。保存不等于采用；检查通过并人工确认后，才更新正式拆解。</p></header>
+    <details className="production-create" open={!project} aria-labelledby="create-project-title">
+      <summary><span>NEW PROJECT / 开始创作</span><strong id="create-project-title">新建项目</strong><small>创建后粘贴原文，来源链接仅作记录</small></summary>
+      <div className="production-create-body"><form onSubmit={event => { event.preventDefault(); if (!busy && title.trim()) createProject(); }}>
         <label htmlFor="new-project-title">项目名称</label><input id="new-project-title" aria-label="新项目名称" required disabled={!!busy} maxLength={160} placeholder="例如：诸天万界蹭车系统" value={title} onChange={event => setTitle(event.target.value)} />
         <label htmlFor="new-project-source">来源链接 <small>可选</small></label><input id="new-project-source" aria-label="来源链接" type="url" disabled={!!busy} placeholder="https://…" value={sourceUrl} onChange={event => setSourceUrl(event.target.value)} />
         <button className="production-primary" type="submit" disabled={!!busy || !title.trim()}>{busy === '创建项目' ? '正在创建…' : '创建项目'}</button>
-      </form>
-    </section>
-    <header className="production-hero"><span>LOCAL PRODUCTION / 真实项目</span><h1>先把故事里的每一项，核对清楚。</h1><p>对照原文校对人物、场景和道具，保存为新的候选版本。保存不等于采用；检查通过并人工确认后，才更新正式拆解。</p></header>
+      </form></div>
+    </details>
     <div className="production-grid"><section className="production-card"><h2>01 · 项目与剧本</h2>
       <div className="production-row"><select aria-label="选择项目" disabled={!!busy} value={project?.id ?? ''} onChange={event => { const id = event.target.value; if (id && id !== project?.id && confirmLeavingDraft('切换项目')) void action('选择项目', current => loadProject(id, current)); }}><option value="" disabled>选择已有项目</option>{projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>
       {project?.source && <p className="production-source">来源：<a href={project.source.url} target="_blank" rel="noreferrer">{project.source.chapterTitle ?? project.source.title ?? project.source.url}</a>{project.source.author && ` · ${project.source.author}`}</p>}

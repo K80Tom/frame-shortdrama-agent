@@ -65,3 +65,78 @@
 .production-page input:focus-visible,.production-page select:focus-visible,.production-page textarea:focus-visible,.production-page button:focus-visible,.facts-evidence summary:focus-visible{outline:2px solid #e8a173;outline-offset:3px}
 @media(min-width:1600px){.facts-entity-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.facts-entity-grid{grid-template-columns:1fr}.facts-save-bar{align-items:flex-start;flex-direction:column}.facts-save-bar .production-actions{width:100%}.facts-version-picker{grid-template-columns:1fr;gap:8px}}
+
+/* Lyra 剧本拆解：先原文与运行，再校对与采用。 */
+.production-page{gap:16px;color:#dfe6f1}
+.production-hero{padding:22px 24px;border-color:#e8c87824;border-radius:13px;background:radial-gradient(ellipse 65% 130% at 90% 0%,#e8c87810,transparent 62%),radial-gradient(ellipse 60% 130% at 0% 120%,#4f7cff14,transparent 65%),#101722;box-shadow:0 18px 42px #00000024}
+.production-hero>span,.production-result-head span{color:#c8ad72;font-size:9px;letter-spacing:2.2px}
+.production-hero h1{margin:8px 0;color:#f4f7ff;font-size:28px;font-weight:600;letter-spacing:.2px}
+.production-hero p{color:#98a4b7;font-size:12px;line-height:1.8}
+.production-create{display:block;padding:0;border-color:#ffffff0e;border-radius:12px;background:#101721;overflow:hidden}
+.production-create>summary{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;list-style:none}
+.production-create>summary::-webkit-details-marker{display:none}
+.production-create>summary>span{color:#b8a575;font-size:9px;letter-spacing:1.5px}
+.production-create>summary>strong{color:#e4ebf5;font-size:13px;font-weight:550}
+.production-create>summary>small{color:#7f8da2;font-size:10px}
+.production-create>summary::after{content:'＋';margin-left:auto;color:#e8c878;font-size:14px}
+.production-create[open]>summary::after{content:'－'}
+.production-create-body{padding:0 18px 18px}
+.production-create form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:7px 12px;align-items:center}
+.production-create form>label:nth-of-type(1){grid-column:1;grid-row:1}
+.production-create form>label:nth-of-type(2){grid-column:2;grid-row:1}
+.production-create #new-project-title{grid-column:1;grid-row:2}
+.production-create #new-project-source{grid-column:2;grid-row:2}
+.production-create form>button{grid-column:3;grid-row:2;align-self:stretch;margin:0}
+.production-create label{color:#a8b3c4}
+.production-create label small{color:#718095}
+.production-create input{border-color:#ffffff16;background:#0c1320;color:#e1e8f3}
+.production-grid{gap:14px}
+.production-card{padding:20px;border-color:#ffffff0e;border-radius:12px;background:linear-gradient(150deg,#131a26,#101721);box-shadow:inset 0 1px 0 #ffffff03}
+.production-card h2{color:#e6edf7;font-size:16px;font-weight:550}
+.production-card>p{color:#8e9baf}
+.production-card select,.production-card input:not([type=checkbox]),.production-card textarea{border-color:#ffffff16;background:#0c1320;color:#e1e8f3}
+.production-card textarea{line-height:1.9}
+.production-row button,.production-actions button,.production-primary{border-color:#e8c87830;background:#e8c8780b;color:#d8bb7f;border-radius:7px;transition:background .18s,border-color .18s,color .18s}
+.production-row button:hover:not(:disabled),.production-actions button:hover:not(:disabled){border-color:#e8c8784a;background:#e8c87818}
+.production-primary{background:linear-gradient(135deg,#f0d99a,#e8c878 65%,#d9b968)!important;color:#241f12!important;border-color:#f4e2b0!important;font-weight:600}
+.production-label{color:#a8b3c4}
+.production-consent{color:#a6b0bf}
+.production-consent input{accent-color:#e8c878}
+.production-run{border:1px solid #ffffff08;background:#0c1320;color:#8492a6}
+.production-message{border-color:#e8c87830;background:#e8c8780b;color:#d9bd84}
+.production-result-head{border-bottom-color:#ffffff0d}
+.production-status{color:#8e9baf}
+.production-issues{border-color:#d98c7840;background:#d98c780c}
+.production-issues h3{color:#dfa08b}
+.production-issues blockquote,.production-scene blockquote{border-left-color:#e8c87855;color:#9eabbe}
+.production-facts article,.production-scene{border-color:#ffffff0e;background:#0f1621}
+.production-facts small,.production-scene small{color:#7f8da2}
+.production-shot-list article{border-color:#ffffff0e;background:#0f1621}
+.production-shot-list span{color:#d8bb7f}
+.production-shot-list small{color:#8e9baf}
+.production-shot-list blockquote{border-left-color:#e8c87855;color:#8e9baf}
+.production-source a{color:#d8bb7f}
+.facts-readonly{border-color:#e8c87830;background:#e8c87808;color:#c8b78f!important}
+.facts-save-bar{border-color:#e8c87830;background:#e8c8780c}
+.facts-save-bar strong{color:#e2c98f}
+.facts-save-bar small{color:#968c78}
+.facts-group h3>span{background:#ffffff08;color:#98a5b8}
+.facts-group header p{color:#7f8da2}
+.facts-entity{border-color:#ffffff0e;background:#0f1621}
+.facts-entity.is-dirty{border-color:#e8c87850;background:linear-gradient(130deg,#e8c87808,transparent 60%),#0f1621}
+.facts-entity-head>span{color:#bfa976}
+.facts-entity-head>small{color:#718095}
+.facts-entity.is-dirty .facts-entity-head>small{color:#d8bb7f}
+.facts-entity>label>span{color:#b8c3d2}
+.facts-entity .facts-origin{color:#7f8da2}
+.facts-entity .facts-origin.manual{color:#9dbca9}
+.facts-entity .facts-origin.unsaved{color:#d8bb7f}
+.facts-evidence{border-top-color:#ffffff0d}
+.facts-evidence>summary{color:#b8c3d2}
+.facts-evidence>summary>span{color:#718095}
+.facts-evidence>div>small{color:#7f8da2}
+.facts-evidence blockquote{border-left-color:#e8c87855;color:#aeb9c8}
+.facts-empty{border-color:#ffffff18;color:#7f8da2}
+.facts-check-actions{border-top-color:#ffffff0d}
+.production-page input:focus-visible,.production-page select:focus-visible,.production-page textarea:focus-visible,.production-page button:focus-visible,.facts-evidence summary:focus-visible,.production-create>summary:focus-visible{outline-color:#e8c878}
+@media(max-width:720px){.production-hero{padding:20px}.production-hero h1{font-size:25px}.production-create>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 10px}.production-create>summary>span,.production-create>summary>strong,.production-create>summary>small{grid-column:1}.production-create>summary::after{grid-column:2;grid-row:1/4;align-self:center}.production-create form{grid-template-columns:1fr}.production-create form>label:nth-of-type(1),.production-create form>label:nth-of-type(2),.production-create #new-project-title,.production-create #new-project-source,.production-create form>button{grid-column:1;grid-row:auto}.production-create form>button{min-height:40px}.production-card{padding:18px}}

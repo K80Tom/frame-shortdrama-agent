@@ -124,3 +124,32 @@
   .home-tools > button:hover .home-tool-icon, .home-recent-card:hover, .home-feature-card:hover .home-art, .home-reference-card:hover .home-reference-image, .home-hero-cta:hover { transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .home-hero-cta, .home-tool-icon, .home-recent-card { transition: none; } .home-loading > svg, .home-recent-skeleton > span { animation: none; } }
+
+/* Page beauty：编辑式排版、微纹理与鼠标追光。 */
+.workspace-home { gap: 34px; background: radial-gradient(ellipse 85% 42% at 50% 0%, #f4f7ff04, transparent 72%); }
+.home-hero { min-height: 232px; padding: 36px 38px 30px; border-radius: 14px; box-shadow: 0 28px 70px #00000045, inset 0 1px 0 #ffffff0a; }
+.home-hero::after { content: ''; position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E"); opacity: .035; mix-blend-mode: soft-light; }
+.home-hero-copy { gap: 11px; }
+.home-hero-title { font-size: clamp(24px, 2.5vw, 34px); font-weight: 550; letter-spacing: .6px; }
+.home-hero-sub { color: #a5aec0; }
+.home-hero-flow { display: flex; align-items: center; flex-wrap: wrap; margin: 14px 0 0; padding: 14px 0 0; border-top: 1px solid #ffffff0c; list-style: none; color: #858fa4; font-size: 10px; letter-spacing: .4px; }
+.home-hero-flow li { display: inline-flex; align-items: center; white-space: nowrap; }
+.home-hero-flow li > span { margin-right: 6px; color: #e8c8788c; font-size: 8px; font-variant-numeric: tabular-nums; letter-spacing: .8px; }
+.home-hero-flow li:not(:last-child)::after { content: '→'; margin: 0 16px; color: #e8c87842; }
+.home-hero-mark { right: 180px; width: 210px; height: 210px; opacity: .19; }
+.home-tool-icon { position: relative; overflow: hidden; border-radius: 13px; }
+.home-tool-icon::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(72px circle at var(--spot-x, 50%) var(--spot-y, 50%), #e8c87838, transparent 72%); opacity: 0; transition: opacity .25s; }
+.home-tools > button:hover .home-tool-icon::after, .home-tools > button:focus-visible .home-tool-icon::after { opacity: 1; }
+.home-tool-icon > svg { position: relative; z-index: 1; }
+.home-tool-index { position: absolute; z-index: 2; top: 5px; right: 7px; color: #677188; font-size: 7px; font-style: normal; font-weight: 500; letter-spacing: .6px; }
+.home-tools > button:hover .home-tool-index { color: #e8c878a0; }
+.home-section-heading { margin-bottom: 18px; }
+.home-section-heading h2 { font-size: 13px; letter-spacing: 1px; }
+.home-recent-cover { background: linear-gradient(145deg, #1b2130, #111621); }
+.home-recent-card:hover .home-recent-cover { color: #e8c878; }
+@media (max-width: 560px) {
+  .home-hero { padding: 26px 24px 22px; }
+  .home-hero-flow li:not(:last-child)::after { margin: 0 10px; }
+  .home-hero-mark { right: -30px; width: 150px; height: 150px; }
+}
+@media (prefers-reduced-motion: reduce) { .home-tool-icon::after { transition: none; } }
