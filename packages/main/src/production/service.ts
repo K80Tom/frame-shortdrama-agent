@@ -89,7 +89,7 @@ export class ProductionService {
     // `partial` means "some work could not finish", not "nothing may ever change":
     // an operator must be able to reconcile, retry, abandon or raise the budget
     // through the API instead of editing run_json in the database.
-    const repairAction = ['retryTask', 'abandonOperation', 'reconcileOperation', 'raiseBudget'].includes(action.type);
+    const repairAction = ['retryTask', 'abandonOperation', 'reconcileOperation', 'reconcileOperations', 'raiseBudget'].includes(action.type);
     if (terminal.has(run.status) && !(run.status === 'partial' && repairAction)) {
       conflict('PRODUCTION_RUN_TERMINAL', '已结束的生产运行不能再更改。');
     }
@@ -136,6 +136,9 @@ export class ProductionService {
       this.promoteReady(run); this.refreshRunStatus(run);
       return publicProductionRun(await this.save(run, 'production.run.budget_raised',
         { budgetMicros: run.budgetMicros, previousBudgetMicros }));
+    }
+    if (action.type === 'reconcileOperations') {
+      return publicProductionRun(await this.reconcileUnknownOperations(run, action.reason));
     }
     let task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
     if (action.type === 'abandonOperation') {
@@ -373,6 +376,46 @@ export class ProductionService {
       return;
     }
     await this.applyOutcomeAfterClaim(claimed, task.id, attemptId, outcome);
+  }
+
+  /** Query every unknown external operation on this run. Never starts a new paid submit.
+   * Operations with no provider task id stay on the human gate and do not rewrite the run. */
+  private async reconcileUnknownOperations(initial: StoredProductionRun, reason: string): Promise<StoredProductionRun> {
+    const taskIds = this.unknownOperationTaskIds(initial);
+    const queryable = taskIds.filter(taskId => {
+      const operation = initial.externalOperations.filter(item => item.taskId === taskId && item.status === 'unknown').at(-1);
+      return typeof operation?.providerTaskId === 'string' && operation.providerTaskId.trim().length > 0;
+    });
+    for (const taskId of queryable) {
+      const current = await this.requireRun(initial.id);
+      const task = current.tasks.find(item => item.id === taskId);
+      if (!task || !this.unknownOperationTaskIds(current).includes(task.id)) continue;
+      const operation = this.activeOperation(current, task.id);
+      if (!operation?.providerTaskId) continue;
+      await this.reconcile(current, task);
+    }
+    const latest = await this.requireRun(initial.id);
+    if (queryable.length === 0) return latest;
+    const results = taskIds.map(taskId => {
+      const task = latest.tasks.find(item => item.id === taskId);
+      const operation = latest.externalOperations.filter(item => item.taskId === taskId).at(-1) ?? null;
+      return {
+        taskId,
+        taskStatus: task?.status ?? null,
+        operationId: operation?.id ?? null,
+        operationStatus: operation?.status ?? null,
+        providerTaskId: operation?.providerTaskId ?? null,
+      };
+    });
+    return this.save(latest, 'production.run.operations_reconciled', { reason, results });
+  }
+
+  private unknownOperationTaskIds(run: StoredProductionRun): string[] {
+    return run.tasks.filter(task => {
+      if (!['waitingHuman', 'reconciling'].includes(task.status)) return false;
+      const operation = this.activeOperation(run, task.id);
+      return operation?.status === 'unknown';
+    }).map(task => task.id).sort((left, right) => left.localeCompare(right));
   }
 
   private async reconcile(run: StoredProductionRun, task: ProductionTask) {
