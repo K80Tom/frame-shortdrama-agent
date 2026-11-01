@@ -7,7 +7,7 @@ import type { StoryboardRevision, StoryboardService } from '../breakdown/storybo
 import { ProductionMediaError, type LocalVideoObject } from '../production-media/contracts';
 import type { ProductionMediaIngestor } from '../production-media/ingestor';
 import type { VideoAutomationService } from '../video-automation/service';
-import { VideoAutomationError } from '../video-automation/contracts';
+import { requestedVideoDurationSeconds, VideoAutomationError } from '../video-automation/contracts';
 import { canonicalDigest, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 import type {
   PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor, ProductionExecutorOutcome, SpawnTaskDraft,
@@ -352,7 +352,7 @@ export class VideoProductionExecutor implements ProductionExecutor {
       '严格按照图片序号对应的已确认实体，保持人物、场景、服装和道具一致，不得互换身份。',
       `候选创作方向 ${coordinates.candidateIndex + 1}：${candidateDirections[coordinates.candidateIndex % candidateDirections.length]}`,
       ...director.promptLines, ...repair.promptLines].join('\n');
-    return { prompt, ratio: run.ratio, duration: Math.max(4, Math.min(30, Math.ceil(shot.design.durationMs / 1000))),
+    return { prompt, ratio: run.ratio, duration: requestedVideoDurationSeconds(shot.design.durationMs),
       resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const, generateAudio: true,
       referenceAssetIds: references.assetIds,
       clientRequestId: `prod_${context.operationKey ?? canonicalDigest({ runId: run.id, taskId: task.id })}`.slice(0, 100),

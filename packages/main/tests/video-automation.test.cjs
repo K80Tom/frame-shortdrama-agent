@@ -7,7 +7,7 @@ const { createApp } = require('../dist/app');
 const { readConfig } = require('../dist/config');
 const { VideoAutomationService } = require('../dist/video-automation/service');
 const { MemoryVideoAutomationRepository } = require('../dist/video-automation/repository');
-const { MAX_VIDEO_UNKNOWN_RECONCILIATIONS, VideoAutomationError } = require('../dist/video-automation/contracts');
+const { MAX_VIDEO_UNKNOWN_RECONCILIATIONS, VideoAutomationError, requestedVideoDurationSeconds } = require('../dist/video-automation/contracts');
 const { SeedanceVideoAutomationAdapter } = require('../dist/video-automation/adapter');
 
 // Synthetic prompts and a fake provider only. These tests never load .env,
@@ -25,6 +25,16 @@ const providerTask = (changes = {}) => ({ taskId: 'provider_task_1', status: 'qu
   videoUrl: null, errorMessage: null, model: HEALTH.model, ...changes });
 const successfulTask = (changes = {}) => providerTask({ status: 'succeeded', done: true, videoUrl: VIDEO_URL, ...changes });
 const statusIs = status => error => error && error.status === status;
+test('shot video requests ceil storyboard milliseconds into the 4–30 second window', () => {
+  assert.equal(requestedVideoDurationSeconds(1500), 4);
+  assert.equal(requestedVideoDurationSeconds(4000), 4);
+  assert.equal(requestedVideoDurationSeconds(4001), 5);
+  assert.equal(requestedVideoDurationSeconds(8000), 8);
+  assert.equal(requestedVideoDurationSeconds(30_000), 30);
+  assert.equal(requestedVideoDurationSeconds(31_000), 30);
+  assert.equal(requestedVideoDurationSeconds(Number.NaN), 4);
+});
+
 const REF_EXTERNAL = `asset_${'a'.repeat(32)}`;
 const REF_LOCAL = `asset_${'b'.repeat(32)}`;
 

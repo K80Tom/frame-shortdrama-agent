@@ -70,6 +70,38 @@ test('direct flow reviews the shot video without requiring any candidate set', a
   assert.equal(outcome.qualityChecks[0].result, 'pass');
 });
 
+function shortStoryboard(durationMs) {
+  const value = run();
+  value.artifacts[0].metadata.shots[0].durationMs = durationMs;
+  const video = task(value, 'video');
+  const review = task(value, 'review', [video.id]);
+  value.tasks.push(video, review);
+  value.artifacts.push(artifact(value, video.id, 'partifact_floor', mediaA));
+  return { value, review };
+}
+
+const portrait = { container: 'mp4', width: 1080, height: 1920, videoCodec: 'h264', hasAudio: true, audioCodec: 'aac' };
+
+test('a 4s clip passes when the storyboard is shorter than the video API floor', async () => {
+  const { value, review } = shortStoryboard(1500);
+  const outcome = await new ReviewProductionExecutor(store({ probe: { ...portrait, durationSeconds: 4 } }))
+    .execute(context(value, review));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(outcome.qualityChecks[0].result, 'pass');
+  assert.equal(outcome.spawnTasks, undefined);
+});
+
+test('a short storyboard still rejects a clip far from the 4s duration that was submitted', async () => {
+  const { value, review } = shortStoryboard(1500);
+  const outcome = await new ReviewProductionExecutor(store({ probe: { ...portrait, durationSeconds: 12 } }))
+    .execute(context(value, review));
+  assert.equal(outcome.state, 'succeeded');
+  assert.equal(outcome.continueOnFailedQuality, true);
+  assert.equal(outcome.qualityChecks[0].result, 'fail');
+  assert.match(outcome.qualityChecks[0].issues.join('；'), /时长 12\.0s 与已提交的 4\.0s 偏差过大（分镜 1\.5s 会按 4–30 秒取整后提交）/);
+  assert.deepEqual(outcome.spawnTasks.map(item => item.stage), ['video', 'candidates', 'review']);
+});
+
 test('shot review records a failed check and expands an explicit bounded repair subgraph', async () => {
   const value = run(); const review = task(value, 'review'); value.tasks.push(review);
   const selectedArtifact = artifact(value, 'ptask_candidates_source', 'partifact_selected', mediaA);

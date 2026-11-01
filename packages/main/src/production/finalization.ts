@@ -1,4 +1,5 @@
 import { canonicalDigest, type ProductionArtifact, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
+import { requestedVideoDurationSeconds } from '../video-automation/contracts';
 import type { PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor,
   ProductionExecutorOutcome, SpawnTaskDraft } from './executor';
 import { ProductionMediaError, type FrameAssessmentReport, type TimelineClipDirective,
@@ -129,12 +130,19 @@ export class ReviewProductionExecutor implements ProductionExecutor {
       const expectedRatio = run.ratio === '9:16' ? 9 / 16 : 16 / 9;
       const actualRatio = probe.width / probe.height;
       const shot = storyboardShot(run, task.scope.id);
-      const expectedSeconds = typeof shot?.durationMs === 'number' ? shot.durationMs / 1000 : null;
+      const storyboardMs = typeof shot?.durationMs === 'number' ? shot.durationMs : null;
+      const expectedSeconds = storyboardMs !== null && Number.isFinite(storyboardMs) && storyboardMs > 0
+        ? requestedVideoDurationSeconds(storyboardMs) : null;
       const issues: string[] = [];
       if (Math.abs(actualRatio - expectedRatio) / expectedRatio > 0.035) issues.push(`画幅 ${probe.width}×${probe.height} 与 ${run.ratio} 不匹配`);
       if (!probe.hasAudio) issues.push('未检测到音轨');
       if (expectedSeconds && Math.abs(probe.durationSeconds - expectedSeconds) > Math.max(2, expectedSeconds * 0.55)) {
-        issues.push(`时长 ${probe.durationSeconds.toFixed(1)}s 与分镜 ${expectedSeconds.toFixed(1)}s 偏差过大`);
+        const storyboardSeconds = (storyboardMs as number) / 1000;
+        const measured = probe.durationSeconds.toFixed(1);
+        const requested = expectedSeconds.toFixed(1);
+        issues.push(Math.abs(storyboardSeconds - expectedSeconds) >= 0.05
+          ? `时长 ${measured}s 与已提交的 ${requested}s 偏差过大（分镜 ${storyboardSeconds.toFixed(1)}s 会按 4–30 秒取整后提交）`
+          : `时长 ${measured}s 与分镜 ${requested}s 偏差过大`);
       }
       if (!issues.length) return { state: 'succeeded', artifacts: [{ key: 'shot-review', kind: 'report', title: `${task.label} 通过`,
         metadata: { mediaId: local.object.id, shotId: task.scope.id, checks: ['container', 'hash', 'ratio', 'duration', 'audio'],

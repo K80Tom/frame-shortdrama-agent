@@ -45,6 +45,21 @@ export interface VideoAvailability {
   connectionRevision: string | null;
 }
 
+/** Integer seconds Seedance will accept. Storyboard milliseconds are ceiled into this window before a paid submit. */
+export const VIDEO_DURATION_MIN_SECONDS = 4;
+export const VIDEO_DURATION_MAX_SECONDS = 30;
+
+/**
+ * Duration written on a shot video request. Technical review must compare the
+ * delivered clip to this value: a 1.5s storyboard is submitted as 4s, so a 4s
+ * file is not a duration miss and must not buy another generation.
+ */
+export function requestedVideoDurationSeconds(durationMs: number): number {
+  const seconds = Number.isFinite(durationMs) ? Math.ceil(durationMs / 1000) : Number.NaN;
+  if (!Number.isInteger(seconds)) return VIDEO_DURATION_MIN_SECONDS;
+  return Math.max(VIDEO_DURATION_MIN_SECONDS, Math.min(VIDEO_DURATION_MAX_SECONDS, seconds));
+}
+
 function invalid(): never {
   throw new VideoAutomationError(400, 'VIDEO_REQUEST_INVALID', '请填写 1–8000 字提示词、有效的视频设置、请求标识与当前模型版本，并确认本次模型额度。');
 }
@@ -62,7 +77,8 @@ export function parseCreateVideoRun(value: unknown): CreateVideoRun {
     || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(input.prompt)
     || Array.from(input.prompt).some(char => char.length === 1 && char.charCodeAt(0) >= 0xd800 && char.charCodeAt(0) <= 0xdfff)
     || !['9:16', '16:9'].includes(input.ratio as string)
-    || !Number.isInteger(input.duration) || Number(input.duration) < 4 || Number(input.duration) > 30
+    || !Number.isInteger(input.duration) || Number(input.duration) < VIDEO_DURATION_MIN_SECONDS
+    || Number(input.duration) > VIDEO_DURATION_MAX_SECONDS
     || !['720p', '1080p'].includes(input.resolution as string) || typeof input.generateAudio !== 'boolean'
     || typeof input.clientRequestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(input.clientRequestId)
     || typeof input.expectedModelConnectionRevision !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(input.expectedModelConnectionRevision)
