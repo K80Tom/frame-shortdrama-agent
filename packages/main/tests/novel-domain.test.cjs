@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { buildNovelSource, chapterParagraphs, getChapter, createReviewSeed, validateNovelContent,
-  applyNovelCorrections, supplementNovelQuotes } = require('@lyra/shared');
+  applyNovelCorrections, supplementNovelQuotes, countNovelParagraphs } = require('@lyra/shared');
 const { NovelExtractor } = require('../dist/novel/extractor.js');
 
 // Original micro-fiction: no third-party novel text, credentials or real model calls.
@@ -265,6 +265,13 @@ test('compact response avoids repeated text and requires speaker attribution evi
   assert.equal(result.content.items[1].speakerId, null);
   assert.ok(result.content.items[1].uncertainty.includes('归属依据'));
   assert.ok(result.content.warnings.some(text => text.includes('未带引号')));
+});
+
+test('resume gate paragraph count matches the paragraphs sent to the model', () => {
+  const document = source();
+  for (const item of document.chapters) assert.equal(countNovelParagraphs(document, item), chapterParagraphs(document, item).length);
+  const emoji = buildNovelSource({ title: '码点', rawText: `前言😀\r\n第一章 灯\r\n${'林舟😀\r\n'.repeat(3)}第二章 完\n尾` });
+  for (const item of emoji.chapters) assert.equal(countNovelParagraphs(emoji, item), chapterParagraphs(emoji, item).length);
 });
 
 test('novel thinking rejection makes no fallback request', async () => {

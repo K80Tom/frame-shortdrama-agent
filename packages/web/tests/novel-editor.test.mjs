@@ -146,6 +146,25 @@ test('validation rejects forged source evidence, dangling speakers, and confirme
   assert.match(editor.validateNovelDraft(source, chapter, [{ ...dialogue, speakerId: null }]).join(' '), /不能标为已确认/);
 });
 
+test('paid extract continues a checkpoint and blocks an oversized chapter before submit', () => {
+  const actions = editor.novelExtractActions({ tooLong: false, mode: 'reviewed', checkpointId: 'rev_scan', hasRevision: true });
+  assert.equal(actions.primaryLabel, '从检查点继续');
+  assert.equal(actions.primaryIntent, 'resume');
+  assert.equal(actions.restartLabel, '放弃检查点并重新提取');
+  assert.deepEqual(editor.novelExtractPayload({
+    expectedRevisionId: 'rev_partial', mode: 'reviewed', checkpointId: 'rev_scan', intent: 'resume',
+  }), { expectedRevisionId: 'rev_partial', allowPaid: true, mode: 'reviewed', resumeRevisionId: 'rev_scan' });
+  assert.deepEqual(editor.novelExtractPayload({
+    expectedRevisionId: 'rev_partial', mode: 'reviewed', checkpointId: 'rev_scan', intent: 'restart',
+  }), { expectedRevisionId: 'rev_partial', allowPaid: true, mode: 'reviewed', confirmRestart: true });
+  assert.equal(editor.novelExtractActions({ tooLong: false, mode: 'single', checkpointId: 'rev_scan', hasRevision: true }).primaryIntent, 'restart');
+  assert.equal(editor.novelExtractActions({ tooLong: true, mode: 'reviewed', checkpointId: null, hasRevision: false }).blocked, true);
+  assert.throws(() => editor.novelExtractPayload({ expectedRevisionId: null, mode: 'reviewed', checkpointId: 'rev_scan', intent: 'fresh' }), /必须明确/);
+  const fresh = editor.novelExtractPayload({ expectedRevisionId: null, mode: 'reviewed', checkpointId: null, intent: 'fresh' });
+  assert.equal(Object.hasOwn(fresh, 'confirmRestart'), false);
+  assert.equal(Object.hasOwn(fresh, 'resumeRevisionId'), false);
+});
+
 test('late requests cannot overwrite a newer chapter load or an unmounted page', () => {
   const gate = editor.createNovelRequestGate();
   const first = gate.begin();
