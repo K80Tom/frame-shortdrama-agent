@@ -287,6 +287,48 @@ test('unrelated or cross-kind retrieval candidates do not suppress a genuinely m
   assert.equal(outcome.state, 'succeeded'); assert.equal(outcome.artifacts[0].metadata.generated, true); assert.equal(calls, 1);
 });
 
+test('a newer catalog name that only contains the entity name stays below the reuse gate', async () => {
+  const older = { id: 'asset_portrait', kind: 'character', name: '风衣女警立绘',
+    description: '年轻女警，穿深色风衣，冷色雨夜', resourceUrl: 'https://assets.test/portrait.png',
+    createdAt: '2020-01-01T00:00:00.000Z' };
+  const newer = { id: 'asset_sister', kind: 'character', name: '沈玥的姐姐',
+    description: '另一位亲属', resourceUrl: 'https://assets.test/sister.png',
+    createdAt: '2026-10-01T00:00:00.000Z' };
+  const query = { kind: 'character', name: '沈玥', aliases: ['小玥'], description: '年轻女警，穿深色风衣' };
+  const ranked = retrieveAssetForGeneration(query, [older, newer]);
+  assert.equal(ranked.status, 'unique');
+  assert.equal(ranked.asset.id, older.id);
+  const sisterScore = ranked.candidates.find(item => item.asset.id === newer.id);
+  assert.ok(sisterScore);
+  assert.ok(sisterScore.score < ASSET_RETRIEVAL_THRESHOLD);
+
+  const sisterOnly = retrieveAssetForGeneration(query, [newer]);
+  assert.equal(sisterOnly.asset, null);
+  assert.equal(sisterOnly.status, 'below_threshold');
+  assert.ok(sisterOnly.score < ASSET_RETRIEVAL_THRESHOLD);
+
+  const shorter = { id: 'asset_short', kind: 'character', name: '林晚', description: '另一人',
+    resourceUrl: 'https://assets.test/short.png', createdAt: '2026-11-01T00:00:00.000Z' };
+  const contained = retrieveAssetForGeneration({ kind: 'character', name: '林晚晴', aliases: [],
+    description: '完全不同的路人说明' }, [shorter]);
+  assert.equal(contained.asset, null);
+  assert.equal(contained.status, 'below_threshold');
+
+  const r = readers(); const assets = new AssetService(new InMemoryAssetRepository());
+  await assets.create({ kind: 'character', name: '沈玥的姐姐', description: '另一位亲属',
+    resourceUrl: 'https://assets.test/sister.png' });
+  const executor = new AssetsProductionExecutor({ ...r, assets, config: config(), imageClientFactory: () => ({
+    async generateImage() { throw new Error('episode match must not generate'); },
+  }) });
+  const run = production();
+  const episode = await executor.execute(context(run, run.tasks.find(item => item.stage === 'assets')));
+  assert.equal(episode.state, 'succeeded');
+  const binding = episode.artifacts[0].metadata.bindings.find(item => item.entityId === 'character_hero');
+  assert.equal(binding.assetId, null);
+  assert.equal(binding.ambiguous, false);
+  assert.ok(episode.spawnTasks.some(item => item.scope.id === 'character_hero'));
+});
+
 test('structured retrieval exposes bounded terms and rejects tautological low-confidence matches', () => {
   const terms = tokenizeAssetQuery('想找红斗篷少女，雨夜场景');
   assert.ok(terms.includes('红斗篷')); assert.ok(terms.includes('少女')); assert.ok(terms.length <= 24);
