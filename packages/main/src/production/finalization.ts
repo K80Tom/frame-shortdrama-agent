@@ -1,7 +1,8 @@
 import { canonicalDigest, type ProductionArtifact, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 import type { PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor,
   ProductionExecutorOutcome, SpawnTaskDraft } from './executor';
-import { ProductionMediaError, type FrameAssessmentReport, type TimelineClipDirective,
+import { ProductionMediaError, summarizeAssessments, type FrameAssessmentInput, type FrameAssessmentResult,
+  type FrameShotAssessment, type TimelineClipDirective,
   type TimelineComposer } from '../production-media';
 import type { ProductionMediaStore } from '../production-media';
 
@@ -9,7 +10,7 @@ const LOCAL_MEDIA_URI = /^\/api\/production-media\/(media_[a-f0-9]{64})$/u;
 
 /** 抽帧评估器的结构化契约：编排层只依赖这一小块能力，避免与模型实现耦合。 */
 export interface FrameAssessorLike {
-  assess(inputs: readonly { shotId: string; mediaId: string; label: string; hint: string }[]): Promise<FrameAssessmentReport>;
+  assessOne(input: FrameAssessmentInput): Promise<FrameAssessmentResult>;
 }
 
 function prepared(name: string, value: unknown): PreparedProductionExecution {
@@ -169,44 +170,95 @@ export class ReviewProductionExecutor implements ProductionExecutor {
 export interface ComposeProductionExecutorOptions {
   /** 解析项目标题用于片头卡；缺省时回退到通用标题。 */
   resolveProjectTitle?: (projectId: string) => Promise<string>;
-  /** 合成前镜头抽帧评估：只有注入时才启用；评估失败自动降级为无指令，不阻塞成片。 */
-  assessFrames?: FrameAssessorLike;
+  frameAssessment?: { assessor: FrameAssessorLike; ceilingMicrosPerShot: number };
+}
+
+function composeInputs(run: Readonly<StoredProductionRun>): FrameAssessmentInput[] {
+  const board = run.artifacts.filter(a => a.status === 'current' && a.metadata.storyboardRevisionId && Array.isArray(a.metadata.shots))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+  const shots = Array.isArray(board?.metadata.shots) ? board.metadata.shots : [];
+  return shots.flatMap((shot, index) => {
+    if (!shot || typeof shot.id !== 'string') return [];
+    const selected = selectedShotArtifact(run, shot.id);
+    const design = shot.design ?? shot;
+    return [{ shotId: shot.id, mediaId: selected ? mediaId(selected) ?? '' : '', label: `镜 ${index + 1}`,
+      hint: [design.visualDescription, design.shotSize].filter(value => typeof value === 'string').join('｜').slice(0, 400) }];
+  });
+}
+
+function assessmentKey(input: FrameAssessmentInput) { return `frame-${canonicalDigest(input)}`; }
+function isAssessmentTask(task: Readonly<ProductionTask>, input: FrameAssessmentInput) {
+  return task.stage === 'compose' && task.scope.kind === 'shot' && task.scope.id === input.shotId
+    && task.inputManifest.some(ref => ref.kind === 'dynamicScope' && ref.revisionId === assessmentKey(input));
 }
 
 export class ComposeProductionExecutor implements ProductionExecutor {
   readonly stage = 'compose' as const;
   constructor(private readonly composer: TimelineComposer,
-    private readonly options: ComposeProductionExecutorOptions = {}) {}
-
-  async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
-    return prepared('timeline-composer', { runId: run.id, taskId: task.id,
-      selectedCandidates: run.candidateSets.filter(set => set.status === 'selected').map(set => set.selectedCandidateId) });
+    private readonly options: ComposeProductionExecutorOptions = {}) {
+    if (options.frameAssessment) {
+      const cost = options.frameAssessment.ceilingMicrosPerShot;
+      if (!Number.isSafeInteger(cost) || cost <= 0) throw new Error('Invalid frame assessment ceiling');
+    }
   }
 
-  async execute({ run, task }: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+  async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }): Promise<PreparedProductionExecution> {
+    const inputs = composeInputs(run);
+    const plan = prepared('timeline-composer', { taskId: task.id, inputs });
+    const policy = this.options.frameAssessment;
+    if (!policy) return plan;
+    if (task.scope.kind === 'shot') {
+      const input = inputs.find(item => isAssessmentTask(task, item));
+      return input?.mediaId && run.currency === 'CNY' ? { executor: 'frame-assessment/1', inputDigest: canonicalDigest(input),
+        requiresPaid: true, provider: 'general-frame-assessment', billingBasis: 'estimate',
+        estimateCostMicros: policy.ceilingMicrosPerShot } : plan;
+    }
+    // Insert the already configured model work at the final gate. Older saved runs can
+    // reach this gate even if their storyboard and shot reviews predate assessment tasks.
+    if (inputs.some(input => !input.mediaId)) return plan;
+    const missing = inputs.filter(input => !run.tasks.some(t => t.status !== 'superseded' && isAssessmentTask(t, input)));
+    plan.prerequisites = missing.slice(0, 500).map(input => ({
+      key: assessmentKey(input), stage: 'compose', scope: { kind: 'shot', id: input.shotId },
+      label: `${input.label} · 抽帧评估`,
+      dependsOn: run.tasks.filter(t => task.dependencies.includes(t.id) && t.status !== 'superseded' && t.stage !== 'compose'
+        && (t.scope.kind !== 'shot' || t.scope.id === input.shotId)).map(t => t.id),
+    }));
+    return plan;
+  }
+
+  async execute({ run, task, operationKey }: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+    const inputs = composeInputs(run);
+    if (task.scope.kind === 'shot') {
+      const input = inputs.find(item => isAssessmentTask(task, item));
+      if (!input || !this.options.frameAssessment) return { state: 'succeeded' };
+      if (run.currency !== 'CNY') return { state: 'succeeded', artifacts: [{ key: 'frame-shot-review',
+        kind: 'report', title: `${input.label} · 评估币种不匹配`, metadata: { inputKey: assessmentKey(input),
+          assessment: null, submission: 'notSubmitted', reason: 'FRAME_CEILING_CURRENCY_MISMATCH' } }] };
+      if (!operationKey || !run.externalOperations.some(op => op.operationKey === operationKey && op.taskId === task.id
+        && op.status === 'prepared' && op.billingBasis === 'estimate')) {
+        return { state: 'blocked', issue: { code: 'ASSESSMENT_RESERVATION_MISSING', title: '抽帧评估缺少预算预留',
+          message: '请核对镜头评估准备情况。', severity: 'error' } };
+      }
+      const result = await this.options.frameAssessment.assessor.assessOne(input);
+      if (result.submission === 'unknown') return { state: 'waitingHuman', operationUnknown: true,
+        issue: { code: 'FRAME_ASSESSMENT_SUBMISSION_UNKNOWN', title: '抽帧评估需要对账',
+          message: '镜头评估可能已经计费，已保留预算。请核对供应商记录后处理。', severity: 'error' } };
+      const shot = result.submission === 'answered' ? result.assessment : null;
+      return { state: 'succeeded', ...(result.submission === 'answered' ? { settleAtEstimate: true } : {}),
+        artifacts: [{ key: 'frame-shot-review', kind: 'report', title: `${input.label} · ${shot ? '抽帧评估' : '无剪辑建议'}`,
+          metadata: { inputKey: assessmentKey(input), assessment: shot, submission: result.submission } }] };
+    }
     if (task.scope.kind !== 'episode') return { state: 'blocked', issue: { code: 'COMPOSE_SCOPE_INVALID',
       title: '时间线范围错误', message: '成片时间线只能在整集范围组装。', severity: 'error' } };
     try {
-      const board = run.artifacts.filter(artifact => artifact.status === 'current' && Array.isArray(artifact.metadata.shots))
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
-      const shots = (Array.isArray(board?.metadata.shots) ? board.metadata.shots : []).filter((item): item is Record<string, unknown> =>
-        Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string'));
-      if (!shots.length) return { state: 'blocked', issue: { code: 'STORYBOARD_SHOTS_MISSING', title: '分镜不可用',
+      if (!inputs.length) return { state: 'blocked', issue: { code: 'STORYBOARD_SHOTS_MISSING', title: '分镜不可用',
         message: '没有已采用分镜的镜头清单，不会空编成片。', severity: 'error' } };
-      const ids: string[] = [];
-      for (const shot of shots) {
-        const artifact = selectedShotArtifact(run, shot.id as string); const id = artifact ? mediaId(artifact) : null;
-        if (!id) return { state: 'blocked', issue: { code: 'SHOT_SELECTION_INCOMPLETE', title: '镜头选片未完成',
-          message: `镜头 ${String(shot.id)} 没有已选且通过入库的本地视频。`, severity: 'error' } };
-        ids.push(id);
-      }
+      const missing = inputs.find(input => !input.mediaId);
+      if (missing) return { state: 'blocked', issue: { code: 'SHOT_SELECTION_INCOMPLETE', title: '镜头选片未完成',
+        message: `镜头 ${missing.shotId} 没有已选且通过入库的本地视频。`, severity: 'error' } };
+      const ids = inputs.map(input => input.mediaId);
       const title = await this.resolveTitle(run.projectId);
-      // Frame review is advisory: any model/ffmpeg failure degrades to "no
-      // directives" so a paid shot set never fails to compose just because the
-      // quality pass is unavailable.
-      let assessment: Awaited<ReturnType<ComposeProductionExecutor['assessShots']>> = null;
-      try { assessment = await this.assessShots(shots, ids); }
-      catch { assessment = null; }
+      const assessment = this.readAssessments(run, inputs);
       const manifest = await this.composer.compose({ videoIds: ids, title, edit: {
         titleCardText: title, titleCardSubtitle: 'AI 自动制作短片',
         endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4,
@@ -238,19 +290,17 @@ export class ComposeProductionExecutor implements ProductionExecutor {
   }
 
   /** 把抽帧评估结论转换成剪辑指令，并留下可追溯的评估报告产物。 */
-  private async assessShots(shots: readonly Record<string, unknown>[], ids: readonly string[]) {
-    const assessor = this.options.assessFrames;
-    if (!assessor) return null;
-    const inputs = shots.map((shot, index) => {
-      const design = shot.design && typeof shot.design === 'object' ? shot.design as Record<string, unknown> : {};
-      const visual = typeof design.visualDescription === 'string' ? design.visualDescription : '';
-      const size = typeof design.shotSize === 'string' ? design.shotSize : '';
-      return { shotId: String(shot.id), mediaId: String(ids[index] ?? ''), label: `镜 ${index + 1}`,
-        hint: [visual, size ? `景别：${size}` : ''].filter(Boolean).join('｜').slice(0, 400) };
+  private readAssessments(run: Readonly<StoredProductionRun>, inputs: FrameAssessmentInput[]) {
+    const shots = inputs.flatMap(input => {
+      const key = assessmentKey(input);
+      const report = run.artifacts.filter(a => a.status === 'current' && a.metadata.key === 'frame-shot-review'
+        && a.metadata.inputKey === key).at(-1);
+      const item = report?.metadata.assessment as FrameShotAssessment | null | undefined;
+      return item?.shotId === input.shotId && item.advice ? [item] : [];
     });
-    const report = await assessor.assess(inputs);
+    if (!shots.length) return null;
     const directives: TimelineClipDirective[] = [];
-    for (const item of report.shots) {
+    for (const item of shots) {
       const media = inputs.find(input => input.shotId === item.shotId)?.mediaId;
       if (!media) continue;
       if (item.advice.action === 'drop') directives.push({ videoId: media, action: 'drop' });
@@ -261,7 +311,7 @@ export class ComposeProductionExecutor implements ProductionExecutor {
       }
     }
     return { directives, artifact: { key: 'frame-review', kind: 'report' as const, title: '镜头抽帧评估',
-      metadata: { shots: report.shots, summary: report.summary, directiveCount: directives.length } } };
+      metadata: { shots, summary: summarizeAssessments(shots), directiveCount: directives.length } } };
   }
 }
 
