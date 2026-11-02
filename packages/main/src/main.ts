@@ -112,6 +112,11 @@ async function main() {
     database = new PostgresDatabase(databaseConfig);
     try {
       await database.verifyConnection();
+      if (await database.hasMigrations(['020', '021'])) {
+        promptPacksService = new PromptPackService(
+          new PostgresPromptPackStateRepository(database), new PostgresPromptPackImportRepository(database),
+        );
+      }
       if (await database.hasMigrations(['009'])) {
         assetService = new AssetService(new PostgresAssetRepository(database), await database.hasMigrations(['010']));
       }
@@ -154,13 +159,8 @@ async function main() {
         if (await database.hasMigrations(['019'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
         }
-        if (await database.hasMigrations(['020', '021'])) {
-          promptPacksService = new PromptPackService(
-            new PostgresPromptPackStateRepository(database),
-            new PostgresPromptPackImportRepository(database),
-          );
-        }
         productionService = new ProductionService(productionRepository, {
+          methodPacks: promptPacksService && ((project) => promptPacksService!.freeze(project)),
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
           sourceCatalog: breakdownService,
           executors: [

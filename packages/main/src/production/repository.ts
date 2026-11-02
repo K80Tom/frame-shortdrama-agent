@@ -1,4 +1,5 @@
 import type { PostgresDatabase } from '../db/client';
+import { isDeepStrictEqual } from 'node:util';
 import { CREATE_KEYS, ProductionError, type StoredProductionRun } from '@lyra/shared';
 
 export interface ProductionRepository {
@@ -33,6 +34,7 @@ function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean
   // with a different budget keeps failing with PRODUCTION_REQUEST_REUSED.
   const frozen = CREATE_KEYS.filter(key => key !== 'budgetMicros');
   return a.id === b.id && a.createdAt === b.createdAt && a.workflowVersion === b.workflowVersion
+    && isDeepStrictEqual(a.methodPacks, b.methodPacks)
     && a.assetRetrievalPolicy?.policyDigest === b.assetRetrievalPolicy?.policyDigest
     && a.assetRetrievalPolicy?.registryRevision === b.assetRetrievalPolicy?.registryRevision
     && a.assetRetrievalPolicy?.sourceCandidateId === b.assetRetrievalPolicy?.sourceCandidateId
