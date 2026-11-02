@@ -12,5 +12,6 @@ export * from './evolution';
 export * from './assets';
 export * from './novel-analysis';
 export * from './novel-domain';
+export * from './novel-checkpoint';
 export * from './novel-registry';
 export * from './novel-adaptation';
