@@ -111,7 +111,7 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
         </div>
         {form.candidatePolicy === 'gacha' && <label><span>每镜候选</span><select aria-label="每镜候选数量" value={form.candidateLimit} onChange={event => onChange({ candidateLimit: Number(event.target.value) })}>{[2, 3, 4].map(value => <option value={value} key={value}>{value} 个</option>)}</select></label>}
         <label><span>3D 预演</span><select aria-label="3D 预演策略" value={form.directorPolicy} onChange={event => onChange({ directorPolicy: event.target.value as ProductionForm['directorPolicy'] })}><option value="auto">按需判断</option><option value="always">全部预演</option><option value="never">暂不使用</option></select></label>
-        <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选与返修共用此上限</small></div></label>
+        <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选、返修与抽帧评估共用此上限</small></div></label>
       </div>
       <label className="pa-consent"><input type="checkbox" checked={consent} onChange={event => onConsent(event.target.checked)} /><span>授权本次运行在 ¥{form.budgetYuan.toFixed(0)} 上限内调用已配置的模型和媒体服务，可能产生费用；达到上限或遇到未知提交会暂停。</span></label>
       <button className="pa-primary" disabled={loading || !consent || Boolean(error)} onClick={onSubmit}>{loading ? <LoaderCircle size={16} className="pa-spin" /> : <Sparkles size={16} />}{loading ? '正在创建运行…' : '开始自动制作'}</button>
@@ -498,7 +498,10 @@ function OverviewView({ run, busy, onStage, onMatrix, onTask, onResolve, onRetry
       <div><Film size={16} /><span><strong>{run.summary.shots.completed} / {run.summary.shots.total}</strong><small>镜头完成</small></span></div>
       <div><Gauge size={16} /><span><strong>{run.summary.tasks.running}</strong><small>正在执行</small></span></div>
       <div><Inbox size={16} /><span><strong>{run.summary.tasks.waitingHuman}</strong><small>等待决定</small></span></div>
-      <div><WalletCards size={16} /><span><strong>{money(used, budget.currency)}</strong><small>已用与预留 / {money(budget.limitMicros, budget.currency)}</small><i className="pa-budget-bar" aria-hidden><b style={{ width: `${budgetPct}%` }} /></i></span></div>
+      <div><WalletCards size={16} /><span><strong>{money(used, budget.currency)}</strong><small>已用与预留 / {money(budget.limitMicros, budget.currency)}</small>
+        {budget.frameAssessmentEstimateMicros !== undefined && budget.frameAssessmentEstimateMicros > 0
+          && <small>含抽帧估算 {money(budget.frameAssessmentEstimateMicros, budget.currency)}</small>}
+        <i className="pa-budget-bar" aria-hidden><b style={{ width: `${budgetPct}%` }} /></i></span></div>
     </section>
     <InboxPanel run={run} issues={run.issues} busy={busy} onSelect={taskId => { const task = run.tasks.find(item => item.id === taskId); if (task) onTask(task); }} onResolve={onResolve} onRetry={onRetry} />
     <section className="pa-stagegrid" aria-label="制作阶段总览">
