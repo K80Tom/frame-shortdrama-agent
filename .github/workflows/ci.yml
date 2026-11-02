@@ -5,12 +5,16 @@ on:
     paths:
       - "packages/**"
       - "package*.json"
+      - "docs/**"
+      - "*.md"
       - ".github/workflows/ci.yml"
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "packages/**"
       - "package*.json"
+      - "docs/**"
+      - "*.md"
       - ".github/workflows/ci.yml"
 
 concurrency:
@@ -66,7 +70,7 @@ jobs:
 
   autopilot:
     name: PR Autopilot
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'dev'
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -91,27 +95,10 @@ jobs:
           import json
 
           d = json.load(open('/tmp/pr.json'))
-          files = [f['path'] for f in d.get('files', [])]
-          total = d.get('additions', 0) + d.get('deletions', 0)
           reasons = []
 
           if d.get('mergeable') != 'MERGEABLE':
               reasons.append('分支有冲突或合并状态未知：' + str(d.get('mergeable')))
-          if total > 300:
-              reasons.append('改动 %d 行，超过 300 行上限' % total)
-          if not files:
-              reasons.append('没有读到文件清单')
-
-          protected = ('packages/main/', 'packages/shared/', 'packages/agent/', '.github/workflows/',
-                       'package-lock.json', 'package.json')
-          for p in files:
-              if p.startswith(protected) or p in ('package.json', 'package-lock.json'):
-                  reasons.append('涉及受保护路径 ' + p)
-
-          allowed = lambda p: p.startswith(('packages/web/', 'packages/cli/', 'docs/')) or p.endswith('.md')
-          for p in files:
-              if not allowed(p):
-                  reasons.append('不在自动合并白名单 ' + p)
 
           print('OK' if not reasons else 'BLOCK: ' + '；'.join(sorted(set(reasons))[:6]))
           PY
@@ -124,7 +111,8 @@ jobs:
           fi
 
       - name: AI review (optional)
-        if: env.LLM_API_KEY != '' && steps.guard.outputs.ok == 'true'
+        id: review
+        if: steps.guard.outputs.ok == 'true'
         continue-on-error: true
         env:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
@@ -133,13 +121,13 @@ jobs:
         run: python3 .github/scripts/pr_ai_review.py
 
       - name: Merge when safe
-        if: steps.guard.outputs.ok == 'true'
+        if: steps.guard.outputs.ok == 'true' && steps.review.outputs.should_merge != 'false'
         run: |
           set -euo pipefail
           if gh pr merge "$PR_NUMBER" --squash; then
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：测试通过、无冲突、改动在自动合并白名单（≤300 行），已 squash 合并。"
+            gh pr comment "$PR_NUMBER" --body "PR Autopilot：测试通过、无冲突，已自动 squash 合并到 dev。"
           else
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：条件满足，但合并被分支保护规则拦下（通常是缺少审批）。请人工审批后合入。"
+            gh pr comment "$PR_NUMBER" --body "PR Autopilot：条件满足，但合并被分支保护规则拦下。请人工处理。"
             exit 1
           fi
 

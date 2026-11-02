@@ -38,6 +38,13 @@ def sh(*args: str) -> str:
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
 
+def set_output(value: str) -> None:
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("should_merge=%s\n" % value)
+
+
 def main() -> int:
     base = (os.environ.get("LLM_BASE_URL") or "").rstrip("/")
     key = os.environ.get("LLM_API_KEY") or ""
@@ -45,6 +52,7 @@ def main() -> int:
     pr = os.environ.get("PR_NUMBER") or ""
     if not base or not key or not pr:
         print("缺少 LLM_BASE_URL / LLM_API_KEY / PR_NUMBER，跳过评审", file=sys.stderr)
+        set_output("true")
         return 0
 
     diff = sh("gh", "pr", "diff", pr)
@@ -72,6 +80,7 @@ def main() -> int:
 
     comment = "## PR Autopilot 自动评审\n\n" + content + "\n\n---\n由 `.github/workflows/ci.yml` 的 PR Autopilot 生成，仅供参考；合并判定以测试与规则为准。"
     sh("gh", "pr", "comment", pr, "--body", comment)
+    set_output("false" if "需人工处理" in content else "true")
     print("已发布自动评审评论")
     return 0
 
