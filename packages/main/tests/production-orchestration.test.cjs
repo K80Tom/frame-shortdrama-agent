@@ -886,6 +886,8 @@ test('reconcileOperations queries every unknown external operation and does not 
   assert.deepEqual(queried, ['provider_batch_2']);
   assert.equal(run.version, version);
   assert.equal(run.outbox.filter(item => item.type === 'production.run.operations_reconciled').length, 1);
+});
+
 test('a thrown local attempt releases its reservation so a retry is not blocked by its own hold', async () => {
   let calls = 0;
   const local = {
