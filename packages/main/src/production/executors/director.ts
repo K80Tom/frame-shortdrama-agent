@@ -173,7 +173,7 @@ export function buildDirectorSnapshot(run: Readonly<StoredProductionRun>, plan: 
     const x = round((index - (characters.length - 1) / 2) * spread);
     const z = round(index % 2 === 0 ? 0.25 : -0.35);
     return { id: actorIds[index]!, type: 'mannequin', name: character.name.value, visible: true,
-      transform: { position: { x, y: 0.1, z }, rotation: { x: 0, y: index < characters.length / 2 ? 0.18 : -0.18, z: 0 },
+      transform: { position: { x, y: 0.1, z }, rotation: { x: 0, y: actorYawDegrees(index, characters.length), z: 0 },
         scale: { x: 1, y: 1, z: 1 } }, pose: { preset: posePreset(shot.design.visualDescription) }, attachments: [],
       bodyType: 'male', color: palette[index % palette.length], joints: {},
       provenance: { planEntityId: character.id, sourceRefs: character.sourceRefs } };
@@ -204,14 +204,21 @@ function blocked(code: string, message: string): ProductionExecutorOutcome {
     severity: 'error', recommendedActions: ['检查已采用的剧本、事实计划和分镜版本', '修复后局部重试'] } };
 }
 
-function posePreset(description: string): string {
+/** Pose ids the director stage resolves. `turn` is not one of them and imports as stand. */
+export function posePreset(description: string): string {
   if (/(奔跑|冲|追逐)/u.test(description)) return 'walk';
   if (/(坐|落座)/u.test(description)) return 'sit';
   if (/(指|手指)/u.test(description)) return 'point';
   if (/(观察|凝视|查看)/u.test(description)) return 'observe';
   if (/(对峙|打斗|搏斗)/u.test(description)) return 'confront';
-  if (/(转身|回头)/u.test(description)) return 'turn';
+  if (/(转身|回头)/u.test(description)) return 'lookback';
   return 'stand';
+}
+
+/** Director transforms use degrees. 0.18 rad (~10.313°) was written raw and opened as 0.18°. */
+function actorYawDegrees(index: number, count: number): number {
+  const sign = index < count / 2 ? 1 : -1;
+  return round(sign * 0.18 * 180 / Math.PI);
 }
 
 function focalFor(shotSize: string): 16 | 24 | 35 | 50 | 85 {

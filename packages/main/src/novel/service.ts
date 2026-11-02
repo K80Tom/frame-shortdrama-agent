@@ -13,6 +13,8 @@ import type { AssetService } from '../assets/service';
 import { applyNovelAssetBindings } from './assets';
 import { NovelReviewWorkflow } from './workflow';
 import { buildEntityRegistry } from '@lyra/shared';
+import { buildNovelScreenplay } from '@lyra/agent';
+import type { BreakdownRepository } from '../breakdown/repository';
 
 export interface NovelAssetLinkAuthorization { candidateId: string }
 export interface NovelAssetLinkPolicy {
@@ -35,11 +37,11 @@ function expected(value: unknown): string | null {
 }
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll('-', '')}`;
 
-/** Novel chapters never enter screenplay scenes or storyboard generation. */
 export class NovelService {
   constructor(private readonly repository: NovelRepository, private readonly config: AppConfig,
     private readonly transport: typeof fetch = fetch, private readonly assets?: AssetService,
-    private readonly assetLinkPolicy?: NovelAssetLinkPolicy) {}
+    private readonly assetLinkPolicy?: NovelAssetLinkPolicy,
+    private readonly adaptations?: Pick<BreakdownRepository, 'saveNovelAdaptation'>) {}
   list() { return this.repository.listSources(); }
   async create(value: unknown) {
     const input = request(value, ['title', 'rawText', 'sourceUrl']);
@@ -55,6 +57,43 @@ export class NovelService {
     const source = await this.repository.getSource(sourceId);
     if (!source) throw new NovelError(404, 'NOVEL_NOT_FOUND', '小说原文不存在。');
     return source;
+  }
+  private async screenplayDraft(sourceId: string, chapters: unknown) {
+    if (!Array.isArray(chapters) || !chapters.length || chapters.length > 2000) {
+      throw new NovelError(400, 'NOVEL_ADAPTATION_SELECTION_INVALID', '请选择已拆解的连续章节。');
+    }
+    const source = await this.get(sourceId);
+    const selectedChapters = [];
+    let previousOrder = 0;
+    for (const raw of chapters) {
+      const ref = request(raw, ['chapterId', 'revisionId']);
+      const chapterId = expected(ref.chapterId);
+      const revisionId = expected(ref.revisionId);
+      if (!chapterId || !revisionId) throw new NovelError(400, 'NOVEL_ADAPTATION_REVISION_REQUIRED', '每章都需要一个已保存的拆解版本。');
+      const chapter = getChapter(source, chapterId);
+      if (previousOrder && chapter.order !== previousOrder + 1) {
+        throw new NovelError(400, 'NOVEL_ADAPTATION_SELECTION_INVALID', '章节须按原书顺序连续且不重复。');
+      }
+      if (revisionId !== chapter.latestRevisionId) throw new NovelError(409, 'NOVEL_REVISION_CONFLICT', '章节版本有更新，请刷新后重新预览。');
+      selectedChapters.push({ chapter, revisionId });
+      previousOrder = chapter.order;
+    }
+    const revisions = await this.repository.getSourceRevisions(source, selectedChapters.map(item => item.revisionId));
+    return buildNovelScreenplay(source, selectedChapters.map(({ chapter, revisionId }) => {
+      const revision = revisions.get(revisionId);
+      if (revision?.chapterId !== chapter.id) throw new NovelError(409, 'NOVEL_REVISION_CONFLICT', '缺少本章对应的拆解版本。');
+      return { chapter, revision };
+    }));
+  }
+  previewAdaptation(sourceId: string, value: unknown) {
+    return this.screenplayDraft(sourceId, request(value, ['chapters']).chapters);
+  }
+  async adoptAdaptation(sourceId: string, value: unknown) {
+    if (!this.adaptations) throw new NovelError(503, 'ADAPTATION_STORAGE_UNAVAILABLE', '剧本项目存储尚未就绪。');
+    const input = request(value, ['chapters', 'digest']);
+    const draft = await this.screenplayDraft(sourceId, input.chapters);
+    if (input.digest !== draft.digest) throw new NovelError(409, 'NOVEL_ADAPTATION_PREVIEW_CHANGED', '草稿已变化，请重新预览后采用。');
+    return this.adaptations.saveNovelAdaptation(draft);
   }
   private async chapter(chapterId: string) {
     const source = await this.repository.getChapterSource(chapterId);

@@ -4,6 +4,12 @@ const { mkdtempSync, mkdirSync, writeFileSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { PromptPackService } = require('../dist/prompt-packs/service');
+const { methodReference } = require('../dist/prompt-packs/runtime');
+const { ProductionService } = require('../dist/production/service');
+const { MemoryProductionRepository } = require('../dist/production/repository');
+const { createApp } = require('../dist/app');
+const { readConfig } = require('../dist/config');
+const { StoryboardService } = require('../dist/breakdown/storyboard');
 
 function makeRoot({ withLibraryPack = false } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'lyra-packs-'));
@@ -52,6 +58,72 @@ function memoryRepos(seed = []) {
     },
   };
 }
+
+test('HTTP toggles govern new runs and manual storyboard model requests, with immutable private excerpts', async t => {
+  const repos = memoryRepos();
+  const packs = new PromptPackService(repos.states, repos.imports, makeRoot({ withLibraryPack: true }));
+  const runs = new MemoryProductionRepository();
+  const production = new ProductionService(runs, { methodPacks: project => packs.freeze(project) });
+  const config = readConfig({ LLM_API_KEY: 'test-key', LLM_BASE_URL: 'https://model.test/openai' });
+  const requests = [];
+  const storyboards = new StoryboardService({ query: async () => ({ rows: [] }) }, {
+    getProject: async () => ({ activePlanRevisionId: 'plan_test', currentScriptVersionId: 'script_test' }),
+    getPlanRevision: async () => ({ id: 'plan_test', scriptVersionId: 'script_test',
+      content: { synopsis: null, characters: [], locations: [], props: [], scenes: [], dialogues: [] } }),
+  }, config, async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return new Response('', { status: 400 }); // End the bounded request before saving a generated revision.
+  });
+  const app = await createApp(config, fetch, { promptPacksService: packs, productionService: production, storyboardService: storyboards });
+  t.after(() => app.close());
+  const headers = { host: '127.0.0.1:8788', origin: 'http://127.0.0.1:5173', 'x-shortdrama-call': '1' };
+  const post = (url, payload) => app.inject({ method: 'POST', url, payload, headers });
+  const toggle = async (id, enabled) => assert.equal((await post('/api/prompt-packs/' + id + '/state', { enabled })).statusCode, 200);
+  const payload = { projectId: 'project_test', scriptVersionId: 'script_test', ratio: '9:16', targetDurationSec: 60,
+    visualStyle: '写实', qualityPreset: 'balanced', automationMode: 'auto', candidatePolicy: 'direct', candidateLimit: 1,
+    directorPolicy: 'auto', budgetMicros: 5_000_000, currency: 'CNY', allowPaid: true, clientRequestId: 'freeze-test' };
+  const created = await post('/api/prompt-packs/import', { id: 'custom', name: '分镜方法', stages: ['storyboard'], content: 'FRAME_METHOD' });
+  assert.equal(created.statusCode, 201);
+  await toggle('custom', true); await toggle('sample-pack', true);
+  const response = await post('/api/production-runs', payload);
+  assert.equal(response.statusCode, 202);
+  assert.doesNotMatch(response.body, /FRAME_METHOD|# 示例方法/);
+  const frozen = await runs.get(response.json().id);
+  assert.match(methodReference(frozen.methodPacks, 'storyboard'), /FRAME_METHOD/);
+  assert.doesNotMatch(methodReference(frozen.methodPacks, 'storyboard'), /示例方法/);
+  assert.match(methodReference(frozen.methodPacks, 'breakdown'), /示例方法/);
+  const first = await post('/api/projects/project_test/storyboards', { allowPaid: true });
+  assert.equal(requests.length, 1, first.body);
+  assert.match(requests[0].messages[1].content, /FRAME_METHOD/);
+  assert.doesNotMatch(requests[0].messages[0].content, /FRAME_METHOD/);
+  await toggle('custom', false);
+  await post('/api/projects/project_test/storyboards', { allowPaid: true });
+  assert.doesNotMatch(requests[1].messages[1].content, /FRAME_METHOD/);
+  const replay = await post('/api/production-runs', payload);
+  assert.equal(replay.json().id, frozen.id);
+  assert.match(methodReference((await runs.get(frozen.id)).methodPacks, 'storyboard'), /FRAME_METHOD/);
+  const fresh = await production.create({ ...payload, clientRequestId: 'freeze-test-next' });
+  assert.equal(methodReference((await runs.get(fresh.id)).methodPacks, 'storyboard'), '');
+  assert.equal(methodReference(undefined, 'video'), '');
+});
+
+test('adaptation targets only adapted material, topic is browse-only, and selection is bounded', async () => {
+  const repos = memoryRepos();
+  const packs = new PromptPackService(repos.states, repos.imports, makeRoot());
+  const add = (id, stages, content = id) => packs.importPack({ id, name: id, stages, content });
+  await add('adapted', ['adaptation'], '🙂'.repeat(4000)); await packs.setState('adapted', true);
+  assert.deepEqual(await packs.freeze(), []);
+  const adapted = await packs.freeze({ source: { kind: 'novelAdaptation' } });
+  assert.equal(adapted.length, 1); assert.ok(adapted[0].excerpt.length <= 4000);
+  assert.equal(adapted[0].excerpt.isWellFormed(), true);
+  await add('topic-only', ['topic']);
+  await assert.rejects(packs.setState('topic-only', true), { code: 'PROMPT_PACK_NO_NODE' });
+  for (let i = 0; i < 9; i++) {
+    await add('shot-' + i, ['storyboard']); await packs.setState('shot-' + i, true);
+  }
+  await assert.rejects(packs.freeze(), { code: 'PROMPT_PACK_STAGE_LIMIT' });
+  assert.deepEqual(await packs.freeze(undefined, 'video'), []);
+});
 
 test('自己导入的方法默认关闭，并出现在列表里', async () => {
   const repos = memoryRepos();
