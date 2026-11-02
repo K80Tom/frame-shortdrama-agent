@@ -1,3 +1,5 @@
+import { METHOD_SECTION } from '../prompt-packs/runtime';
+
 export type VideoRunStatus = 'queued' | 'submitting' | 'generating' | 'completed' | 'failed' | 'unknown';
 export type VideoNodeId = 'input' | 'model' | 'submit' | 'generate' | 'deliver';
 export type VideoNodeState = 'pending' | 'running' | 'waitingExternal' | 'succeeded' | 'failed' | 'needsAttention';
@@ -115,5 +117,10 @@ export function publicVideoRun(run: StoredVideoRun) {
     submit: '仅提交一次生成请求。', generate: '等待供应商返回任务结果；没有供应商百分比。', deliver: '保存供应商 HTTPS 结果链接；链接可能过期，视频尚未下载入库。' };
   const nodes = (Object.keys(labels) as VideoNodeId[]).map(id => ({ key: id, label: labels[id], state: states[id],
     message: run.errorNode === id && run.error ? run.error.message : messages[id] }));
-  return { ...structuredClone(run), nodes, progress: { completed: nodes.filter(node => node.state === 'succeeded').length, total: 5 as const } };
+  const visible = structuredClone(run);
+  if (visible.clientRequestId.startsWith('prod_') && visible.prompt.includes(METHOD_SECTION)) {
+    visible.prompt = visible.prompt.slice(0, visible.prompt.indexOf(METHOD_SECTION));
+    visible.title = Array.from(visible.prompt.replace(/\s+/gu, ' ')).slice(0, 40).join('');
+  }
+  return { ...visible, nodes, progress: { completed: nodes.filter(node => node.state === 'succeeded').length, total: 5 as const } };
 }

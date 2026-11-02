@@ -35,6 +35,16 @@ test('create body freezes the production policy and omits the UI-only yuan field
   assert.deepEqual(Object.keys(body).sort(), ['allowPaid', 'automationMode', 'budgetMicros', 'candidateLimit', 'candidatePolicy', 'clientRequestId', 'currency', 'directorPolicy', 'projectId', 'qualityPreset', 'ratio', 'scriptVersionId', 'targetDurationSec', 'visualStyle'].sort());
 });
 
+test('run overview preserves the frame estimate within spent and accepts older summaries', () => {
+  const old = snapshot();
+  assert.equal(production.parseProductionRun(old).summary.budget.frameAssessmentEstimateMicros, 0);
+  old.summary.budget.spentMicros = 5_000_000;
+  old.summary.budget.frameAssessmentEstimateMicros = 2_000_000;
+  const budget = production.parseProductionRun(old).summary.budget;
+  assert.equal(budget.spentMicros, 5_000_000);
+  assert.equal(budget.frameAssessmentEstimateMicros, 2_000_000);
+});
+
 test('gacha flow keeps multiple candidates in the create body', () => {
   const body = production.productionCreateBody({ ...production.defaultProductionForm, projectId: 'project_demo', scriptVersionId: 'script_demo', candidatePolicy: 'gacha', candidateLimit: 3 }, 'client_12345678');
   assert.equal(body.candidatePolicy, 'gacha');

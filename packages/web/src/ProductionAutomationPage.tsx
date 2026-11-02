@@ -11,6 +11,7 @@ import {
   type ProductionTask, type ProjectOption, type ProductionStage, type ScriptVersionOption,
 } from './production-automation';
 import './production-automation.css';
+import type { NovelAdaptationResult } from '@lyra/shared';
 
 const pendingKey = 'ohao:production-run-pending:v1';
 const createStages = ['剧本拆解', '资产准备', '分镜设计', '3D 预演', '镜头生产包', '视频抽卡', '自动技术复核', '自动剪辑', '最终出片'];
@@ -111,7 +112,7 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
         </div>
         {form.candidatePolicy === 'gacha' && <label><span>每镜候选</span><select aria-label="每镜候选数量" value={form.candidateLimit} onChange={event => onChange({ candidateLimit: Number(event.target.value) })}>{[2, 3, 4].map(value => <option value={value} key={value}>{value} 个</option>)}</select></label>}
         <label><span>3D 预演</span><select aria-label="3D 预演策略" value={form.directorPolicy} onChange={event => onChange({ directorPolicy: event.target.value as ProductionForm['directorPolicy'] })}><option value="auto">按需判断</option><option value="always">全部预演</option><option value="never">暂不使用</option></select></label>
-        <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选与返修共用此上限</small></div></label>
+        <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选、返修与抽帧评估共用此上限</small></div></label>
       </div>
       <label className="pa-consent"><input type="checkbox" checked={consent} onChange={event => onConsent(event.target.checked)} /><span>授权本次运行在 ¥{form.budgetYuan.toFixed(0)} 上限内调用已配置的模型和媒体服务，可能产生费用；达到上限或遇到未知提交会暂停。</span></label>
       <button className="pa-primary" disabled={loading || !consent || Boolean(error)} onClick={onSubmit}>{loading ? <LoaderCircle size={16} className="pa-spin" /> : <Sparkles size={16} />}{loading ? '正在创建运行…' : '开始自动制作'}</button>
@@ -498,7 +499,10 @@ function OverviewView({ run, busy, onStage, onMatrix, onTask, onResolve, onRetry
       <div><Film size={16} /><span><strong>{run.summary.shots.completed} / {run.summary.shots.total}</strong><small>镜头完成</small></span></div>
       <div><Gauge size={16} /><span><strong>{run.summary.tasks.running}</strong><small>正在执行</small></span></div>
       <div><Inbox size={16} /><span><strong>{run.summary.tasks.waitingHuman}</strong><small>等待决定</small></span></div>
-      <div><WalletCards size={16} /><span><strong>{money(used, budget.currency)}</strong><small>已用与预留 / {money(budget.limitMicros, budget.currency)}</small><i className="pa-budget-bar" aria-hidden><b style={{ width: `${budgetPct}%` }} /></i></span></div>
+      <div><WalletCards size={16} /><span><strong>{money(used, budget.currency)}</strong><small>已用与预留 / {money(budget.limitMicros, budget.currency)}</small>
+        {budget.frameAssessmentEstimateMicros !== undefined && budget.frameAssessmentEstimateMicros > 0
+          && <small>含抽帧估算 {money(budget.frameAssessmentEstimateMicros, budget.currency)}</small>}
+        <i className="pa-budget-bar" aria-hidden><b style={{ width: `${budgetPct}%` }} /></i></span></div>
     </section>
     <InboxPanel run={run} issues={run.issues} busy={busy} onSelect={taskId => { const task = run.tasks.find(item => item.id === taskId); if (task) onTask(task); }} onResolve={onResolve} onRetry={onRetry} />
     <section className="pa-stagegrid" aria-label="制作阶段总览">
@@ -555,13 +559,16 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
   </div>;
 }
 
-export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsavedChange?: (dirty: boolean) => void }) {
-  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm });
+export default function ProductionAutomationPage({ onUnsavedChange, initialScript }: {
+  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult;
+}) {
+  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? '' });
+  const pinnedScript = useRef(initialScript);
   const [projects, setProjects] = useState<ProjectOption[]>([]); const [versions, setVersions] = useState<ScriptVersionOption[]>([]);
   const [runs, setRuns] = useState<ProductionRun[]>([]); const [selectedRunId, setSelectedRunId] = useState('');
   const [consent, setConsent] = useState(false); const [dirty, setDirty] = useState(false); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [loadError, setLoadError] = useState(''); const [refresh, setRefresh] = useState(0);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(Boolean(initialScript));
   const [pendingClientId, setPendingClientId] = useState(pendingFromSession);
   const mutation = useRef(false); const controllerRef = useRef<AbortController | null>(null);
   const explicitRejection = useRef(false);
@@ -602,7 +609,15 @@ export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsave
     if (!form.projectId) { setVersions([]); return; }
     const controller = new AbortController();
     void productionApi(`/api/projects/${encodeURIComponent(form.projectId)}/script-versions`, undefined, controller.signal).then(parseScriptVersionOptions).then(items => {
-      if (controller.signal.aborted) return; setVersions(items); setForm(previous => ({ ...previous, scriptVersionId: items.find(item => item.id === currentProject?.currentScriptVersionId)?.id || items.at(-1)?.id || '' }));
+      if (controller.signal.aborted) return;
+      setVersions(items);
+      const pinned = pinnedScript.current;
+      if (pinned && !items.some(item => item.id === pinned.scriptVersionId)) {
+        setError('未找到已采用的小说剧本版本，请返回小说重新核对，或手动选择项目和版本。');
+      }
+      setForm(previous => ({ ...previous, scriptVersionId: pinned
+        ? items.find(item => item.id === pinned.scriptVersionId)?.id ?? ''
+        : items.find(item => item.id === previous.scriptVersionId)?.id || items.find(item => item.id === currentProject?.currentScriptVersionId)?.id || items.at(-1)?.id || '' }));
     }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
     return () => controller.abort();
   }, [form.projectId, currentProject?.currentScriptVersionId]);
@@ -614,8 +629,11 @@ export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsave
   }, [selectedRunId, refresh]);
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  function edit(patch: Partial<ProductionForm>) { setForm(current => ({ ...current, ...patch })); setConsent(false); setDirty(true); }
-  function selectProject(projectId: string) { edit({ projectId, scriptVersionId: '' }); }
+  function edit(patch: Partial<ProductionForm>) {
+    if (patch.scriptVersionId !== undefined) pinnedScript.current = undefined;
+    setForm(current => ({ ...current, ...patch })); setConsent(false); setDirty(true);
+  }
+  function selectProject(projectId: string) { setVersions([]); edit({ projectId, scriptVersionId: '' }); }
   async function mutate(label: string, path: string, body: unknown) {
     if (mutation.current) return null; mutation.current = true; explicitRejection.current = false; setBusy(label); setMessage(''); setError('');
     const controller = new AbortController(); controllerRef.current = controller; const timeout = setTimeout(() => controller.abort(), 20000);
