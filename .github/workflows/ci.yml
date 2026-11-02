@@ -2,6 +2,7 @@ name: Lyra CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     paths:
       - "packages/**"
       - "package*.json"
@@ -67,6 +68,23 @@ jobs:
         run: npm --prefix packages/web test
       - name: Build frontend
         run: npm --prefix packages/web run build
+
+  retarget:
+    name: Retarget PR to dev
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Point base branch to dev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/${{ github.repository }}/pulls/$PR_NUMBER" -f base=dev
+          gh pr comment "$PR_NUMBER" --body "PR Autopilot：目标分支已从 main 自动切换到 dev。"
 
   autopilot:
     name: PR Autopilot
