@@ -1,8 +1,8 @@
-# Default review owner.
-* @K80Tom
+# Default review owners. A PR author cannot satisfy their own review gate.
+* @K80Tom @255308153 @VerCurL
 
 # Protect repository automation and agent instructions.
-/.github/ @K80Tom
+/.github/ @K80Tom @255308153 @VerCurL
 
 # Active OHAO product.
-/shortdrama-agent-lab/ @K80Tom
+/packages/ @K80Tom @255308153 @VerCurL
