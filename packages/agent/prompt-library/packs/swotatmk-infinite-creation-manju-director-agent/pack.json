@@ -1,0 +1,21 @@
+{
+  "id": "swotatmk-infinite-creation-manju-director-agent",
+  "name": "manju-director-agent",
+  "version": "synced",
+  "summary": "提交小说或剧本，用本地 ComfyUI + MiniMax H3 + Agent 自动连续生产视频，不限时长",
+  "stages": [
+    "adaptation",
+    "production",
+    "video-prompt"
+  ],
+  "models": [
+    "comfyui",
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

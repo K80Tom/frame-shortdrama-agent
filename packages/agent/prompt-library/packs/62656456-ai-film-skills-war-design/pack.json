@@ -1,0 +1,20 @@
+{
+  "id": "62656456-ai-film-skills-war-design",
+  "name": "war-design",
+  "version": "synced",
+  "summary": "21 个独立模块：短剧制作、分镜导演、角色资产、国风/科幻等视觉风格导演，附 3D 预演",
+  "stages": [
+    "character",
+    "production",
+    "storyboard"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "Apache-2.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

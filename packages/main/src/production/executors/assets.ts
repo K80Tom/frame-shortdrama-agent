@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { methodReference, MethodReferenceSpaceError } from '../../prompt-packs/runtime';
 import type { AssetKind, AssetRecord } from '@lyra/shared';
 import {
   retrieveAssetForGeneration,
@@ -16,7 +17,7 @@ import {
   type GeneratedImage,
   type MediaClientConfig,
 } from '../../models/media-client';
-import { canonicalDigest, type StoredProductionRun } from '@lyra/shared';
+import { canonicalDigest, DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy, type StoredProductionRun } from '@lyra/shared';
 import type {
   PreparedProductionExecution,
   ProductionExecutionContext,
@@ -24,12 +25,12 @@ import type {
   ProductionExecutorOutcome,
 } from '../executor';
 
-const EXECUTOR_VERSION = 'production-assets/3';
-const MATCH_RULE_VERSION = 'production-asset-match/4';
+const EXECUTOR_VERSION = 'production-assets/4';
+const MATCH_RULE_VERSION = 'production-asset-match/5';
 const PROMPT_VERSION = 'production-asset-image/1';
 const DEFAULT_IMAGE_COST_MICROS = 2_000_000;
 const STRUCTURED_RETRIEVER: AssetRetriever = {
-  async retrieve(query, assets) { return retrieveAssetForGeneration(query, assets); },
+  async retrieve(query, assets, policy) { return retrieveAssetForGeneration(query, assets, policy); },
 };
 
 type BreakdownReader = Pick<BreakdownServicePort, 'getProject' | 'getPlanRevision'>;
@@ -176,7 +177,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
     // lexical retrieval remains local; hybrid mode reserves an upper bound
     // from exact identity and queries only after the durable budget claim.
     const match = ref
-      ? semantic ? exactAssetMatch(ref, assets) : await matchOne(ref, assets, this.retrieval)
+      ? semantic ? exactAssetMatch(ref, assets) : await matchOne(ref, assets, this.retrieval, retrievalPolicy(context.run))
       : null;
     const connection = resolveProductionImageConnection(this.currentConfig());
     const canGenerate = Boolean(ref && !match?.asset && !match?.ambiguous && connection.state === 'configured');
@@ -185,6 +186,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       executor: EXECUTOR_VERSION,
       inputDigest: canonicalDigest({ rule: PROMPT_VERSION, run: frozenRunInput(context.run),
         planId: loaded.state === 'ready' ? loaded.plan.id : null, entity: ref,
+        methodReference: ref?.kind === 'character' ? methodReference(context.run.methodPacks, 'character-image') || undefined : undefined,
         match: match ? { assetId: match.asset?.id ?? null, matchedBy: match.matchedBy,
           ambiguous: match.ambiguous, alternatives: match.alternatives } : null,
         retrieval: retrievalManifest, imageConnection: connectionManifest(connection) }),
@@ -214,7 +216,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
     if (!scene) return blocked('ASSET_SCENE_STALE', '分镜引用的场次已不存在于当前事实计划中。');
     const relevant = shotEntities(plan, board.storyboard, shotId);
     const assets = await this.options.assets.list();
-    const matches = await matchEntities(relevant, assets, this.retrieval);
+    const matches = await matchEntities(relevant, assets, this.retrieval, retrievalPolicy(context.run));
     const embeddingCost = this.embeddingActualCost(matches);
     const ambiguous = matches.filter(item => item.ambiguous);
     const missing = matches.filter(item => !item.asset && !item.ambiguous);
@@ -247,7 +249,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
 
   private async matchEpisode(context: ProductionExecutionContext, plan: PlanRevisionRecord): Promise<ProductionExecutorOutcome> {
     const assets = await this.options.assets.list();
-    const matches = await matchEntities(allEntities(plan), assets, this.retrieval);
+    const matches = await matchEntities(allEntities(plan), assets, this.retrieval, retrievalPolicy(context.run));
     const embeddingCost = this.embeddingActualCost(matches);
     const ambiguous = matches.filter(item => item.ambiguous);
     const missing = matches.filter(item => !item.asset && !item.ambiguous);
@@ -279,7 +281,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
     const ref = findEntity(plan, entityId);
     if (!ref) return blocked('ASSET_ENTITY_STALE', '待补齐实体已不存在于当前采用的剧本拆解中。');
     // Re-read immediately before the paid call. Another task or the user may have filled it meanwhile.
-    const existing = await matchOne(ref, await this.options.assets.list(), this.retrieval);
+    const existing = await matchOne(ref, await this.options.assets.list(), this.retrieval, retrievalPolicy(context.run));
     const embeddingCost = this.embeddingActualCost([existing]);
     if (existing.ambiguous) return { state: 'blocked', actualCostMicros: embeddingCost,
       artifacts: [{ key: `asset-match-${ref.entity.id}`,
@@ -305,8 +307,18 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       return blocked('IMAGE_MODEL_SELECTION_CHANGED', '生图连接或任务输入在执行准备后发生了变化，未发起付费请求。',
         ['对本资产任务局部重试，以新配置重新冻结输入与预算'], embeddingCost);
     }
+    const basePrompt = assetPrompt(ref, context.run.visualStyle);
+    let prompt = basePrompt;
+    if (ref.kind === 'character') {
+      try { prompt += methodReference(context.run.methodPacks, 'character-image', Math.min(8000, 32_000 - basePrompt.length)); }
+      catch (error) {
+        if (error instanceof MethodReferenceSpaceError) return blocked('PROMPT_PACK_INPUT_LIMIT', error.message,
+          ['缩短资产描述或减少方法包后创建新运行'], embeddingCost);
+        throw error;
+      }
+    }
     const generated = await this.clientFactory(connection.clientConfig).generateImage({
-      prompt: assetPrompt(ref, context.run.visualStyle), size: '2K', responseFormat: 'b64_json', watermark: false,
+      prompt, size: '2K', responseFormat: 'b64_json', watermark: false,
     });
     const description = importDescription(ref, plan, context.run.visualStyle, connection.model);
     const saved = await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,
@@ -375,9 +387,14 @@ export class AssetsProductionExecutor implements ProductionExecutor {
   }
 }
 
+function retrievalPolicy(run: Readonly<StoredProductionRun>): AssetRetrievalPolicy {
+  return run.assetRetrievalPolicy ?? DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY;
+}
+
 function frozenRunInput(run: Readonly<StoredProductionRun>) {
   return { projectId: run.projectId, scriptVersionId: run.scriptVersionId, visualStyle: run.visualStyle,
-    ratio: run.ratio, qualityPreset: run.qualityPreset, workflowVersion: run.workflowVersion };
+    ratio: run.ratio, qualityPreset: run.qualityPreset, workflowVersion: run.workflowVersion,
+    assetRetrievalPolicy: run.assetRetrievalPolicy ?? DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY };
 }
 
 function allEntities(plan: PlanRevisionRecord): EntityRef[] {
@@ -424,13 +441,13 @@ function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | nu
       resourceUrl: item.asset.resourceUrl, matchedBy: item.matchedBy, matchedTerm: item.matchedTerm })) : [] };
 }
 
-async function matchOne(ref: EntityRef, assets: AssetRecord[], retriever: AssetRetriever): Promise<AssetMatch> {
+async function matchOne(ref: EntityRef, assets: AssetRecord[], retriever: AssetRetriever, policy: AssetRetrievalPolicy): Promise<AssetMatch> {
   const exact = exactAssetMatch(ref, assets);
   if (exact) return exact;
   const retrieval = await retriever.retrieve({
     kind: ref.kind, name: ref.entity.name.value, aliases: ref.entity.aliases.map(item => item.value),
     description: ref.entity.description?.value ?? '', sourceQuotes: sourceQuotes(ref.entity),
-  }, assets);
+  }, assets, policy);
   const best = retrieval.candidates[0];
   const ambiguous = retrieval.status === 'ambiguous';
   const matched = retrieval.status === 'unique' || ambiguous;
@@ -445,10 +462,10 @@ async function matchOne(ref: EntityRef, assets: AssetRecord[], retriever: AssetR
       matchedTerm: item.matchedTerms[0] ?? ref.entity.name.value, score: item.score })) };
 }
 
-async function matchEntities(refs: EntityRef[], assets: AssetRecord[], retriever: AssetRetriever): Promise<AssetMatch[]> {
+async function matchEntities(refs: EntityRef[], assets: AssetRecord[], retriever: AssetRetriever, policy: AssetRetrievalPolicy): Promise<AssetMatch[]> {
   const matches: AssetMatch[] = [];
   // Sequential query embeddings avoid an unbounded provider burst per episode.
-  for (const ref of refs) matches.push(await matchOne(ref, assets, retriever));
+  for (const ref of refs) matches.push(await matchOne(ref, assets, retriever, policy));
   return matches;
 }
 

@@ -1,0 +1,19 @@
+{
+  "id": "kevinchin12-storyboard-director-storyboard-aggregate-prompt",
+  "name": "storyboard-aggregate-prompt",
+  "version": "synced",
+  "summary": "故事 → 分镜脚本，子代理并行生成逐镜线稿，HTML 审片板返修指定镜头，确认后汇总成按镜头排序的视频提示词",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

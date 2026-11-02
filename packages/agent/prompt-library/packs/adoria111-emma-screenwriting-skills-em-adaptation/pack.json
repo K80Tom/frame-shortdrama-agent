@@ -1,0 +1,21 @@
+{
+  "id": "adoria111-emma-screenwriting-skills-em-adaptation",
+  "name": "em-adaptation",
+  "version": "synced",
+  "summary": "艾玛短剧技能组：结构拆解、改编、选题迭代、期待设计、逐集钩子、集纲扩写、对白诊断、剧本删减",
+  "stages": [
+    "adaptation",
+    "episode-outline",
+    "script",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "zzzaloong-fight-scene-director-fight-scene-director",
+  "name": "fight-scene-director",
+  "version": "synced",
+  "summary": "多画风打戏设计：动作编排、空间调度、镜头与特效规则，可先出站位图/轨迹图生图词，再按轨迹写视频提示词",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

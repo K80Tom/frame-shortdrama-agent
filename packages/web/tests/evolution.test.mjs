@@ -6,6 +6,7 @@ const server = await createServer({ server: { middlewareMode: true, hmr: false, 
 after(() => server.close());
 const automation = await server.ssrLoadModule('/src/production-automation.ts');
 const evolution = await server.ssrLoadModule('/src/evolution.ts');
+const assetEvolution = await server.ssrLoadModule('/src/asset-evolution.ts');
 
 function rawRun(id, createdAt, over = {}) {
   return {
@@ -170,4 +171,39 @@ test('质量检查通过率与活跃运行判定', () => {
   assert.equal(summary.activeRunId, 'production_live');
   assert.equal(evolution.evolutionStatusNote('pausedBudget'), '停在预算检查点');
   assert.equal(evolution.evolutionRuleKind('production-director-scene/1'), '3D 导演台规则');
+});
+
+test('运行解析保留冻结的资产检索策略', () => {
+  const policy = { schemaVersion: 'asset-retrieval-policy/1', threshold: 0.62, ambiguityMargin: 0.12,
+    semanticWeight: 0.95, registryRevision: 3, policyDigest: `sha256:${'a'.repeat(64)}`, sourceCandidateId: 'evocand_demo' };
+  const run = automation.parseProductionRun(rawRun('production_policy', '2026-10-22T00:00:00.000Z', { assetRetrievalPolicy: policy }));
+  assert.deepEqual(run.assetRetrievalPolicy, policy);
+  const legacy = automation.parseProductionRun(rawRun('production_legacy', '2026-10-22T00:00:00.000Z'));
+  assert.equal(legacy.assetRetrievalPolicy, undefined);
+});
+
+test('资产治理解析读取 Registry、候选、Probe 与回滚状态', () => {
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const raw = {
+    registry: { domain: 'AssetRetrievalPolicy', revision: 2, updatedAt: '2026-10-24T00:00:00.000Z', reason: '人工采用',
+      policy: { schemaVersion: 'asset-retrieval-policy/1', threshold: 0.62, ambiguityMargin: 0.12,
+        semanticWeight: 0.95, registryRevision: 2, policyDigest: digest, sourceCandidateId: 'evocand_demo' } },
+    evidence: [{ id: 'evidence_demo', runId: 'production_demo', openIssues: [], createdAt: '2026-10-24T00:00:00.000Z' }],
+    proposals: [{ id: 'eproposal_demo', key: 'key', title: '收紧歧义', candidateEnabled: true, evidenceIds: ['evidence_demo'], sourceRunIds: ['production_demo'] }],
+    candidates: [{ id: 'evocand_demo', proposalId: 'eproposal_demo', basePolicy: { threshold: 0.62, ambiguityMargin: 0.08, semanticWeight: 0.95 },
+      basePolicyDigest: `sha256:${'a'.repeat(64)}`, policy: { threshold: 0.62, ambiguityMargin: 0.12, semanticWeight: 0.95 },
+      policyDigest: digest, status: 'adopted', createdAt: '2026-10-24T00:00:00.000Z' }],
+    probes: [{ id: 'eprobe_demo', candidateId: 'evocand_demo', verdict: 'pass', modelCalls: 0, createdAt: '2026-10-24T00:00:00.000Z',
+      gate: { falseReuseDelta: 0, safetyBlockDelta: 0, correctReuseDelta: 0, contractFailureDelta: 0, embeddingCostDeltaMicros: 0 } }],
+    registryEvents: [{ id: 'eveevent_demo', action: 'adopt', toPolicyDigest: digest, revision: 2 }],
+  };
+  const summary = assetEvolution.parseAssetEvolutionSummary(raw);
+  assert.equal(summary.registry.revision, 2);
+  assert.equal(summary.registry.policy.ambiguityMargin, 0.12);
+  assert.equal(summary.candidates[0].status, 'adopted');
+  assert.equal(summary.probes[0].modelCalls, 0);
+  assert.equal(assetEvolution.latestAssetProbe(summary, 'evocand_demo').id, 'eprobe_demo');
+  assert.equal(assetEvolution.canRollbackAssetRegistry(summary), true);
+  assert.equal(assetEvolution.shortDigest(digest), 'bbbbbbbb…');
+  assert.throws(() => assetEvolution.parseAssetEvolutionSummary({ registry: { policy: { threshold: 9 } } }), /Registry/);
 });

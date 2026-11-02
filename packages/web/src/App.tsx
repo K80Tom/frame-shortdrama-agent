@@ -15,6 +15,7 @@ import ModelConnections from './ModelConnections';
 import VideoAutomationPage from './VideoAutomationPage';
 import ProductionAutomationPage from './ProductionAutomationPage';
 import EvolutionPage from './EvolutionPage';
+import PromptPacksPage from './PromptPacksPage';
 import { applyHashNavigation } from './navigation-guard';
 import { AmbientFX } from './ambient';
 import AssistantPanel from './assistant/AssistantPanel';
@@ -127,8 +128,9 @@ export default function App() {
         {route.page === 'plugins' && <PluginsPage go={go} />}
         {route.page === 'automation' && (route.resourceId === 'video'
           ? <VideoAutomationPage onUnsavedChange={reportAutomationUnsaved} />
-          : <ProductionAutomationPage onUnsavedChange={reportAutomationUnsaved} />)}
+          : <ProductionAutomationPage initialScript={route.screenplay} onUnsavedChange={reportAutomationUnsaved} />)}
         {route.page === 'evolution' && <EvolutionPage go={go} />}
+        {route.page === 'methods' && <PromptPacksPage notify={notify} />}
         {route.page === 'production' && <ProductionPage initialProjectId={route.resourceId} onUnsavedChange={reportProductionUnsaved} />}
         {route.page === 'novel' && <NovelBreakdown initialNovelId={route.resourceId} importRequest={novelImportRequest} onUnsavedChange={reportNovelUnsaved} />}
         {route.page === 'script' && <ScriptPage {...props} />}

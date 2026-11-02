@@ -1,0 +1,24 @@
+{
+  "id": "liuxiao20051106-prog-ai-manga-drama-ai-manga-drama-en",
+  "name": "ai-manga-drama-en",
+  "version": "synced",
+  "summary": "AI 漫剧工坊：一句创意到成片的八步流程，任务卡剧本、角色参考图库、风格锚、分镜、图/视频提示词、配音字幕与合成终检",
+  "stages": [
+    "character",
+    "episode-outline",
+    "production",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

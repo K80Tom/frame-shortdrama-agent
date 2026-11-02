@@ -1,0 +1,12 @@
+{
+  "id": "screenwriter-skill-review",
+  "name": "内容负责人编剧审稿（38 条铁律）",
+  "version": "2.2",
+  "summary": "三层审稿流程：选题判断、第一集/前三集审核、改稿建议；含 38 条创作铁律与爽感兑现清单。",
+  "stages": ["script-review"],
+  "models": ["*"],
+  "license": "MIT",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

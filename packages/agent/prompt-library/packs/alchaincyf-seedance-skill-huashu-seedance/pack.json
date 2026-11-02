@@ -1,0 +1,19 @@
+{
+  "id": "alchaincyf-seedance-skill-huashu-seedance",
+  "name": "huashu-seedance",
+  "version": "synced",
+  "summary": "白模驱动的 Seedance 工作台：用 scene.json 渲染白模参考视频并做几何体检，可从照片反解白模，按白模几何写提示词",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

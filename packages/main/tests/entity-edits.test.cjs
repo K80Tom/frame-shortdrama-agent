@@ -223,6 +223,27 @@ test('entity proofreading preserves an unchanged alias and records later alias r
   assert.equal((await service.getPlanRevision(first.id)).content.characters[0].aliases.length, 2);
 });
 
+test('adding an alias keeps a padded source alias object and does not relock its name', async () => {
+  const { service } = fixture();
+  const { script, run } = await prepared(service);
+  const candidate = facts(script);
+  candidate.characters[0].aliases[0].value = ' 小晚 ';
+  const plan = await service.createExtractFactsCandidate(run.id, candidate);
+  const character = plan.content.characters[0];
+  const revised = await service.createEntityEditCandidate(plan.id, {
+    expectedActivePlanRevisionId: null,
+    edits: [edit('character', character, { aliases: [' 小晚 ', '晚晚'] })],
+  });
+  assert.deepEqual(revised.content.characters[0].aliases[0], character.aliases[0]);
+  assert.equal(revised.content.characters[0].aliases[0].origin, 'source');
+  assert.equal(revised.content.characters[0].aliases[1].value, '晚晚');
+  assert.equal(revised.content.characters[0].aliases[1].origin, 'user');
+  assert.deepEqual(revised.content.characters[0].aliases[1].sourceRefs, character.sourceRefs);
+  assert.deepEqual(revised.content.characters[0].name, character.name);
+  assert.deepEqual(lockedFields(revised, character.id), ['aliases']);
+  assert.equal((await service.getPlanRevision(plan.id)).content.characters[0].aliases[0].value, ' 小晚 ');
+});
+
 test('entity proofreading does not normalize unchanged source names and aliases when only the description changes', async () => {
   const { service } = fixture();
   const { script, run } = await prepared(service);

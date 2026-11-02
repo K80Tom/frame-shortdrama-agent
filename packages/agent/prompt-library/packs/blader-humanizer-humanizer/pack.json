@@ -1,0 +1,18 @@
+{
+  "id": "blader-humanizer-humanizer",
+  "name": "humanizer",
+  "version": "synced",
+  "summary": "按维基百科「Signs of AI writing」清单去除 AI 写作痕迹",
+  "stages": [
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

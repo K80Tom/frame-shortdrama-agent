@@ -1,0 +1,20 @@
+{
+  "id": "vangong1999-screen-creative-skills-story-outline-evaluator",
+  "name": "story-outline-evaluator",
+  "version": "synced",
+  "summary": "影视策划与评估：小说/IP 评估、情节点拆解、人物小传与关系、大纲、小说改编短剧或长剧",
+  "stages": [
+    "adaptation",
+    "character",
+    "episode-outline"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

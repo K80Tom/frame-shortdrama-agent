@@ -545,6 +545,58 @@ test('frame-assessment directives drop, trim and speed up clips before the timel
   assert.equal(manifest.inputs.length, 2, 'dropped clip must not appear in the manifest inputs');
 });
 
+test('target fallback keeps assessment speed and trims the source so playback hits the target', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 12, width: 1080, height: 1920 }),
+    'clip-b': probe({ durationSeconds: 12, width: 1080, height: 1920 }),
+    edited: probe({ durationSeconds: 5, width: 1080, height: 1920 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  const calls = [];
+  const runner = { run: async (command, args) => {
+    if (args.includes('-filters')) return { stdout: Buffer.from(' Filters:\n TSC drawtext V->V Draw text.\n'), stderr: Buffer.alloc(0) };
+    calls.push([...args]);
+    await writeFile(args.at(-1), 'edited');
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner);
+  // 12s at 2x is already 6s, past the 5s target, so free-clip scaling cannot
+  // land the film. Uniform playback scale is 5/18: 1.667s + 3.333s, and both
+  // source trims are 3.333s. The speedup must survive that scale.
+  const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '目标时长',
+    edit: { transitionSeconds: 0, targetSeconds: 5, clipDirectives: [
+      { videoId: first.id, action: 'speedup', speedFactor: 2 },
+    ] } });
+  assert.ok(Math.abs(manifest.composition.expectedDurationSeconds - 5) < 0.01);
+  const flat = calls[0].join(' ');
+  assert.ok(flat.includes('[0:v:0]trim=duration=3.333,setpts=PTS/2,'), 'sped-up clip keeps its factor after the source trim');
+  assert.ok(flat.includes('[0:a:0]atrim=duration=3.333,atempo=2,'), 'sped-up audio stays in sync');
+  assert.ok(flat.includes('[1:v:0]trim=duration=3.333,setpts=PTS-STARTPTS,'), 'free clip is trimmed to the scaled playback');
+  assert.equal(flat.includes('[1:v:0]trim=duration=3.333,setpts=PTS/'), false);
+});
+
+test('target fallback refuses a scale that would leave an assessed clip under one second', async t => {
+  const f = await fixture(t, {
+    'clip-a': probe({ durationSeconds: 12, width: 1080, height: 1920 }),
+    'clip-b': probe({ durationSeconds: 40, width: 1080, height: 1920 }),
+  });
+  const first = await f.store.putVideoBuffer(Buffer.from('clip-a'));
+  const second = await f.store.putVideoBuffer(Buffer.from('clip-b'));
+  let rendered = 0;
+  const runner = { run: async (_command, args) => {
+    if (args.includes('-filters')) return { stdout: Buffer.from(''), stderr: Buffer.alloc(0) };
+    rendered++;
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } };
+  const composer = new TimelineComposer(f.store, runner);
+  await assert.rejects(composer.compose({ videoIds: [first.id, second.id], title: '过短',
+    edit: { transitionSeconds: 0, targetSeconds: 5, clipDirectives: [
+      { videoId: first.id, action: 'speedup', speedFactor: 2 },
+    ] } }), rejectsCode('TIMELINE_TARGET_TOO_SHORT'));
+  assert.equal(rendered, 0, 'an impossible target must not render a timeline that misses the plan');
+});
+
 test('composition blocks missing local video, remote URLs, mixed audio and invalid outputs', async t => {
   const f = await fixture(t, {
     voiced: probe({ durationSeconds: 1 }), silent: probe({ durationSeconds: 1, hasAudio: false, audioCodec: null }),

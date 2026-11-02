@@ -1,0 +1,19 @@
+{
+  "id": "smixs-visual-skills-video",
+  "name": "video",
+  "version": "synced",
+  "summary": "AI 电影导演：Murch 剪辑、走位、蒙太奇等戏剧法则 + Seedance 精确提示词语法",
+  "stages": [
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "CC-BY-4.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

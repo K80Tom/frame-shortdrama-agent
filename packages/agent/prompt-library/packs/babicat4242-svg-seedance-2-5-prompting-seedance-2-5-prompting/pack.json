@@ -1,0 +1,18 @@
+{
+  "id": "babicat4242-svg-seedance-2-5-prompting-seedance-2-5-prompting",
+  "name": "seedance-2-5-prompting",
+  "version": "synced",
+  "summary": "Seedance 2.5 提示词：参考素材角色绑定、30 种运镜定义与冲突规则、R2V/白模、局部编辑与延长、多轮修改流程",
+  "stages": [
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

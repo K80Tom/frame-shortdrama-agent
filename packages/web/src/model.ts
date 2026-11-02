@@ -3,7 +3,7 @@ import reference from '../../main/examples/斗破苍穹-数据结构-v0.1.json';
 export const originalScript = reference.scriptVersions[0].rawText;
 export const plan = reference.planRevisions[0];
 export const sampleImage = '/assets/duel.png';
-export type Page = 'studio' | 'projects' | 'plugins' | 'automation' | 'evolution' | 'production' | 'novel' | 'script' | 'storyboard' | 'assets' | 'director' | 'flow' | 'settings';
+export type Page = 'studio' | 'projects' | 'plugins' | 'automation' | 'evolution' | 'production' | 'novel' | 'script' | 'storyboard' | 'assets' | 'director' | 'flow' | 'settings' | 'methods';
 export type ShotDraft = {
   id: string; title: string; description: string; size: string;
   camera: string; seconds: number; dialogue: string; speaker: string;

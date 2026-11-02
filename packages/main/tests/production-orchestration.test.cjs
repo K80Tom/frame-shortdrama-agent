@@ -830,3 +830,147 @@ test('reconcileOperation refuses operations that are not in an unknown state', a
   await assert.rejects(service.action(created.id, { type: 'reconcileOperation', taskId: task.id, reason: '无需对账' }),
     error => error.code === 'PRODUCTION_TASK_NOT_RECONCILABLE' || error.code === 'PRODUCTION_OPERATION_NOT_FOUND');
 });
+
+test('reconcileOperations queries every unknown external operation and does not submit again', async () => {
+  const queried = [];
+  let executions = 0;
+  const paid = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-batch-reconcile/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { executions++;
+      return { state: 'waitingHuman', operationUnknown: true,
+        issue: { code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '同步接口无任务号。', severity: 'error' } }; },
+    async reconcile(_context, operation) { queried.push(operation.providerTaskId);
+      return { state: 'succeeded', actualCostMicros: 0 }; },
+  };
+  const { repo, service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'batch-reconcile-unknown' }));
+  const before = await service.action(created.id, { type: 'reconcileOperations', reason: '尚无未知操作' });
+  assert.equal(executions, 0);
+  assert.equal(before.tasks.find(item => item.stage === 'prepare').status, 'ready');
+  assert.equal(before.tasks.find(item => item.stage === 'breakdown').status, 'pending');
+  assert.equal(before.outbox.some(event => event.type === 'production.run.operations_reconciled'), false);
+  await service.tick(created.id); await service.tick(created.id);
+  const stored = await repo.get(created.id);
+  const task = stored.tasks.find(item => item.stage === 'breakdown');
+  const operation = stored.externalOperations.find(item => item.taskId === task.id);
+  const attempt = stored.attempts.find(item => item.id === operation.attemptId);
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(operation.status, 'unknown');
+  assert.equal(operation.providerTaskId, null);
+  const copyTask = { ...structuredClone(task), id: 'ptask_batchreconcile0000000000000001', label: '第二项未知操作' };
+  const copyAttempt = { ...structuredClone(attempt), id: 'pattempt_batchreconcile00000000000001', taskId: copyTask.id };
+  const copyOperation = { ...structuredClone(operation), id: 'pop_batchreconcile000000000000000001',
+    taskId: copyTask.id, attemptId: copyAttempt.id, providerTaskId: 'provider_batch_2', estimatedCostMicros: 0 };
+  stored.tasks.push(copyTask); stored.attempts.push(copyAttempt); stored.externalOperations.push(copyOperation);
+  await repo.replace(stored, stored.version);
+  let run = await service.action(created.id, { type: 'reconcileOperations', reason: '一次对账两项未知操作' });
+  assert.equal(executions, 1);
+  assert.deepEqual(queried, ['provider_batch_2']);
+  assert.equal(run.externalOperations.find(item => item.id === operation.id).status, 'unknown');
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'waitingHuman');
+  assert.equal(run.externalOperations.find(item => item.id === copyOperation.id).status, 'succeeded');
+  assert.equal(run.tasks.find(item => item.id === copyTask.id).status, 'succeeded');
+  assert.equal(run.summary.budget.spentMicros, 0);
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  const event = run.outbox.find(item => item.type === 'production.run.operations_reconciled');
+  assert.equal(event.payload.reason, '一次对账两项未知操作');
+  assert.deepEqual(event.payload.results.map(item => item.taskId), [copyTask.id, task.id].sort((left, right) => left.localeCompare(right)));
+  const statusByTask = Object.fromEntries(event.payload.results.map(item => [item.taskId, item.operationStatus]));
+  assert.equal(statusByTask[copyTask.id], 'succeeded');
+  assert.equal(statusByTask[task.id], 'unknown');
+  const version = run.version;
+  run = await service.action(created.id, { type: 'reconcileOperations', reason: '没有新的未知操作' });
+  assert.equal(executions, 1);
+  assert.deepEqual(queried, ['provider_batch_2']);
+  assert.equal(run.version, version);
+  assert.equal(run.outbox.filter(item => item.type === 'production.run.operations_reconciled').length, 1);
+});
+
+test('a thrown local attempt releases its reservation so a retry is not blocked by its own hold', async () => {
+  let calls = 0;
+  const local = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-local-throw/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: false, provider: null }; },
+    async execute() { calls++; if (calls === 1) throw new Error('local executor crashed after reserve');
+      return { state: 'succeeded', actualCostMicros: 0 }; },
+  };
+  const { service } = await make({ executors: [local] });
+  const created = await service.create(input({ budgetMicros: 100, clientRequestId: 'local-throw-releases-reserve' }));
+  await service.tick(created.id); await service.tick(created.id);
+  let run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'failed');
+  assert.equal(task.blockingReason.code, 'EXECUTOR_FAILED');
+  assert.equal(run.externalOperations.length, 0);
+  assert.equal(run.summary.budget.reservedMicros, 0);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  assert.equal(calls, 1);
+  run = await service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '本地失败后重试' });
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'ready');
+  await service.tick(run.id);
+  run = await service.get(created.id);
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'succeeded');
+  assert.equal(calls, 2);
+  assert.equal(run.summary.budget.reservedMicros, 0);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  assert.equal(run.tasks.find(item => item.id === task.id).blockingReason?.code, undefined);
+});
+
+test('a thrown paid attempt keeps its reservation and does not open a second submission', async () => {
+  const paid = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-paid-throw/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { throw new Error('provider response lost'); },
+  };
+  const { service } = await make({ executors: [paid] });
+  const created = await service.create(input({ budgetMicros: 100, clientRequestId: 'paid-throw-keeps-reserve' }));
+  await service.tick(created.id); await service.tick(created.id);
+  const run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'reconciling');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: '不能直接重提' }),
+    error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
+});
+
+test('restart releases a local running reservation and keeps an external one', async () => {
+  const { repo, service } = await make();
+  const created = await service.create(input({ budgetMicros: 200, clientRequestId: 'restart-local-reserve' }));
+  await service.tick(created.id);
+  const stored = await repo.get(created.id);
+  const breakdown = stored.tasks.find(item => item.stage === 'breakdown');
+  const assets = stored.tasks.find(item => item.stage === 'assets');
+  const at = stored.updatedAt;
+  breakdown.status = 'running'; breakdown.attemptCount = 1;
+  assets.status = 'running'; assets.attemptCount = 1;
+  stored.attempts.push(
+    { id: 'pattempt_local_hold', runId: stored.id, taskId: breakdown.id, number: 1, status: 'running',
+      executor: 'test-local/1', inputDigest: breakdown.inputManifest[0].digest, error: null, startedAt: at, endedAt: null },
+    { id: 'pattempt_paid_hold', runId: stored.id, taskId: assets.id, number: 1, status: 'running',
+      executor: 'test-paid/1', inputDigest: assets.inputManifest[0].digest, error: null, startedAt: at, endedAt: null },
+  );
+  stored.externalOperations.push({ id: 'pop_paid_hold', runId: stored.id, taskId: assets.id, attemptId: 'pattempt_paid_hold',
+    operationKey: 'op_paid_hold', provider: 'offline-test', providerTaskId: 'provider_hold', status: 'submitted',
+    estimatedCostMicros: 80, actualCostMicros: null, createdAt: at, updatedAt: at });
+  stored.budgetLedger.push(
+    { id: 'pbudget_local', runId: stored.id, taskId: breakdown.id, attemptId: 'pattempt_local_hold',
+      kind: 'reserve', amountMicros: 40, currency: 'CNY', note: '执行前预留', createdAt: at },
+    { id: 'pbudget_paid', runId: stored.id, taskId: assets.id, attemptId: 'pattempt_paid_hold',
+      kind: 'reserve', amountMicros: 80, currency: 'CNY', note: '执行前预留', createdAt: at },
+  );
+  await repo.replace(stored, stored.version);
+  const restarted = new ProductionService(repo, { pollIntervalMs: 60_000, executors: [] });
+  await restarted.start(); restarted.stop();
+  const run = await restarted.get(created.id);
+  assert.equal(run.tasks.find(item => item.id === breakdown.id).status, 'waitingHuman');
+  assert.equal(run.tasks.find(item => item.id === breakdown.id).blockingReason.code, 'TASK_EXECUTION_INTERRUPTED');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.summary.budget.reservedMicros, 80);
+  assert.equal(run.summary.budget.spentMicros, 0);
+});

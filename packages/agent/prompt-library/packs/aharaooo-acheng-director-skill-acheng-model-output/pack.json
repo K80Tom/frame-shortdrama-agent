@@ -1,0 +1,23 @@
+{
+  "id": "aharaooo-acheng-director-skill-acheng-model-output",
+  "name": "acheng-model-output",
+  "version": "synced",
+  "summary": "Acheng 导演引擎：剧本、分镜、文戏五轨表演、打戏因果链、特效与资产，编译成 MiniMax H3 / Seedance 提示词",
+  "stages": [
+    "character",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "minimax",
+    "seedance"
+  ],
+  "license": "Apache-2.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

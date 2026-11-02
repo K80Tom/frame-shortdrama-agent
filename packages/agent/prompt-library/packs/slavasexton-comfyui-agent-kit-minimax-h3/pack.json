@@ -1,0 +1,21 @@
+{
+  "id": "slavasexton-comfyui-agent-kit-minimax-h3",
+  "name": "minimax-h3",
+  "version": "synced",
+  "summary": "驱动本地 ComfyUI 出图出视频，附 Seedance、MiniMax H3 视频提示词 skill：多镜头分镜、参考素材标注、翻车排查",
+  "stages": [
+    "production",
+    "video-prompt"
+  ],
+  "models": [
+    "comfyui",
+    "seedance",
+    "minimax"
+  ],
+  "license": "Apache-2.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

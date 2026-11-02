@@ -171,7 +171,7 @@ test('dialogue editor renders verbatim read-only text, classification, attributi
   assert.match(html, /我已对照原文确认此项/);
 });
 
-test('historical editor has no writable evidence controls and the import page makes the no-adaptation boundary explicit', async () => {
+test('historical editor has no writable evidence controls and the import page explains screenplay handoff', async () => {
   const { ItemEditor, default: NovelBreakdown } = await server.ssrLoadModule('/src/NovelBreakdown.tsx');
   const html = renderToStaticMarkup(createElement(ItemEditor, {
     item: person, source, chapter, items: [person], selection: null, disabled: true,
@@ -182,6 +182,6 @@ test('historical editor has no writable evidence controls and the import page ma
   assert.match(html, /定位原文/);
   const page = renderToStaticMarkup(createElement(NovelBreakdown));
   assert.match(page, /小说逐章拆解/);
-  assert.match(page, /不改编剧本/);
+  assert.match(page, /整理成剧本后即可进入自动制片/);
   assert.match(page, /没有预置或凭空补写的小说正文/);
 });

@@ -125,11 +125,11 @@ export function getChapter(source: NovelSource, chapterId: string): NovelChapter
   return chapter;
 }
 
-function assertChapter(source: NovelSource, chapter: NovelChapter): void {
+function assertChapter(source: NovelSource, chapter: NovelChapter, sourceLength = Array.from(source.rawText).length): void {
   const stored = getChapter(source, chapter.id);
   if (chapter.documentId !== source.id || stored.start !== chapter.start || stored.end !== chapter.end
     || !Number.isSafeInteger(chapter.start) || !Number.isSafeInteger(chapter.end)
-    || chapter.start < 0 || chapter.end <= chapter.start || chapter.end > Array.from(source.rawText).length) {
+    || chapter.start < 0 || chapter.end <= chapter.start || chapter.end > sourceLength) {
     fail('INVALID_CHAPTER', '章节与固定原文不匹配。');
   }
 }
@@ -191,10 +191,19 @@ export function createReviewSeed(source: NovelSource, chapter: NovelChapter): No
 }
 
 export function validateNovelContent(content: unknown, source: NovelSource, chapter: NovelChapter): asserts content is NovelContent {
-  assertChapter(source, chapter);
+  validateChapterContent(content, source, chapter, Array.from(source.rawText));
+}
+
+/** Batch reads of an entire book reuse its code-point index for evidence checks. */
+export function novelContentValidatorForBook(source: NovelSource) {
+  const points = Array.from(source.rawText);
+  return (content: unknown, chapter: NovelChapter) => validateChapterContent(content, source, chapter, points);
+}
+
+function validateChapterContent(content: unknown, source: NovelSource, chapter: NovelChapter, points: string[]): void {
+  assertChapter(source, chapter, points.length);
   if (!validateContent(content)) fail('INVALID_NOVEL_CONTENT', '小说拆解结构不符合约定。', validateContent.errors?.[0]?.instancePath);
   const parsed = content as NovelContent;
-  const points = Array.from(source.rawText);
   const ids = new Set<string>();
   const characters = new Set(parsed.items.filter(item => item.kind === 'character').map(item => item.id));
   parsed.items.forEach((item, index) => {

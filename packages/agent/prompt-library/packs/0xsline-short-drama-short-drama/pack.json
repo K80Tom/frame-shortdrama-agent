@@ -1,0 +1,21 @@
+{
+  "id": "0xsline-short-drama-short-drama",
+  "name": "short-drama",
+  "version": "synced",
+  "summary": "短剧编剧全流程：选题立项、故事骨架、四层反派人物、带钩子和付费卡点的分集目录、逐集剧本、五维评分自检和合规审核，可切出海英文格式",
+  "stages": [
+    "character",
+    "episode-outline",
+    "script",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

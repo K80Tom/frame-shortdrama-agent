@@ -1,0 +1,286 @@
+---
+name: story-video-director
+description: Turn any story, article, script, synopsis, anecdote, advertisement concept, poem, or one-line video idea into a director-led AI video production package and, when explicitly requested, render and assemble the video through a configured image-to-video API. Use when Codex should determine runtime, split the narrative into clips no longer than 15 seconds, design characters and locations, generate assets, create Chinese audiovisual prompts with inline filename references, prepare manifests, submit MiniMax-H3 image-to-video jobs through Metaso, download clips, or merge them into a verified final video. Also use for adapting supplied manga/comic pages into acted animation, AI storyboards, Seedance 2.0/2.5 planning, reference-driven video production, and story-to-video workflows.
+---
+
+# Story Video Director
+
+Convert raw narrative intent into a complete, executable video project. Act as director, screenwriter, storyboard artist, cinematographer, casting designer, sound designer, image-generation supervisor, and production coordinator.
+
+## Input scope and adaptation modes
+
+This is a video-production skill, not a restriction on general copywriting. Articles, poems, advertisements, essays and original stories retain their chosen tone, cultural setting and narrative form. Pure writing requests do not require assets, API manifests, voice samples or video QA.
+
+Choose the mode from the user's intent:
+
+- **Original text/story to video:** adapt freely within the requested meaning and style; narration, dialogue, montage and abstract imagery are all available.
+- **Existing screenplay to video:** preserve its speaker assignments and scene logic; propose changes only where adaptation needs them.
+- **Supplied manga/comic to animation:** follow [references/source-performance-and-revision-qa.md](references/source-performance-and-revision-qa.md) for reading order, panel traceability, character/era variants and visible versus offscreen speakers. Preserve the source's cultural setting and core causality. A requested acted animation uses character performance; narrator-led comic videos remain available when requested.
+
+Right-to-left reading, Japanese settings, stylized 3D, a silent warehouse listener and any specific ending are project choices, never universal defaults. Voice-anchor, long-film assembly and archive procedures apply only when their respective production needs arise. Clip-duration limits concern generated video units, not prose length or total film runtime.
+
+## Operating mode
+
+Default to **automatic director mode**:
+
+- Infer reasonable creative choices from the story.
+- Do not force a long intake questionnaire.
+- Ask only when a missing choice would materially change the project or create meaningful risk.
+- Generate the full package without waiting for confirmation between ordinary phases.
+
+Use **review-gated mode** when the user requests approvals, the project is commercially sensitive, identity matching is strict, or image/video generation costs are substantial. External video API submission is always a paid/external-state gate: finish and validate the production package first, then submit only when the user explicitly asks for video generation and the required credential is configured.
+
+## Required workflow
+
+### 1. Resolve the input
+
+Accept prose, scripts, notes, images, reference media, URLs, or a one-line idea. Preserve the narrative heart while converting invisible thoughts into visible behavior.
+
+Identify:
+
+- central event and emotional destination;
+- genre and tonal register;
+- characters, locations, props, transformations, and continuity risks;
+- spoken content, action complexity, and scene changes;
+- supplied reference files and their intended roles.
+
+For acted narrative, read [references/performance-to-prompt.md](references/performance-to-prompt.md) and [references/dialogue-and-screenplay-continuity.md](references/dialogue-and-screenplay-continuity.md) before assigning clip boundaries. Write a scene card and beat sheet first: each named actor needs a present objective, an obstacle, a playable tactic, a trigger for the next response, and a changed end state. For grief or comedy, preserve the listener's reaction and the time it takes; emotional adjectives alone are not a performance plan.
+
+For detailed directing heuristics, read [references/directing-and-runtime.md](references/directing-and-runtime.md).
+
+For scenes involving fragile prop manipulation, repeated consumables, ignition, breakage or persistent debris, read [references/prop-action-continuity.md](references/prop-action-continuity.md). Write the physical action chain and `prop-state-ledger.json` before choosing clip boundaries; explain acquisition, anatomical hand, support/contact, transfer, state change and destination.
+
+### 2. Determine runtime before writing prompts
+
+Calculate the best total runtime from information density, dialogue time, action readability, emotional holds, and transitions. Do not force every story into 15 seconds.
+
+Write the causal scene sequence first, then split it into generation units. A generation boundary is not automatically a scene ending. Enforce:
+
+- every clip is 15 seconds or shorter;
+- one principal event per clip;
+- 2–5 timed beats per clip;
+- an explicit opening state and final state;
+- dialogue and narration that fit naturally within the clip.
+
+For each scene, keep a complete screenplay and performance sheet as the source for the shorter clips. Record who is physically present, what each knows, exact speech, who listens, body and prop actions, timing, coverage and the state passed to the next clip. In a three-clip run, inspect setup → changed tactic → consequence as one dramatic unit; the middle clip must inherit and advance the action.
+
+Report total runtime and `mm:ss` form. Distinguish generated duration from edited runtime when trimming or overlapping footage.
+
+### 2a. Design every boundary before generating assets
+
+For any multi-clip project, read [references/continuity-and-edit-design.md](references/continuity-and-edit-design.md). Create `02-continuity-plan.md` with one handoff per adjacent clip pair. Decide why the audience should see the next shot, what action or question carries across, what state must persist, and which visual/audio edit achieves it.
+
+Choose actual-frame continuation only for compatible continuous action and camera geometry. Use motivated coverage, reaction, detail inserts, sound bridges, or an explicit time/location transition when those serve the story better. Do not force all clips into a simulated long take. Copy each handoff's relevant opening and outgoing instructions into the two consuming prompts.
+
+Resolve narrative contradictions before polishing frames; an identical boundary image cannot repair a missing cause, repeated action, or unexplained time jump.
+
+### 3. Create the director treatment
+
+Define the visual language before generating assets:
+
+- period, location, weather, time, color palette, texture, and lighting direction;
+- cinematic register and camera grammar;
+- acting style and emotional progression;
+- sound world, dialogue language, music policy, and subtitle policy;
+- continuity anchors for each recurring character, creature, costume, prop, and location.
+
+### 4. Plan the reference budget
+
+Choose Seedance 2.0 or 2.5 from the user's request. If unspecified, use conservative Seedance 2.0 assumptions.
+
+For every clip, plan only references that materially help. Prioritize:
+
+1. core character identity;
+2. essential creature, product, or prop;
+3. location continuity;
+4. storyboard or key action frame;
+5. optional style reference.
+
+Read [references/seedance-reference-rules.md](references/seedance-reference-rules.md) before assigning files or writing reference maps.
+
+### 5. Generate the visual bible and assets
+
+Use the built-in image-generation capability for real raster assets when available. Follow the imagegen skill's save and validation rules. When the user selects an existing compatible image API or local gateway, inspect its documented model list and interface, then use the authorized route without repeating the same provider-choice question. Read [references/image-backends-and-art-direction.md](references/image-backends-and-art-direction.md) for gateway configuration, secret handling and style changes. Do not stop at image prompts when the user asked for a complete project.
+
+Preserve the user's chosen medium across the visual bible, character sheets, locations, keyframes and video prompts. For 3D animation, define model proportions and stylized materials instead of silently retaining photorealistic casting defaults.
+
+Generate only what the production needs:
+
+- identity anchors for recurring characters; default to a four-view identity sheet containing front full body, strict side full body, back full body, and a close-up portrait when identity continuity matters;
+- creature or transformation states;
+- reusable location plates;
+- critical props;
+- opening, action, transition, and final-frame images;
+- storyboard sheets only when they improve shot-order control.
+
+Save every selected final asset into the project directory with stable ASCII filenames. Inspect important outputs and regenerate a single failed property when identity, costume, anatomy, composition, or continuity is wrong.
+
+Read [references/asset-generation.md](references/asset-generation.md) before creating or referencing image assets. Read [references/character-identity-sheets.md](references/character-identity-sheets.md) before generating recurring human, creature, or transformed-character identity anchors.
+
+For fragile actions and critical handoffs, create `keyframe-plan.md` and generate individual contact checkpoints plus outgoing/incoming compositions as needed, rather than only one opening image per clip. Validate all images against the prop ledger. Bind every action image to a temporal role; multimodal references do not guarantee keyframe interpolation. Stage critical downstream clips until the upstream rendered action/state is accepted. Follow [references/prop-action-continuity.md](references/prop-action-continuity.md).
+
+### 6. Bind every reference explicitly
+
+Every clip prompt must contain its references inside the copyable prompt block. Use the user-facing format:
+
+```text
+角色名或素材用途@filename.png
+```
+
+Then state what to inherit and what to exclude. Example:
+
+```text
+小王角色参考@xiaowang.png：只提取面孔、短发和红色外套；
+不要使用灰色背景、分栏结构或设定图排版。
+```
+
+Name characters in timed beats. Do not write only `@image2 walks`; write the character name plus one visible identity marker.
+
+### 7. Write one Chinese audiovisual prompt per clip
+
+Keep generation parameters outside the model prompt. Present duration, aspect ratio, frame rate, model, and reference counts as settings.
+
+Inside each prompt, include:
+
+1. clip intent and register;
+2. labeled reference map with exclusions;
+3. subject, setting, visual style, and camera grammar;
+4. timestamped beats with visible action, camera motion, screen direction, and sound;
+5. dialogue language and delivery when dialogue exists;
+6. ambience, effects, music policy, and subtitle policy;
+7. explicit final state, including motion phase and the outgoing handoff;
+8. negative prompt.
+
+For every spoken line, choose the production path before prompting: controlled one-speaker generated sync, a verified post-recorded/lip-sync pass, or sound-led coverage over a relevant non-speaking image. Record the choice in the dialogue ledger/performance sheet. A prompt instruction to synchronize lips is not evidence that the rendered mouth matches the words. When a close speaking face is essential, give the line its own readable time range and inspect the result before locking adjacent dialogue shots.
+
+Use `{dialogue}`, `<sound effect>`, `(music)`, and `【subtitle】` when clarity benefits. Default to no generated subtitles and no on-screen title; add typography in post.
+
+Read [references/chinese-video-prompt-template.md](references/chinese-video-prompt-template.md) before writing final prompts.
+
+### 8. Produce the delivery package
+
+Create a project directory containing:
+
+```text
+project-name/
+├── assets/
+│   ├── characters/
+│   ├── locations/
+│   ├── props/
+│   └── shots/
+├── prompts/
+│   ├── clip-01.md
+│   └── ...
+├── 00-director-brief.md
+├── 01-production-timeline.md
+├── 02-continuity-plan.md  # required for multiple clips
+├── project-manifest.json
+└── api-jobs.json
+```
+
+Omit empty asset subdirectories. Every prompt file must contain exactly one ready-to-copy fenced prompt block. `api-jobs.json` should preserve clip order, settings, reference paths, prompt paths, and dependencies so a later provider adapter can submit jobs automatically.
+
+Read [references/delivery-contract.md](references/delivery-contract.md) for the manifest schema and delivery details.
+
+### 9. Optionally render through MiniMax-H3
+
+When the user explicitly asks for finished video generation, prefer the Metaso MiniMax-H3 image-to-video endpoint documented at [metaso.cn/minimax-h3](https://metaso.cn/minimax-h3).
+
+Before submitting any paid job:
+
+1. finish and validate all assets, prompts, `project-manifest.json`, and `api-jobs.json`;
+2. select a supported input mode per job using the provider reference; for image-to-video create a standalone opening frame combining identity, location, lighting, costume, and composition;
+3. keep frame conditioning and multimodal reference modes separate; ensure actual uploaded roles match the selected mode and the boundary plan;
+4. state clip count, total generated duration, resolution and estimated provider credits before submission, distinguishing estimates from actual billing; honor the user’s configured preview resolution rather than inheriting 2K examples, and ask them to configure `METASO_API_KEY` locally if it is absent;
+5. never request that the user paste a key into project files, never write the key to disk, and never include it in logs, manifests, commands shown in the final response, or Git history;
+6. submit, poll, download, normalize, concatenate, and verify with `scripts/metaso_h3_video.py`.
+
+If `METASO_API_KEY` is missing, direct the user to [metaso.cn/minimax-h3](https://metaso.cn/minimax-h3) and explain exactly what value is needed: from an API example such as `Authorization: Bearer mk-xxxxx`, the credential is only the token after `Bearer`, such as `mk-xxxxx`; do not include `Authorization:`, `Bearer`, quotes, or surrounding curl syntax. Prefer hidden terminal input into the environment variable. If the user chooses to provide the token in chat, ask for the token only, never echo it back, use it only for the explicitly authorized run, never persist it, and recommend rotation if it has been exposed anywhere public.
+
+If the user wants another video provider, ask them to paste or link its relevant API documentation rather than guessing the integration. Request the submission endpoint and method, authentication format, request body, image upload or URL rules, duration and resolution limits, asynchronous task query endpoint, success/failure response examples, and result download field. Tell them to redact live credentials from documentation samples. Adapt the provider only after these details are known; keep the same paid-action gate and secret-handling rules.
+
+For multiple clips, follow the chosen boundary strategy. A planned end frame is a design target, not evidence of the rendered ending. For actual-frame continuation, inspect the upstream rendered boundary before committing dependent paid work; follow the staged execution and renderer limitations in the continuity guide. Each submitted clip remains 15 seconds or shorter. Read [references/metaso-minimax-h3.md](references/metaso-minimax-h3.md) before preparing or executing jobs.
+
+### 10. Validate before delivery
+
+Run:
+
+```bash
+python scripts/validate_project.py /absolute/path/to/project
+```
+
+Fix every error. Treat warnings as reasons to inspect the affected prompt or asset.
+
+For prop-dependent scenes, audit the actual complete acquisition/contact/transfer/break/discard actions and debris continuity against the ledger. Duplicate props, unplanned ignition, source-less acquisitions and unexplained relocations are action/state failures; repair or explicitly label the affected output as a failed trial. Do not declare completion from an attractive contact sheet.
+
+Also visually inspect at least:
+
+- every recurring-character identity anchor;
+- every creature or transformation sheet;
+- the first, most complex, and final shot image;
+- any image that controls a dangerous, magical, or anatomy-sensitive action.
+
+For multi-clip work, review every handoff in `02-continuity-plan.md`; structural validation alone cannot establish natural continuity. If video rendering was requested, watch each boundary with 1–2 seconds of moving footage on both sides at normal speed with sound, then inspect frames as needed. Additionally inspect the first frame, every clip boundary, the most complex action, the final frame, audio continuity, exact output duration, resolution, frame rate, and codec metadata.
+
+For acted scenes, review the whole scene without reading prompts, then audit the trigger, performer action, listener reaction, emotional carryover, and comic or tragic timing. Audit each utterance against the dialogue ledger for exact words, correct voice/face, visible mouth timing, listener mouth state and cut position. If lip sync or identity fails, classify and repair the affected clip or edit; do not certify it from prompt text.
+
+### 11. Deliver for humans and APIs
+
+Lead with the result:
+
+- total duration and clip count;
+- maximum clip duration and maximum references per clip;
+- representative inline images;
+- clickable links to director brief, timeline, prompts, manifest, and project folder;
+- note any intentional originalization or safety adaptation.
+
+Do not make the user reconstruct references or combine separate sound and picture prompts. The copyable prompt is the operational unit.
+
+## Publishing a worked example
+
+When the user asks to publish a project, read [references/public-showcase.md](references/public-showcase.md). Export a separate portable public copy, keep evidence and QA limitations accurate, and scan the exact Git/Release artifacts for credentials and private paths. Publishing permission does not authorize a new paid rendering run.
+
+## Hard invariants
+
+- Never create a clip longer than 15 seconds.
+- Never reference a file that does not exist.
+- Never leave generated project assets only in an internal generation location.
+- Never place required references only outside the copyable prompt block.
+- Never give a reference without a job and exclusion rule.
+- Never overload spoken audio; spoken Chinese should normally stay at or below roughly 4–4.5 characters per second, including pauses.
+- Never treat a storyboard sheet as finished-film visual style.
+- Never allow a multi-panel character sheet background or grid to become the scene.
+- Never use a recurring-character sheet without explicitly excluding its studio background, multi-view layout, panel seams, and neutral reference pose in every consuming video prompt.
+- Never omit an explicit final frame; describe continuing velocity when appropriate instead of forcing a pose or stop.
+- Never use identical end/start frames as proof of narrative, motion, or audio continuity.
+- Never claim automatic concatenation implements planned J/L cuts, overlap trims, or a master audio mix.
+- Never invent on-screen text unless the user requested it.
+- Never claim an image or video was generated unless the artifact exists.
+- Never describe acting, identity continuity, or lip sync as verified solely from a screenplay, reference image, prompt, or still frame.
+- Never submit a paid video job without an explicit user request to generate video.
+- Never store or print `METASO_API_KEY`, bearer tokens, or provider credentials.
+- Never ask for a full authenticated curl command when only the token or redacted API documentation is needed.
+- Never pretend that identity sheets or other images were uploaded to MiniMax-H3 when only the declared `first_frame` was sent.
+- Never silently replace a failed provider-generated clip with an edited, duplicated, or still-image-derived segment; disclose and obtain user agreement for a fallback.
+
+## Resource map
+
+- [references/prop-action-continuity.md](references/prop-action-continuity.md): physical screenplay, prop-state ledger, extra contact/action frames, illustrated handoffs, staged acceptance and matchstick regression case.
+
+- [references/continuity-and-edit-design.md](references/continuity-and-edit-design.md): mandatory multi-clip boundary planning, motivated cuts, actual-frame handoffs, audio bridges, staged rendering, and moving-boundary QA.
+- [references/performance-to-prompt.md](references/performance-to-prompt.md): scene cards, playable actor tasks, grief/comedy timing, three-clip runs, dialogue production paths, and rendered performance QA.
+- [references/dialogue-and-screenplay-continuity.md](references/dialogue-and-screenplay-continuity.md): exact dialogue ledger, speaker ownership, and speech QA.
+
+- [references/directing-and-runtime.md](references/directing-and-runtime.md): runtime math, dramatic beats, clip splitting, camera choices.
+- [references/seedance-reference-rules.md](references/seedance-reference-rules.md): 2.0/2.5 budgets, upload order, reference roles, exclusions.
+- [references/asset-generation.md](references/asset-generation.md): image asset strategy, filenames, identity and continuity QA.
+- [references/character-identity-sheets.md](references/character-identity-sheets.md): four-view character identity sheets, detailed ImageGen prompt structure, consistency rules, and reference exclusions.
+- [references/chinese-video-prompt-template.md](references/chinese-video-prompt-template.md): copy-ready Chinese prompt structure and audio syntax.
+- [references/delivery-contract.md](references/delivery-contract.md): project structure, manifest, API job schema, final QA.
+- [references/metaso-minimax-h3.md](references/metaso-minimax-h3.md): credential safety, first-frame preparation, Metaso MiniMax-H3 execution, polling, downloads, multi-clip assembly, and failure handling.
+- `scripts/validate_project.py`: deterministic delivery validator.
+- `scripts/metaso_h3_video.py`: credential-safe MiniMax-H3 project renderer and FFmpeg assembler.
+
+## Source adaptation and revision-heavy films
+
+For manga/source interpretation, recurring voice repairs, long-film clock drift, or a requested local production archive, read [references/source-performance-and-revision-qa.md](references/source-performance-and-revision-qa.md). Trace source panels to speaker/location/era, reuse accepted performance audio when supported, verify repairs in the final edit, and record explicit whole-film acceptance against its version.

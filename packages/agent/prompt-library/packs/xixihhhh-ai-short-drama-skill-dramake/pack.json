@@ -1,0 +1,25 @@
+{
+  "id": "xixihhhh-ai-short-drama-skill-dramake",
+  "name": "dramake",
+  "version": "synced",
+  "summary": "Dramake：文字转 AI 短剧，串起剧本、分镜、配音、剪辑与质检，适配抖音/红果和横竖屏，自带 evals",
+  "stages": [
+    "adaptation",
+    "production",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "wan",
+    "seedance",
+    "minimax"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

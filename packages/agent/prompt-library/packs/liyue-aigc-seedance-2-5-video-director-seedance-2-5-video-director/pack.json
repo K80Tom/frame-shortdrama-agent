@@ -1,0 +1,20 @@
+{
+  "id": "liyue-aigc-seedance-2-5-video-director-seedance-2-5-video-director",
+  "name": "seedance-2-5-video-director",
+  "version": "synced",
+  "summary": "Seedance 2.5 视频导演：提示词、脚本、诊断、人物锁定、续写、编辑、转场",
+  "stages": [
+    "script",
+    "script-review",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

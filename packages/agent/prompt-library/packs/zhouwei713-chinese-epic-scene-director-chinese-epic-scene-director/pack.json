@@ -1,0 +1,21 @@
+{
+  "id": "zhouwei713-chinese-epic-scene-director-chinese-epic-scene-director",
+  "name": "chinese-epic-scene-director",
+  "version": "synced",
+  "summary": "中国式宏大场景：把一句设定扩写成仙侠/神话短片故事，建连续性台账，按镜头成对输出图片和视频提示词",
+  "stages": [
+    "character",
+    "script",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

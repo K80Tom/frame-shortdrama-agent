@@ -21,7 +21,15 @@ packages/
 4. **付费纪律**：任何付费动作都必须"估价/计划 → 人工确认 → 提交"。`cli` 的 `run create` 只生成计划，`run submit` 才提交；AI 工作区只允许生成估价确认卡，建卡不扣费。
 5. 公共契约（请求/响应、错误、事件、领域类型）放在 `shared`；新增跨包类型优先进 `shared`，不要在包间互相引用内部实现。
 
-## 3. 常用命令
+## 3. 协作与分支纪律
+
+- 采用 Trunk-Based 开发：`main` 始终保持可构建、可发布；功能与修复从最新 `origin/main` 创建短分支，每个 PR 聚焦一件事，避免长期分支和大范围混杂改动。
+- **Worktree 开发隔离**：任何功能或修复都必须从最新 `origin/main` 创建独立短分支和专属 worktree（`git worktree add ../lyra-<topic> -b feat/<topic> origin/main`），一个 worktree 只开发一件事；不得在主工作区或其他任务的 worktree 中开发、暂存或提交。各 worktree 独立安装依赖、构建和测试并错开服务端口；数据库迁移只在约定环境执行。验证后通过 PR 合回 `main`，合并完成后移除对应 worktree 与已合并分支。
+- 日常功能开发不直接推送或强制推送 `main`；维护性推送必须获得明确授权。PR 至少由另一名开发者审核，合并前通过完整构建与测试。
+- 按模块设置负责人；共享契约、数据库迁移、付费链路和跨包改动必须由对应负责人评审。团队使用 `CODEOWNERS` 落实审核责任，但不借审批流程替代实际验证。
+- `shared` 契约变更先说明兼容性与影响范围，再修改调用方；旧数据回退、迁移与回滚路径必须明确。人数增长时优先加强模块负责与自动化，不引入无实际需要的长期分支。
+
+## 4. 常用命令
 
 在仓库根目录：
 
@@ -44,7 +52,7 @@ npm --prefix packages/web test         # 前端测试
 npm --prefix packages/main run test:db # 真实 PostgreSQL 持久化测试（需已启动并迁移）
 ```
 
-## 4. 变更纪律
+## 5. 变更纪律
 
 - 不提交密钥、Token、真实账号、私有 URL、供应商原始响应或个人本地路径；`.env`、`node_modules`、`dist`、`outputs` 已在根 `.gitignore`。
 - 未经用户明确授权，不推送、不部署、不触发付费模型或媒体生成；测试一律使用桩模型。
@@ -53,7 +61,7 @@ npm --prefix packages/main run test:db # 真实 PostgreSQL 持久化测试（需
 - `reference/` 只读：引用旧平台规则时在 `packages/` 内用本地等价物实现，不恢复旧平台的数据库、对象存储、密钥或部署体系。
 - `树干转场复刻/` 等素材目录不属于代码迁移对象，不要改动。
 
-## 5. 已知边界与后续方向
+## 6. 已知边界与后续方向
 
 - 剧本/小说拆解的领域实现目前仍在 `main`（`src/breakdown`、`src/novel`）；后续把 repository 留在 `main`、纯领域逻辑下沉到 `agent`，与 assistant 保持同一边界。
 - 技术复核不等于视觉语义审核；3D 为 prompt-only；声音依赖供应商原生音轨。

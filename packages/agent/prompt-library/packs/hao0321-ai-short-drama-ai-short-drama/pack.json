@@ -1,0 +1,21 @@
+{
+  "id": "hao0321-ai-short-drama-ai-short-drama",
+  "name": "ai-short-drama",
+  "version": "synced",
+  "summary": "把「重生、逆袭、隐藏大佬」等题材编译成有爽点和追更钩子的连载：题材调研、故事架构、镜头时间线、连续性校验",
+  "stages": [
+    "episode-outline",
+    "script",
+    "script-review",
+    "storyboard"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

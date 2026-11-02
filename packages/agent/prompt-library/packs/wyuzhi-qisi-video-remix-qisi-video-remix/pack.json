@@ -1,0 +1,21 @@
+{
+  "id": "wyuzhi-qisi-video-remix-qisi-video-remix",
+  "name": "qisi-video-remix",
+  "version": "synced",
+  "summary": "视频创意改编：参考视频 → 剧本 → 分镜 → 分段生成提示词",
+  "stages": [
+    "adaptation",
+    "script",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "lixiaoxiao9888-create-short-drama-factory-short-drama-factory",
+  "name": "short-drama-factory",
+  "version": "synced",
+  "summary": "抖音/红果短剧工业化编剧：一句创意或一部网文 → 60–100 集带付费卡点的剧本，配钩子、断章、反转公式和机检规则",
+  "stages": [
+    "adaptation",
+    "episode-outline",
+    "script",
+    "script-review"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

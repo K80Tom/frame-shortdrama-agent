@@ -1,0 +1,27 @@
+{
+  "id": "jlam00-dev-hardcore-director-hardcore-director",
+  "name": "hardcore-director",
+  "version": "synced",
+  "summary": "硬核导演：影视与 AI 视频总控，按阶段路由编剧/短剧、角色场景、分镜、Seedance 2.5/Wan 3.0/H3 提示词、声音与剪辑模块",
+  "stages": [
+    "character",
+    "episode-outline",
+    "production",
+    "script",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance",
+    "wan",
+    "minimax",
+    "kling"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

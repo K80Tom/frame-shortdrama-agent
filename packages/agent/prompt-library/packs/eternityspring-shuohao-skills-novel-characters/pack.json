@@ -1,0 +1,22 @@
+{
+  "id": "eternityspring-shuohao-skills-novel-characters",
+  "name": "novel-characters",
+  "version": "synced",
+  "summary": "短剧制作 skill 集：拆角色、改编大纲、场景与道具美术设定、剧本、分镜",
+  "stages": [
+    "adaptation",
+    "character",
+    "episode-outline",
+    "script",
+    "storyboard"
+  ],
+  "models": [
+    "*"
+  ],
+  "license": "Apache-2.0",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}

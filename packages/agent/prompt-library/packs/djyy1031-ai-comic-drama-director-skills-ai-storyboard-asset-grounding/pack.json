@@ -1,0 +1,22 @@
+{
+  "id": "djyy1031-ai-comic-drama-director-skills-ai-storyboard-asset-grounding",
+  "name": "ai-storyboard-asset-grounding",
+  "version": "synced",
+  "summary": "AI 漫剧导演：剧本 + 已有资产 → Seedance 2.0/2.5 分镜组提示词，含人物表演、导演摄影、场景资产、站位图、连续性与声音",
+  "stages": [
+    "adaptation",
+    "character",
+    "script-review",
+    "storyboard",
+    "video-prompt"
+  ],
+  "models": [
+    "seedance"
+  ],
+  "license": "MIT",
+  "commercialUseAllowed": true,
+  "contentPolicy": "imported",
+  "quality": "unevaluated",
+  "enabledByDefault": false,
+  "entry": "content/SKILL.md"
+}
