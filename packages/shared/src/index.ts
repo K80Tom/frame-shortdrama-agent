@@ -12,3 +12,4 @@ export * from './assets';
 export * from './novel-analysis';
 export * from './novel-domain';
 export * from './novel-registry';
+export * from './novel-adaptation';

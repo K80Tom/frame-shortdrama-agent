@@ -11,6 +11,7 @@ import {
   type ProductionTask, type ProjectOption, type ProductionStage, type ScriptVersionOption,
 } from './production-automation';
 import './production-automation.css';
+import type { NovelAdaptationResult } from '@lyra/shared';
 
 const pendingKey = 'ohao:production-run-pending:v1';
 const createStages = ['剧本拆解', '资产准备', '分镜设计', '3D 预演', '镜头生产包', '视频抽卡', '自动技术复核', '自动剪辑', '最终出片'];
@@ -555,13 +556,16 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
   </div>;
 }
 
-export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsavedChange?: (dirty: boolean) => void }) {
-  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm });
+export default function ProductionAutomationPage({ onUnsavedChange, initialScript }: {
+  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult;
+}) {
+  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? '' });
+  const pinnedScript = useRef(initialScript);
   const [projects, setProjects] = useState<ProjectOption[]>([]); const [versions, setVersions] = useState<ScriptVersionOption[]>([]);
   const [runs, setRuns] = useState<ProductionRun[]>([]); const [selectedRunId, setSelectedRunId] = useState('');
   const [consent, setConsent] = useState(false); const [dirty, setDirty] = useState(false); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [loadError, setLoadError] = useState(''); const [refresh, setRefresh] = useState(0);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(Boolean(initialScript));
   const [pendingClientId, setPendingClientId] = useState(pendingFromSession);
   const mutation = useRef(false); const controllerRef = useRef<AbortController | null>(null);
   const explicitRejection = useRef(false);
@@ -602,7 +606,15 @@ export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsave
     if (!form.projectId) { setVersions([]); return; }
     const controller = new AbortController();
     void productionApi(`/api/projects/${encodeURIComponent(form.projectId)}/script-versions`, undefined, controller.signal).then(parseScriptVersionOptions).then(items => {
-      if (controller.signal.aborted) return; setVersions(items); setForm(previous => ({ ...previous, scriptVersionId: items.find(item => item.id === currentProject?.currentScriptVersionId)?.id || items.at(-1)?.id || '' }));
+      if (controller.signal.aborted) return;
+      setVersions(items);
+      const pinned = pinnedScript.current;
+      if (pinned && !items.some(item => item.id === pinned.scriptVersionId)) {
+        setError('未找到已采用的小说剧本版本，请返回小说重新核对，或手动选择项目和版本。');
+      }
+      setForm(previous => ({ ...previous, scriptVersionId: pinned
+        ? items.find(item => item.id === pinned.scriptVersionId)?.id ?? ''
+        : items.find(item => item.id === previous.scriptVersionId)?.id || items.find(item => item.id === currentProject?.currentScriptVersionId)?.id || items.at(-1)?.id || '' }));
     }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
     return () => controller.abort();
   }, [form.projectId, currentProject?.currentScriptVersionId]);
@@ -614,8 +626,11 @@ export default function ProductionAutomationPage({ onUnsavedChange }: { onUnsave
   }, [selectedRunId, refresh]);
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  function edit(patch: Partial<ProductionForm>) { setForm(current => ({ ...current, ...patch })); setConsent(false); setDirty(true); }
-  function selectProject(projectId: string) { edit({ projectId, scriptVersionId: '' }); }
+  function edit(patch: Partial<ProductionForm>) {
+    if (patch.scriptVersionId !== undefined) pinnedScript.current = undefined;
+    setForm(current => ({ ...current, ...patch })); setConsent(false); setDirty(true);
+  }
+  function selectProject(projectId: string) { setVersions([]); edit({ projectId, scriptVersionId: '' }); }
   async function mutate(label: string, path: string, body: unknown) {
     if (mutation.current) return null; mutation.current = true; explicitRejection.current = false; setBusy(label); setMessage(''); setError('');
     const controller = new AbortController(); controllerRef.current = controller; const timeout = setTimeout(() => controller.abort(), 20000);

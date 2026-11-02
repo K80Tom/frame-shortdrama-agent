@@ -5,6 +5,8 @@ const { PostgresDatabase } = require('../dist/db/client');
 const { readDatabaseConfig } = require('../dist/db/config');
 const { PostgresNovelRepository } = require('../dist/novel/repository');
 const { buildNovelSource, createReviewSeed } = require('@lyra/shared');
+const { NovelService } = require('../dist/novel/service');
+const { PostgresBreakdownRepository } = require('../dist/breakdown/repository');
 
 // Deliberately opt in with a dedicated test database, never load local .env or
 // migrate as part of a test. The harness owns and removes only its own source.
@@ -85,3 +87,36 @@ function attempt(chapter, expectedRevisionId) {
   return { id: randomUUID(), chapterId: chapter.id, expectedRevisionId,
     model: 'test-only-text-model', startedAt: new Date().toISOString() };
 }
+
+test('PostgreSQL concurrent adoption of a multi-chapter adaptation commits one canonical project and script', {
+  skip: !connectionString && 'Set NOVEL_TEST_DATABASE_URL to a migrated isolated test database.',
+}, async () => {
+  const database = new PostgresDatabase(readDatabaseConfig({ DATABASE_URL: connectionString }));
+  let documentId, projectId;
+  try {
+    const novels = new PostgresNovelRepository(database);
+    const scripts = new PostgresBreakdownRepository(database);
+    const service = new NovelService(novels, {}, () => assert.fail('unexpected model call'), undefined, undefined, scripts);
+    const doc = await service.create({ title: '改编测试', rawText: '第一章 夜雨\n“走吧。”\n第二章 渡口\n“船来了。”\n' });
+    documentId = doc.id;
+    const chapters = [];
+    for (const chapter of doc.chapters) {
+      const saved = await novels.saveRevision(revision(doc, chapter, null, 'model'), null);
+      chapters.push({ chapterId: chapter.id, revisionId: saved.id });
+    }
+    await assert.rejects(service.previewAdaptation(doc.id, { chapters: [...chapters].reverse() }), /连续且不重复/);
+    const draft = await service.previewAdaptation(doc.id, { chapters });
+    assert.match(draft.rawText, /第1场[\s\S]+第2场/);
+    assert.match(draft.rawText, /△ “船来了。”/);
+    const entries = await Promise.all(Array.from({ length: 3 }, () => service.adoptAdaptation(doc.id, { chapters, digest: draft.digest })));
+    projectId = entries[0].projectId;
+    assert.deepEqual(entries, [entries[0], entries[0], entries[0]]);
+    assert.equal((await scripts.listScriptVersions(projectId)).length, 1);
+    assert.equal((await scripts.getScriptVersion(projectId, entries[0].scriptVersionId)).rawText, draft.rawText);
+    assert.deepEqual((await scripts.getProject(projectId)).source.chapters, chapters);
+  } finally {
+    if (projectId) await database.query('DELETE FROM projects WHERE id = $1', [projectId]);
+    if (documentId) await database.query('DELETE FROM novel_sources WHERE id = $1', [documentId]);
+    await database.close();
+  }
+});

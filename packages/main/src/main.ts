@@ -123,7 +123,8 @@ async function main() {
         ? new PostgresDesktopTaskRepository(database) : undefined;
       if (await database.hasMigrations(['008'])) {
         novelService = new NovelService(new PostgresNovelRepository(database), config, fetch, assetService,
-          desktopJobs && assetService ? new DesktopCandidateAssetPolicy(desktopJobs, assetService) : undefined);
+          desktopJobs && assetService ? new DesktopCandidateAssetPolicy(desktopJobs, assetService) : undefined,
+          await database.hasMigrations(BREAKDOWN_PERSISTENCE_MIGRATIONS) ? new PostgresBreakdownRepository(database) : undefined);
       }
       if (novelService && assetService && desktopJobs && await database.hasMigrations(['010'])) {
         desktopAssetService = new DesktopAssetService(desktopJobs,
