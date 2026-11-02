@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrozenAssetRetrievalPolicy } from './asset-retrieval';
+import type { FrozenMethodPack } from './prompt-packs';
 
 export const PRODUCTION_WORKFLOW_VERSION = 'ohao-production/1';
 export const productionStageOrder = [
@@ -83,6 +84,8 @@ export interface ExternalOperation {
   status: 'prepared' | 'submitting' | 'submitted' | 'polling' | 'unknown' | 'succeeded' | 'failed' | 'abandoned';
   estimatedCostMicros: number;
   actualCostMicros: number | null;
+  /** Optional for historical operations. A confirmed submission may consume an estimated ceiling. */
+  billingBasis?: 'estimate';
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +195,8 @@ export interface BudgetEntry {
   taskId: string | null;
   attemptId: string | null;
   kind: 'estimate' | 'reserve' | 'charge' | 'release';
+  /** Charges with this basis are a conservative budget debit; the supplier did not report an amount. */
+  basis?: 'frameAssessmentCeiling';
   amountMicros: number;
   currency: string;
   note: string;
@@ -208,6 +213,8 @@ export interface OutboxEvent {
 }
 
 export interface StoredProductionRun extends CreateProductionRun {
+  /** Absent on legacy runs. Resume and retry use only the original snapshot. */
+  methodPacks?: FrozenMethodPack[];
   id: string;
   workflowVersion: typeof PRODUCTION_WORKFLOW_VERSION;
   /** Missing only in runs persisted before policy Registry P2; they retain the built-in baseline. */
@@ -281,7 +288,8 @@ export type ProductionAction = { type: 'pause' } | { type: 'resume' }
   | { type: 'raiseBudget'; budgetMicros: number; reason: string }
   | { type: 'retryTask'; taskId: string; reason: string; force?: boolean }
   | { type: 'abandonOperation'; taskId: string; reason: string }
-  | { type: 'reconcileOperation'; taskId: string; reason: string };
+  | { type: 'reconcileOperation'; taskId: string; reason: string }
+  | { type: 'reconcileOperations'; reason: string };
 export function parseProductionAction(value: unknown): ProductionAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('操作请求不正确。');
   const input = value as Record<string, unknown>;
@@ -304,6 +312,10 @@ export function parseProductionAction(value: unknown): ProductionAction {
   if (input.type === 'reconcileOperation' && Object.keys(input).every(key => ['type', 'taskId', 'reason'].includes(key))
     && Object.keys(input).length >= 2) {
     return { type: 'reconcileOperation', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false) };
+  }
+  if (input.type === 'reconcileOperations' && Object.keys(input).every(key => ['type', 'reason'].includes(key))
+    && Object.keys(input).length >= 2) {
+    return { type: 'reconcileOperations', reason: safeText(input.reason ?? '', 1000, false) };
   }
   return invalid('操作请求不正确。');
 }

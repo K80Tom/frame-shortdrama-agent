@@ -63,3 +63,87 @@ jobs:
         run: npm --prefix packages/web test
       - name: Build frontend
         run: npm --prefix packages/web run build
+
+  autopilot:
+    name: PR Autopilot
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - name: "Guard: conflicts, size, protected paths"
+        id: guard
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --json isDraft,mergeable,additions,deletions,files > /tmp/pr.json
+          python3 - <<'PY' > /tmp/guard.txt
+          import json
+
+          d = json.load(open('/tmp/pr.json'))
+          files = [f['path'] for f in d.get('files', [])]
+          total = d.get('additions', 0) + d.get('deletions', 0)
+          reasons = []
+
+          if d.get('mergeable') != 'MERGEABLE':
+              reasons.append('分支有冲突或合并状态未知：' + str(d.get('mergeable')))
+          if total > 300:
+              reasons.append('改动 %d 行，超过 300 行上限' % total)
+          if not files:
+              reasons.append('没有读到文件清单')
+
+          protected = ('packages/main/', 'packages/shared/', 'packages/agent/', '.github/workflows/',
+                       'package-lock.json', 'package.json')
+          for p in files:
+              if p.startswith(protected) or p in ('package.json', 'package-lock.json'):
+                  reasons.append('涉及受保护路径 ' + p)
+
+          allowed = lambda p: p.startswith(('packages/web/', 'packages/cli/', 'docs/')) or p.endswith('.md')
+          for p in files:
+              if not allowed(p):
+                  reasons.append('不在自动合并白名单 ' + p)
+
+          print('OK' if not reasons else 'BLOCK: ' + '；'.join(sorted(set(reasons))[:6]))
+          PY
+          RESULT="$(cat /tmp/guard.txt)"
+          echo "reason=$RESULT" >> "$GITHUB_OUTPUT"
+          if [ "$RESULT" = "OK" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: AI review (optional)
+        if: env.LLM_API_KEY != '' && steps.guard.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_DEFAULT_MODEL: ${{ secrets.LLM_DEFAULT_MODEL }}
+        run: python3 .github/scripts/pr_ai_review.py
+
+      - name: Merge when safe
+        if: steps.guard.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          if gh pr merge "$PR_NUMBER" --squash; then
+            gh pr comment "$PR_NUMBER" --body "PR Autopilot：测试通过、无冲突、改动在自动合并白名单（≤300 行），已 squash 合并。"
+          else
+            gh pr comment "$PR_NUMBER" --body "PR Autopilot：条件满足，但合并被分支保护规则拦下（通常是缺少审批）。请人工审批后合入。"
+            exit 1
+          fi
+
+      - name: Comment when blocked
+        if: steps.guard.outputs.ok != 'true'
+        run: |
+          gh pr comment "$PR_NUMBER" --body "PR Autopilot：未自动合并，原因：${{ steps.guard.outputs.reason }}。已留待人工处理。"

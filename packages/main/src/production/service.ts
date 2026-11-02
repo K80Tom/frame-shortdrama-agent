@@ -1,7 +1,7 @@
 import {
   ProductionError, canonicalDigest, parseCreateProductionRun, parseProductionAction, parseProductionReview,
   parseProductionRunId, productionId, sameProductionRequest, type BudgetEntry, type CandidateSet,
-  type FrozenAssetRetrievalPolicy,
+  type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
 } from '@lyra/shared';
@@ -25,6 +25,7 @@ export interface ProductionServiceOptions {
   sourceCatalog?: ProductionSourceCatalog;
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
+  methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
 }
 
 const terminal = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -53,6 +54,7 @@ export class ProductionService {
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
   private readonly sourceCatalog?: ProductionSourceCatalog;
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
+  private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
   private timer: NodeJS.Timeout | null = null;
   private tickTail: Promise<void> = Promise.resolve();
 
@@ -61,6 +63,7 @@ export class ProductionService {
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
+    this.methodPacks = options.methodPacks;
     for (const executor of [new ProductionPreflightExecutor(), ...(options.executors ?? [])]) this.executors.set(executor.stage, executor);
   }
 
@@ -74,12 +77,12 @@ export class ProductionService {
       if (!sameProductionRequest(existing, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
       return publicProductionRun(existing);
     }
-    if (this.sourceCatalog) {
-      await this.sourceCatalog.getProject(input.projectId);
-      await this.sourceCatalog.getScriptVersion(input.projectId, input.scriptVersionId);
-    }
+    const project = await this.sourceCatalog?.getProject(input.projectId);
+    await this.sourceCatalog?.getScriptVersion(input.projectId, input.scriptVersionId);
     const policy = this.assetRetrievalPolicy ? await this.assetRetrievalPolicy() : undefined;
-    const created = await this.repository.create(compileProductionRun(input, this.timestamp(), undefined, policy));
+    const draft = compileProductionRun(input, this.timestamp(), undefined, policy);
+    if (this.methodPacks) draft.methodPacks = await this.methodPacks(project);
+    const created = await this.repository.create(draft);
     if (!sameProductionRequest(created, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
     return publicProductionRun(created);
   }
@@ -89,7 +92,7 @@ export class ProductionService {
     // `partial` means "some work could not finish", not "nothing may ever change":
     // an operator must be able to reconcile, retry, abandon or raise the budget
     // through the API instead of editing run_json in the database.
-    const repairAction = ['retryTask', 'abandonOperation', 'reconcileOperation', 'raiseBudget'].includes(action.type);
+    const repairAction = ['retryTask', 'abandonOperation', 'reconcileOperation', 'reconcileOperations', 'raiseBudget'].includes(action.type);
     if (terminal.has(run.status) && !(run.status === 'partial' && repairAction)) {
       conflict('PRODUCTION_RUN_TERMINAL', '已结束的生产运行不能再更改。');
     }
@@ -137,6 +140,9 @@ export class ProductionService {
       return publicProductionRun(await this.save(run, 'production.run.budget_raised',
         { budgetMicros: run.budgetMicros, previousBudgetMicros }));
     }
+    if (action.type === 'reconcileOperations') {
+      return publicProductionRun(await this.reconcileUnknownOperations(run, action.reason));
+    }
     let task = run.tasks.find(item => item.id === action.taskId); if (!task) taskNotFound();
     if (action.type === 'abandonOperation') {
       // Human reconciliation authority for synchronous providers that cannot be
@@ -148,7 +154,7 @@ export class ProductionService {
         conflict('PRODUCTION_OPERATION_NOT_UNKNOWN', '没有等待人工对账的外部操作。');
       }
       const attempt = run.attempts.find(item => item.id === operation.attemptId);
-      if (attempt) this.charge(run, task, attempt, 0, at, true);
+      if (attempt) this.charge(run, task, attempt, 0, at, true, operation.billingBasis === 'estimate');
       operation.status = 'abandoned'; operation.updatedAt = at;
       this.resolveTaskIssues(run, task.id, at);
       this.invalidateFrom(run, task.id, at);
@@ -236,11 +242,17 @@ export class ProductionService {
       let changed = false;
       for (const task of current.tasks.filter(item => item.status === 'running')) {
         const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
-        if (attempt?.status === 'running') { attempt.status = 'interrupted'; attempt.endedAt = at; }
+        const attemptWasRunning = attempt?.status === 'running';
+        if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
         const operation = this.activeOperation(current, task.id);
         if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
           task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
-        else { task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' }; }
+        else {
+          // The process that held this attempt is gone, and no external operation
+          // was opened. Settle the hold so a later retry can reserve again.
+          if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
+          task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+        }
         task.updatedAt = at; task.version++; this.addIssue(current, task, {
           code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
           severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
@@ -308,6 +320,9 @@ export class ProductionService {
   }
 
   private async execute(run: StoredProductionRun, task: ProductionTask, executor: ProductionExecutor) {
+    // Upstream invalidation can make an interrupted downstream task ready again.
+    // Its original external submission must be settled before another attempt.
+    if (this.activeOperation(run, task.id)) { await this.reconcile(run, task); return; }
     if (task.attemptCount >= task.maxAttempts) {
       const at = this.timestamp();
       task.status = 'failed'; task.version++; task.updatedAt = at;
@@ -324,6 +339,15 @@ export class ProductionService {
     if (!Number.isSafeInteger(prepared.estimateCostMicros) || prepared.estimateCostMicros < 0 || !prepared.inputDigest || !prepared.executor) {
       return this.blockPrepare(run, task);
     }
+    if (prepared.prerequisites?.length) {
+      if (prepared.requiresPaid || prepared.estimateCostMicros !== 0) return this.blockPrepare(run, task);
+      const at = this.timestamp();
+      this.materializeSpawnTasks(run, task, prepared.prerequisites, at, true);
+      task.status = 'pending'; task.updatedAt = at; task.version++;
+      this.promoteReady(run); this.refreshRunStatus(run);
+      await this.save(run, 'production.task.prerequisites_created', { taskId: task.id });
+      return;
+    }
     if (prepared.defer) {
       if (prepared.requiresPaid || prepared.estimateCostMicros !== 0 || prepared.provider !== null
         || typeof prepared.defer.code !== 'string' || !prepared.defer.code
@@ -333,7 +357,7 @@ export class ProductionService {
     const available = run.budgetMicros - this.spent(run) - this.reserved(run);
     if (prepared.estimateCostMicros > available) {
       const at = this.timestamp(); task.status = 'waitingHuman'; task.version++; task.updatedAt = at;
-      task.blockingReason = { code: 'PRODUCTION_BUDGET_EXCEEDED', message: '预留费用将超过本次运行的已授权预算。' };
+      task.blockingReason = { code: 'PRODUCTION_BUDGET_EXCEEDED', message: `「${task.label}」预留费用将超过本次运行的已授权预算。` };
       this.addIssue(run, task, { code: 'PRODUCTION_BUDGET_EXCEEDED', title: '预算不足', message: task.blockingReason.message,
         severity: 'error', estimatedAdditionalCostMicros: prepared.estimateCostMicros - available,
         recommendedActions: ['创建新的运行并授权更高预算', '改用直出版或减少每镜候选数、降低质量档位'] }, at);
@@ -348,6 +372,7 @@ export class ProductionService {
     if (prepared.estimateCostMicros) run.budgetLedger.push(this.budget(run, task.id, attemptId, 'reserve', prepared.estimateCostMicros, '执行前预留', at));
     if (prepared.requiresPaid) run.externalOperations.push({ id: productionId('pop'), runId: run.id, taskId: task.id,
       attemptId, operationKey: operationKey!, provider: prepared.provider ?? 'configured-adapter', providerTaskId: null,
+      ...(prepared.billingBasis ? { billingBasis: prepared.billingBasis } : {}),
       status: 'prepared', estimatedCostMicros: prepared.estimateCostMicros, actualCostMicros: null, createdAt: at, updatedAt: at });
     run.status = 'running';
     const claimed = await this.save(run, 'production.task.started', { taskId: task.id, attemptId });
@@ -365,7 +390,12 @@ export class ProductionService {
         message: prepared.requiresPaid ? '付费提交结果不明，不会自动重发。' : '执行器运行失败，原始错误未暴露。' };
       const operation = this.activeOperation(failed, currentTask.id);
       if (operation) { operation.status = 'unknown'; operation.updatedAt = end; currentTask.status = 'reconciling'; }
-      else currentTask.status = 'failed';
+      else {
+        // No external operation was opened, so the thrown attempt did not report
+        // a charge. Release the hold; a returned local failure already does this.
+        this.charge(failed, currentTask, currentAttempt, 0, end, true);
+        currentTask.status = 'failed';
+      }
       currentTask.blockingReason = clone(currentAttempt.error); currentTask.updatedAt = end; currentTask.version++;
       this.addIssue(failed, currentTask, { code: currentAttempt.error.code, title: '执行未完成', message: currentAttempt.error.message,
         severity: 'error', recommendedActions: operation ? ['查询原供应商任务', '不要重复提交'] : ['检查执行器后重试'] }, end);
@@ -373,6 +403,46 @@ export class ProductionService {
       return;
     }
     await this.applyOutcomeAfterClaim(claimed, task.id, attemptId, outcome);
+  }
+
+  /** Query every unknown external operation on this run. Never starts a new paid submit.
+   * Operations with no provider task id stay on the human gate and do not rewrite the run. */
+  private async reconcileUnknownOperations(initial: StoredProductionRun, reason: string): Promise<StoredProductionRun> {
+    const taskIds = this.unknownOperationTaskIds(initial);
+    const queryable = taskIds.filter(taskId => {
+      const operation = initial.externalOperations.filter(item => item.taskId === taskId && item.status === 'unknown').at(-1);
+      return typeof operation?.providerTaskId === 'string' && operation.providerTaskId.trim().length > 0;
+    });
+    for (const taskId of queryable) {
+      const current = await this.requireRun(initial.id);
+      const task = current.tasks.find(item => item.id === taskId);
+      if (!task || !this.unknownOperationTaskIds(current).includes(task.id)) continue;
+      const operation = this.activeOperation(current, task.id);
+      if (!operation?.providerTaskId) continue;
+      await this.reconcile(current, task);
+    }
+    const latest = await this.requireRun(initial.id);
+    if (queryable.length === 0) return latest;
+    const results = taskIds.map(taskId => {
+      const task = latest.tasks.find(item => item.id === taskId);
+      const operation = latest.externalOperations.filter(item => item.taskId === taskId).at(-1) ?? null;
+      return {
+        taskId,
+        taskStatus: task?.status ?? null,
+        operationId: operation?.id ?? null,
+        operationStatus: operation?.status ?? null,
+        providerTaskId: operation?.providerTaskId ?? null,
+      };
+    });
+    return this.save(latest, 'production.run.operations_reconciled', { reason, results });
+  }
+
+  private unknownOperationTaskIds(run: StoredProductionRun): string[] {
+    return run.tasks.filter(task => {
+      if (!['waitingHuman', 'reconciling'].includes(task.status)) return false;
+      const operation = this.activeOperation(run, task.id);
+      return operation?.status === 'unknown';
+    }).map(task => task.id).sort((left, right) => left.localeCompare(right));
   }
 
   private async reconcile(run: StoredProductionRun, task: ProductionTask) {
@@ -424,6 +494,7 @@ export class ProductionService {
       const task = current.tasks.find(item => item.id === taskId);
       const attempt = current.attempts.find(item => item.id === attemptId);
       if (!task || !attempt || ['succeeded', 'failed'].includes(attempt.status)) return;
+      if (current.externalOperations.some(op => op.attemptId === attemptId && op.status === 'abandoned')) return;
       try { await this.applyOutcome(current, task, attemptId, outcome); return; }
       catch (error) {
         if (!(error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT')) {
@@ -491,7 +562,10 @@ export class ProductionService {
     attempt.status = 'failed'; attempt.endedAt = at; attempt.error = { code, message };
     const operation = this.activeOperation(latest, task.id);
     if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'waitingHuman'; }
-    else task.status = 'failed';
+    else {
+      this.charge(latest, task, attempt, 0, at, true);
+      task.status = 'failed';
+    }
     task.blockingReason = clone(attempt.error); task.version++; task.updatedAt = at;
     this.addIssue(latest, task, { code, title: '执行器输出无效', message: attempt.error.message,
       severity: 'error', recommendedActions: operation ? ['对账原外部任务，不要重复提交'] : ['修复执行器后局部重试'] }, at);
@@ -549,7 +623,11 @@ export class ProductionService {
     } else {
       this.materialize(run, task, outcome.artifacts ?? [], outcome.candidateSets ?? [], outcome.qualityChecks ?? [], at);
       if (outcome.spawnTasks?.length) this.materializeSpawnTasks(run, task, outcome.spawnTasks, at);
-      this.charge(run, task, attempt, outcome.actualCostMicros ?? 0, at, true);
+      const estimated = outcome.state === 'succeeded' && outcome.settleAtEstimate === true;
+      if (estimated && (!operation || operation.billingBasis !== 'estimate' || outcome.actualCostMicros !== undefined)) {
+        conflict('PRODUCTION_EXECUTOR_OUTPUT_INVALID', '估算结算缺少对应的付费预留。');
+      }
+      this.charge(run, task, attempt, outcome.actualCostMicros ?? 0, at, true, estimated);
       if (operation) { operation.status = 'succeeded'; operation.updatedAt = at; }
       attempt.status = 'succeeded'; attempt.error = null;
       if (outcome.state === 'blocked' || outcome.state === 'waitingHuman') {
@@ -647,7 +725,7 @@ export class ProductionService {
       status: 'ready', spec: { ratio: run.ratio, durationSec: draft.durationSec, container: 'mp4' }, verifiedAt: at, createdAt: at };
   }
 
-  private materializeSpawnTasks(run: StoredProductionRun, parent: ProductionTask, drafts: SpawnTaskDraft[], at: string) {
+  private materializeSpawnTasks(run: StoredProductionRun, parent: ProductionTask, drafts: SpawnTaskDraft[], at: string, beforeParent = false) {
     if (drafts.length > 500) conflict('PRODUCTION_TASK_EXPANSION_INVALID', '一次展开的子任务过多。');
     const keys = new Map<string, string>();
     for (const draft of drafts) {
@@ -659,7 +737,8 @@ export class ProductionService {
     }
     const created: ProductionTask[] = drafts.map(draft => {
       const id = keys.get(draft.key)!;
-      const dependencies = (draft.dependsOn?.length ? draft.dependsOn : [parent.id]).map(ref => keys.get(ref) ?? ref);
+      const defaultDeps = beforeParent ? [] : [parent.id];
+      const dependencies = (draft.dependsOn?.length ? draft.dependsOn : defaultDeps).map(ref => keys.get(ref) ?? ref);
       if (dependencies.includes(id) || dependencies.some(dep => !run.tasks.some(task => task.id === dep) && ![...keys.values()].includes(dep))) {
         conflict('PRODUCTION_TASK_EXPANSION_INVALID', '动态任务依赖不存在或指向自身。');
       }
@@ -688,6 +767,11 @@ export class ProductionService {
     const prospective = [...run.tasks, ...created.filter(task => !run.tasks.some(existing => existing.id === task.id))];
     this.assertAcyclic(prospective);
     for (const task of created) if (!run.tasks.some(existing => existing.id === task.id)) run.tasks.push(task);
+    if (beforeParent) {
+      for (const child of created) if (!parent.dependencies.includes(child.id)) parent.dependencies.push(child.id);
+      this.assertAcyclic(run.tasks);
+      return;
+    }
     const sameStageChildren = created.filter(task => task.stage === parent.stage && task.scope.kind !== 'episode').map(task => task.id);
     if (parent.scope.kind === 'episode' && sameStageChildren.length) {
       const nextEpisodeTasks = run.tasks.filter(task => task.scope.kind === 'episode' && task.dependencies.includes(parent.id));
@@ -855,12 +939,14 @@ export class ProductionService {
   private budget(run: StoredProductionRun, taskId: string | null, attemptId: string | null, kind: BudgetEntry['kind'], amountMicros: number, note: string, at: string): BudgetEntry {
     return { id: productionId('pbudget'), runId: run.id, taskId, attemptId, kind, amountMicros, currency: run.currency, note, createdAt: at };
   }
-  private charge(run: StoredProductionRun, task: ProductionTask, attempt: TaskAttempt, actual: number, at: string, terminalOutcome: boolean) {
+  private charge(run: StoredProductionRun, task: ProductionTask, attempt: TaskAttempt, actual: number, at: string, terminalOutcome: boolean, estimated = false) {
     const operation = this.activeOperation(run, task.id); const reserved = this.reservedForAttempt(run, task, attempt);
-    const amount = actual;
-    if (terminalOutcome && amount) run.budgetLedger.push(this.budget(run, task.id, attempt.id, 'charge', amount, '实际费用', at));
+    const amount = estimated ? reserved : actual;
+    if (terminalOutcome && amount) run.budgetLedger.push({ ...this.budget(run, task.id, attempt.id, 'charge', amount,
+      estimated ? '抽帧评估按预留上限估算入账（供应商实付未知）' : '实际费用', at),
+      ...(estimated ? { basis: 'frameAssessmentCeiling' as const } : {}) });
     if (terminalOutcome && reserved > amount) run.budgetLedger.push(this.budget(run, task.id, attempt.id, 'release', reserved - amount, '释放未使用预留', at));
-    if (operation) operation.actualCostMicros = terminalOutcome ? amount : null;
+    if (operation) operation.actualCostMicros = terminalOutcome && !estimated ? amount : null;
   }
   private reservedForAttempt(run: StoredProductionRun, task: ProductionTask, attempt: TaskAttempt) {
     const operation = this.activeOperation(run, task.id);

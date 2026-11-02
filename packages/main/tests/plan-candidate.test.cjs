@@ -4,6 +4,7 @@ const { createApp } = require('../dist/app');
 const { readConfig } = require('../dist/config');
 const { InMemoryBreakdownRepository, PostgresBreakdownRepository } = require('../dist/breakdown/repository');
 const { BreakdownService } = require('../dist/breakdown/service');
+const { describePlanCheckFailure } = require('../dist/breakdown/quality');
 
 const config = readConfig({});
 
@@ -331,6 +332,82 @@ test('P0.5 retains historical checks but requires the current rule for adoption'
     planRevisionId: plan.id, checkId: rechecked.check.id, expectedActivePlanRevisionId: null,
   });
   assert.equal((await repository.getProject(project.id)).activePlanRevisionId, plan.id);
+});
+
+test('fact-check issues name the object, field path, expected value and actual value', async () => {
+  const { service } = fixture();
+  const { script, run } = await prepared(service);
+  const value = candidate(script);
+  value.dialogues[0].sourceRef = sourceRef(script.id, script.rawText, '你');
+  value.dialogues[0].speakerTempId = null;
+  value.dialogues[0].speakerSourceRefs = [];
+  value.characters[1].name = sourced('林晚', value.characters[1].name.sourceRefs);
+  const plan = await service.createExtractFactsCandidate(run.id, value);
+  const result = await service.checkPlan(plan.id);
+  const dialogue = plan.content.dialogues[0];
+  const duplicate = plan.content.characters[1];
+  const incomplete = result.issues.find((issue) => issue.code === 'DIALOGUE_INCOMPLETE');
+  const unresolved = result.issues.find((issue) => issue.code === 'SPEAKER_UNRESOLVED');
+  const duplicated = result.issues.find((issue) => issue.code === 'ENTITY_NAME_DUPLICATED');
+  assert.equal(incomplete.scope.field.objectKind, 'dialogue');
+  assert.equal(incomplete.scope.field.objectId, dialogue.id);
+  assert.equal(incomplete.scope.field.fieldPath, `/dialogues/${dialogue.id}/sourceRef`);
+  assert.equal(incomplete.scope.field.expected, '你终于来了。🙂');
+  assert.equal(incomplete.scope.field.actual, '你');
+  assert.equal(incomplete.scope.targetId, dialogue.sceneId);
+  assert.equal(unresolved.scope.field.fieldPath, `/dialogues/${dialogue.id}/speakerId`);
+  assert.equal(unresolved.scope.field.actual, 'null');
+  assert.equal(duplicated.scope.field.objectId, duplicate.id);
+  assert.equal(duplicated.scope.field.fieldPath, `/characters/${duplicate.id}/name`);
+  assert.equal(duplicated.scope.field.actual, '林晚');
+  const stored = await service.listPlanIssues(result.check.id);
+  assert.deepEqual(stored.find((issue) => issue.code === 'DIALOGUE_INCOMPLETE').scope.field, incomplete.scope.field);
+
+  const missingValue = candidate(script);
+  missingValue.dialogues = [];
+  const missingPlan = await service.createExtractFactsCandidate(run.id, missingValue);
+  const missing = (await service.checkPlan(missingPlan.id)).issues.find((issue) => issue.code === 'DIALOGUE_MISSING');
+  assert.equal(missing.scope.field.fieldPath, `/sourceSpans/${missing.sourceRefs[0].start}:${missing.sourceRefs[0].end}`);
+  assert.equal(missing.scope.field.expected, '1');
+  assert.equal(missing.scope.field.actual, '0');
+});
+
+test('PLAN_CHECK_FAILED summary cites field paths and still reads legacy issues', () => {
+  const located = describePlanCheckFailure([
+    { code: 'DIALOGUE_INCOMPLETE', scope: { kind: 'scene', targetId: 'scene_1', field: {
+      objectKind: 'dialogue', objectId: 'dialogue_1', fieldPath: '/dialogues/dialogue_1/sourceRef',
+      expected: '完整正文', actual: '你' } } },
+    { code: 'SOURCE_SPAN_UNASSIGNED', scope: { kind: 'project', targetId: null } },
+  ]);
+  assert.equal(located.message, '候选版本存在阻断问题，不能采用。DIALOGUE_INCOMPLETE dialogue_1 /dialogues/dialogue_1/sourceRef；SOURCE_SPAN_UNASSIGNED。');
+  assert.deepEqual(located.impact, [
+    'DIALOGUE_INCOMPLETE dialogue_1 /dialogues/dialogue_1/sourceRef',
+    'SOURCE_SPAN_UNASSIGNED',
+  ]);
+  const legacy = describePlanCheckFailure([{ code: 'DIALOGUE_MISSING', scope: { kind: 'scene', targetId: 'scene_9' } }]);
+  assert.equal(legacy.impact[0], 'DIALOGUE_MISSING /scenes/scene_9');
+  const overflow = describePlanCheckFailure(Array.from({ length: 9 }, (_, index) => ({ code: `RULE_${index}`, scope: { kind: 'project', targetId: null } })));
+  assert.equal(overflow.impact.length, 8);
+  assert.match(overflow.message, /另有 1 项。$/);
+});
+
+test('PostgreSQL issue decoding keeps field locations and still loads legacy scopes', async () => {
+  const field = { objectKind: 'dialogue', objectId: 'dialogue_1', fieldPath: '/dialogues/dialogue_1/sourceRef', expected: '完整', actual: '你' };
+  const repository = new PostgresBreakdownRepository({ query: async (_sql, params) => ({ rows: [{
+    id: params[0] === 'check_legacy' ? 'issue_legacy' : 'issue_located',
+    check_id: params[0], project_id: 'project_saved', plan_revision_id: 'plan_saved',
+    kind: 'validation', code: 'DIALOGUE_INCOMPLETE', message: '对白不完整',
+    scope_json: params[0] === 'check_legacy'
+      ? { kind: 'project', targetId: null }
+      : { kind: 'scene', targetId: 'scene_1', field },
+    source_refs_json: [], blocking: true, status: 'open', created_at: new Date('2026-10-22T00:00:00.000Z'),
+  }] }) });
+  const located = (await repository.listPlanIssues('check_new'))[0];
+  assert.deepEqual(located.scope.field, field);
+  assert.equal(located.scope.targetId, 'scene_1');
+  const legacy = (await repository.listPlanIssues('check_legacy'))[0];
+  assert.equal(legacy.scope.field, undefined);
+  assert.equal(legacy.scope.kind, 'project');
 });
 
 test('P0.5 PostgreSQL check decoding supports old and current rules but rejects unknown versions', async () => {

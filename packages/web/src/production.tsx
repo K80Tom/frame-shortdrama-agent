@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import FactsEditor from './FactsEditor';
+import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
 import { buildEntityEdits, createEntityDrafts, latestPlanForScript, validateEntityDrafts, type EntityDraft, type EntityDrafts, type FactPlan as Plan, type SourceRef as Ref } from './facts-editor';
 import './production.css';
 
@@ -8,7 +9,6 @@ type Run = { id: string; status: string; scriptVersionId: string; modelConfig: {
 type ModelCatalog = { provider: string; configured: boolean; defaultModel: string; connectionRevision?: string };
 type Check = { id: string; result: 'passed' | 'failed'; ruleVersion: string };
 const CURRENT_FACT_CHECK_RULE_VERSION = 'extract-facts-completeness/2';
-type Issue = { id: string; code: string; message: string; sourceRefs: Ref[] };
 type Storyboard = { id: string; sourcePlanRevisionId: string; shots: Array<{ id: string; sceneId: string; order: number;
   design: { origin: 'designSuggestion'; visualDescription: string; shotSize: string; cameraMovement: string; durationMs: number };
   sourceRefs: Ref[]; dialogueIds: string[] }> };
@@ -24,11 +24,11 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-async function readPlanStatus(plan: Plan | null): Promise<{ check: Check | null; issues: Issue[] }> {
+async function readPlanStatus(plan: Plan | null): Promise<{ check: Check | null; issues: PlanCheckIssue[] }> {
   if (!plan) return { check: null, issues: [] };
   const checks = await api<{ items: Check[] }>(`/api/plan-revisions/${plan.id}/checks`);
   const check = checks.items[0] ?? null;
-  const issues = check ? (await api<{ items: Issue[] }>(`/api/plan-revisions/${plan.id}/checks/${check.id}/issues`)).items : [];
+  const issues = check ? (await api<{ items: PlanCheckIssue[] }>(`/api/plan-revisions/${plan.id}/checks/${check.id}/issues`)).items : [];
   return { check, issues };
 }
 
@@ -47,7 +47,7 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [draftBook, setDraftBook] = useState<Record<string, DraftSession>>({});
   const [check, setCheck] = useState<Check | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issues, setIssues] = useState<PlanCheckIssue[]>([]);
   const [allowPaid, setAllowPaid] = useState(false);
   const [allowStoryboardPaid, setAllowStoryboardPaid] = useState(false);
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
@@ -260,9 +260,9 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
         <div className="facts-save-bar"><div><strong>{dirty ? `${edits.length} 项实体有未保存校对` : '当前版本没有未保存校对'}</strong><small>{plan.parentRevisionId ? `基于版本 ${plan.parentRevisionId.slice(-8)} · ` : ''}保存后请重新运行程序校验，再决定是否采用。</small></div><div className="production-actions"><button disabled={!!busy || !dirty} onClick={cancelEdits}>取消修改</button><button className="production-primary" disabled={!!busy || !editable || !dirty || draftErrors.length > 0} onClick={saveEdits}>{busy === '保存校对' ? '正在保存…' : '保存校对为新候选'}</button></div></div>
         {draftErrors.length > 0 && <div className="production-issues" role="alert"><h3>保存前请处理</h3>{draftErrors.map(error => <p key={error}>{error}</p>)}</div>}
         <FactsEditor plan={plan} drafts={drafts} disabled={!!busy || !editable} onChange={updateDraft} />
-        <div className="production-actions facts-check-actions"><button disabled={!!busy || dirty || !editable} onClick={() => void action('程序校验', async isCurrent => { const result = await api<{ check: Check; issues: Issue[] }>(`/api/plan-revisions/${plan.id}/checks`, {}); if (isCurrent()) { setCheck(result.check); setIssues(result.issues); setMessage(result.check.result === 'passed' ? '程序校验通过。请人工核对语义后采用。' : '发现阻断问题；请核对问题。当前编辑器仅支持实体字段校对，场次与对白问题仍需后续处理。'); } })}>运行程序校验</button><button className="production-primary" disabled={!!busy || dirty || !editable || active || !currentCheckPassed} onClick={() => void action('采用', async isCurrent => { await api(`/api/projects/${project!.id}/adoptions`, { planRevisionId: plan.id, checkId: check!.id, expectedActivePlanRevisionId: project!.activePlanRevisionId }); await refreshProjectMetadata(project!.id, isCurrent); if (isCurrent()) setMessage('已采用这版事实拆解。旧版本仍可从版本列表查看。'); })}>采用这版拆解</button><small>{dirty ? '先保存校对，再校验与采用' : '采用才会更新项目正式拆解；已采用分镜可能需要重新核对'}</small></div>
+        <div className="production-actions facts-check-actions"><button disabled={!!busy || dirty || !editable} onClick={() => void action('程序校验', async isCurrent => { const result = await api<{ check: Check; issues: PlanCheckIssue[] }>(`/api/plan-revisions/${plan.id}/checks`, {}); if (isCurrent()) { setCheck(result.check); setIssues(result.issues); setMessage(result.check.result === 'passed' ? '程序校验通过。请人工核对语义后采用。' : '发现阻断问题；请核对问题。当前编辑器仅支持实体字段校对，场次与对白问题仍需后续处理。'); } })}>运行程序校验</button><button className="production-primary" disabled={!!busy || dirty || !editable || active || !currentCheckPassed} onClick={() => void action('采用', async isCurrent => { await api(`/api/projects/${project!.id}/adoptions`, { planRevisionId: plan.id, checkId: check!.id, expectedActivePlanRevisionId: project!.activePlanRevisionId }); await refreshProjectMetadata(project!.id, isCurrent); if (isCurrent()) setMessage('已采用这版事实拆解。旧版本仍可从版本列表查看。'); })}>采用这版拆解</button><small>{dirty ? '先保存校对，再校验与采用' : '采用才会更新项目正式拆解；已采用分镜可能需要重新核对'}</small></div>
         <div className="production-status">程序校验：{check ? (check.result === 'passed' ? (currentCheckPassed ? '通过' : '旧规则已通过 · 请重新运行程序校验') : `未通过 · ${issues.length} 项`) : '未运行'} · {active ? '这版已采用' : '这版尚未采用'} · 人工仍需核对剧情语义</div>
-        {issues.length > 0 && <div className="production-issues"><h3>待处理问题</h3>{issues.map(issue => <div key={issue.id}><strong>{issue.message}</strong><small>{issue.code}</small>{issue.sourceRefs.map((ref, i) => <blockquote key={i}>{ref.quote}</blockquote>)}</div>)}</div>}
+        <PlanIssueList issues={issues} />
         <div className="production-facts facts-synopsis"><article><h3>梗概 · 只读</h3><p>{plan.content.synopsis?.value ?? '未提取'}</p>{plan.content.synopsis?.sourceRefs.map((ref, i) => <small key={i}>原文：「{ref.quote}」</small>)}</article></div>
         <h3 className="production-scenes-title">场次与对白 · 只读核对</h3>{plan.content.scenes.map(scene => <article className="production-scene" key={scene.id}><div><strong>{String(scene.order).padStart(2, '0')} · {scene.title.value}</strong><small>{scene.sourceRefs.length} 段原文</small></div><details className="facts-scene-evidence"><summary>查看场次原文</summary>{scene.sourceRefs.map((ref, i) => <blockquote key={i}>{ref.quote}</blockquote>)}</details>{plan.content.dialogues.filter(line => line.sceneId === scene.id).map(line => <blockquote key={line.id}><b>{plan.content.characters.find(item => item.id === line.speakerId)?.name.value ?? '待确认人物'}：</b>{line.sourceRef.quote}</blockquote>)}</article>)}
       </>}
