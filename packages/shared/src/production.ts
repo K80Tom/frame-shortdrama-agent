@@ -288,7 +288,8 @@ export type ProductionAction = { type: 'pause' } | { type: 'resume' }
   | { type: 'raiseBudget'; budgetMicros: number; reason: string }
   | { type: 'retryTask'; taskId: string; reason: string; force?: boolean }
   | { type: 'abandonOperation'; taskId: string; reason: string }
-  | { type: 'reconcileOperation'; taskId: string; reason: string };
+  | { type: 'reconcileOperation'; taskId: string; reason: string }
+  | { type: 'reconcileOperations'; reason: string };
 export function parseProductionAction(value: unknown): ProductionAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('操作请求不正确。');
   const input = value as Record<string, unknown>;
@@ -311,6 +312,10 @@ export function parseProductionAction(value: unknown): ProductionAction {
   if (input.type === 'reconcileOperation' && Object.keys(input).every(key => ['type', 'taskId', 'reason'].includes(key))
     && Object.keys(input).length >= 2) {
     return { type: 'reconcileOperation', taskId: safeText(input.taskId, 128), reason: safeText(input.reason ?? '', 1000, false) };
+  }
+  if (input.type === 'reconcileOperations' && Object.keys(input).every(key => ['type', 'reason'].includes(key))
+    && Object.keys(input).length >= 2) {
+    return { type: 'reconcileOperations', reason: safeText(input.reason ?? '', 1000, false) };
   }
   return invalid('操作请求不正确。');
 }

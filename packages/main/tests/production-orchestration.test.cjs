@@ -831,6 +831,63 @@ test('reconcileOperation refuses operations that are not in an unknown state', a
     error => error.code === 'PRODUCTION_TASK_NOT_RECONCILABLE' || error.code === 'PRODUCTION_OPERATION_NOT_FOUND');
 });
 
+test('reconcileOperations queries every unknown external operation and does not submit again', async () => {
+  const queried = [];
+  let executions = 0;
+  const paid = {
+    stage: 'breakdown',
+    async prepare({ task }) { return { executor: 'test-batch-reconcile/1', inputDigest: task.inputManifest[0].digest,
+      estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' }; },
+    async execute() { executions++;
+      return { state: 'waitingHuman', operationUnknown: true,
+        issue: { code: 'MODEL_EXECUTION_UNKNOWN', title: '模型调用结果不明', message: '同步接口无任务号。', severity: 'error' } }; },
+    async reconcile(_context, operation) { queried.push(operation.providerTaskId);
+      return { state: 'succeeded', actualCostMicros: 0 }; },
+  };
+  const { repo, service } = await make({ executors: [paid] });
+  const created = await service.create(input({ clientRequestId: 'batch-reconcile-unknown' }));
+  const before = await service.action(created.id, { type: 'reconcileOperations', reason: '尚无未知操作' });
+  assert.equal(executions, 0);
+  assert.equal(before.tasks.find(item => item.stage === 'prepare').status, 'ready');
+  assert.equal(before.tasks.find(item => item.stage === 'breakdown').status, 'pending');
+  assert.equal(before.outbox.some(event => event.type === 'production.run.operations_reconciled'), false);
+  await service.tick(created.id); await service.tick(created.id);
+  const stored = await repo.get(created.id);
+  const task = stored.tasks.find(item => item.stage === 'breakdown');
+  const operation = stored.externalOperations.find(item => item.taskId === task.id);
+  const attempt = stored.attempts.find(item => item.id === operation.attemptId);
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(operation.status, 'unknown');
+  assert.equal(operation.providerTaskId, null);
+  const copyTask = { ...structuredClone(task), id: 'ptask_batchreconcile0000000000000001', label: '第二项未知操作' };
+  const copyAttempt = { ...structuredClone(attempt), id: 'pattempt_batchreconcile00000000000001', taskId: copyTask.id };
+  const copyOperation = { ...structuredClone(operation), id: 'pop_batchreconcile000000000000000001',
+    taskId: copyTask.id, attemptId: copyAttempt.id, providerTaskId: 'provider_batch_2', estimatedCostMicros: 0 };
+  stored.tasks.push(copyTask); stored.attempts.push(copyAttempt); stored.externalOperations.push(copyOperation);
+  await repo.replace(stored, stored.version);
+  let run = await service.action(created.id, { type: 'reconcileOperations', reason: '一次对账两项未知操作' });
+  assert.equal(executions, 1);
+  assert.deepEqual(queried, ['provider_batch_2']);
+  assert.equal(run.externalOperations.find(item => item.id === operation.id).status, 'unknown');
+  assert.equal(run.tasks.find(item => item.id === task.id).status, 'waitingHuman');
+  assert.equal(run.externalOperations.find(item => item.id === copyOperation.id).status, 'succeeded');
+  assert.equal(run.tasks.find(item => item.id === copyTask.id).status, 'succeeded');
+  assert.equal(run.summary.budget.spentMicros, 0);
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  const event = run.outbox.find(item => item.type === 'production.run.operations_reconciled');
+  assert.equal(event.payload.reason, '一次对账两项未知操作');
+  assert.deepEqual(event.payload.results.map(item => item.taskId), [copyTask.id, task.id].sort((left, right) => left.localeCompare(right)));
+  const statusByTask = Object.fromEntries(event.payload.results.map(item => [item.taskId, item.operationStatus]));
+  assert.equal(statusByTask[copyTask.id], 'succeeded');
+  assert.equal(statusByTask[task.id], 'unknown');
+  const version = run.version;
+  run = await service.action(created.id, { type: 'reconcileOperations', reason: '没有新的未知操作' });
+  assert.equal(executions, 1);
+  assert.deepEqual(queried, ['provider_batch_2']);
+  assert.equal(run.version, version);
+  assert.equal(run.outbox.filter(item => item.type === 'production.run.operations_reconciled').length, 1);
+});
+
 test('a thrown local attempt releases its reservation so a retry is not blocked by its own hold', async () => {
   let calls = 0;
   const local = {
