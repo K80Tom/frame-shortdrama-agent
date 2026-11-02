@@ -4,6 +4,7 @@ const { readConfig } = require('../dist/config');
 const { InMemoryBreakdownRepository } = require('../dist/breakdown/repository');
 const { BreakdownService } = require('../dist/breakdown/service');
 const { MaasStageModelAdapter } = require('../dist/breakdown/model-adapter');
+const { PiExtractFactsStageExecutor } = require('../dist/breakdown/pi-executor');
 const {
   ExtractFactsStageRunner,
   SingleModelCallExtractFactsExecutor,
@@ -481,6 +482,23 @@ test('unconfigured MAAS adapter blocks execution before creating attempt or call
   assert.equal(repository.attempts.size, 0);
   assert.equal(repository.modelCalls.size, 0);
   assert.equal(calls, 0);
+});
+
+test('a frozen method reaches the actual extractFacts provider payload as user context; base facts remain valid', async () => {
+  let captured;
+  const adapter = new MaasStageModelAdapter(config, async (_url, options) => {
+    captured = JSON.parse(options.body);
+    const { context } = JSON.parse(captured.messages[1].content);
+    return new Response(JSON.stringify({ id: 'fake-methods', model: captured.model, choices: [
+      { finish_reason: 'stop', message: { content: JSON.stringify(aliasedCandidate(context)) } },
+    ] }));
+  });
+  const { runner, service } = fixture({ executor: new PiExtractFactsStageExecutor(), adapter });
+  const { run } = await prepared(service);
+  const result = await runner.run(run.id, 'METHOD_EXAMPLE 依原文核对');
+  assert.match(captured.messages[1].content, /METHOD_EXAMPLE/);
+  assert.doesNotMatch(captured.messages[0].content, /METHOD_EXAMPLE/);
+  assert.equal(result.plan.content.dialogues.length, 2);
 });
 
 test('MAAS stage adapter sends only the new model and parses the controlled JSON result', async () => {

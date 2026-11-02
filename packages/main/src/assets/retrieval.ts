@@ -71,7 +71,14 @@ export interface AssetRetrievalResult {
  * query rewriting or old-platform API is used. Optional semantic retrieval is
  * layered on by HybridAssetRetriever and hydrated against the same catalog.
  * Exact identity matching stays in the production executor and runs first.
+ * A catalog name that only contains, or is only contained by, the entity name
+ * stays below the auto-reuse band so creation time cannot promote it.
  */
+function partialNameCap(policy: AssetRetrievalPolicy): number {
+  const cap = Math.floor((policy.threshold - policy.ambiguityMargin - 0.0002) * 10_000) / 10_000;
+  return cap > 0 ? cap : 0;
+}
+
 export function retrieveAssetForGeneration(
   query: AssetRetrievalQuery,
   assets: AssetRecord[],
@@ -95,27 +102,35 @@ export function retrieveAssetForGeneration(
     const byDescription = coverage(descriptionTokens, assetName, assetDescription);
     const matchedFields = new Set<'name' | 'description'>([...byName.fields, ...byDescription.fields]);
     const matchedTerms = new Set<string>([...byName.terms, ...byDescription.terms]);
-    let score = Math.max(byName.score * 0.96, byDescription.score * 0.95);
-
-    for (const anchor of names) {
-      if (assetName.includes(anchor)) {
-        score = Math.max(score, 0.96);
-        matchedFields.add('name'); matchedTerms.add(anchor);
-      } else if (codePointLength(assetName) >= 2 && anchor.includes(assetName) && isUsefulToken(assetName)) {
-        score = Math.max(score, 0.78);
-        matchedFields.add('name'); matchedTerms.add(assetName);
-      }
-    }
+    const exactName = names.some(anchor => anchor === assetName);
+    // "沈玥" inside "沈玥的姐姐", or "林晚" inside "林晚晴", stays outside the reuse band.
+    const partialName = !exactName && names.some(anchor => assetName.includes(anchor)
+      || (codePointLength(assetName) >= 2 && anchor.includes(assetName) && isUsefulToken(assetName)));
+    let descriptionScore = byDescription.score * 0.95;
     for (const clause of clauses) {
       if (assetDescription.includes(clause)) {
-        score = Math.max(score, 0.90);
+        descriptionScore = Math.max(descriptionScore, 0.90);
         matchedFields.add('description'); matchedTerms.add(clause);
       }
     }
-    if (codePointLength(assetName) >= 2 && isUsefulToken(assetName) && description.includes(assetName)) {
-      score = Math.max(score, 0.74);
+    let nameScore = byName.score * 0.96;
+    if (exactName) {
+      nameScore = Math.max(nameScore, 0.99);
+      matchedFields.add('name');
+      matchedTerms.add(names.find(anchor => anchor === assetName)!);
+    } else if (partialName) {
+      nameScore = partialNameCap(policy);
+      for (const anchor of names) {
+        if (assetName.includes(anchor)) { matchedFields.add('name'); matchedTerms.add(anchor); }
+        else if (codePointLength(assetName) >= 2 && anchor.includes(assetName) && isUsefulToken(assetName)) {
+          matchedFields.add('name'); matchedTerms.add(assetName);
+        }
+      }
+    } else if (codePointLength(assetName) >= 2 && isUsefulToken(assetName) && description.includes(assetName)) {
+      descriptionScore = Math.max(descriptionScore, 0.74);
       matchedFields.add('name'); matchedTerms.add(assetName);
     }
+    const score = Math.max(nameScore, descriptionScore);
     return {
       asset,
       score: Math.round(Math.min(score, 1) * 10_000) / 10_000,

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrozenAssetRetrievalPolicy } from './asset-retrieval';
+import type { FrozenMethodPack } from './prompt-packs';
 
 export const PRODUCTION_WORKFLOW_VERSION = 'ohao-production/1';
 export const productionStageOrder = [
@@ -83,6 +84,8 @@ export interface ExternalOperation {
   status: 'prepared' | 'submitting' | 'submitted' | 'polling' | 'unknown' | 'succeeded' | 'failed' | 'abandoned';
   estimatedCostMicros: number;
   actualCostMicros: number | null;
+  /** Optional for historical operations. A confirmed submission may consume an estimated ceiling. */
+  billingBasis?: 'estimate';
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +195,8 @@ export interface BudgetEntry {
   taskId: string | null;
   attemptId: string | null;
   kind: 'estimate' | 'reserve' | 'charge' | 'release';
+  /** Charges with this basis are a conservative budget debit; the supplier did not report an amount. */
+  basis?: 'frameAssessmentCeiling';
   amountMicros: number;
   currency: string;
   note: string;
@@ -208,6 +213,8 @@ export interface OutboxEvent {
 }
 
 export interface StoredProductionRun extends CreateProductionRun {
+  /** Absent on legacy runs. Resume and retry use only the original snapshot. */
+  methodPacks?: FrozenMethodPack[];
   id: string;
   workflowVersion: typeof PRODUCTION_WORKFLOW_VERSION;
   /** Missing only in runs persisted before policy Registry P2; they retain the built-in baseline. */

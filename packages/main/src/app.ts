@@ -43,6 +43,9 @@ import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
+import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
+import { methodReference } from './prompt-packs/runtime';
+import { PromptPackError, type PromptPackService } from './prompt-packs/service';
 
 const CONFIG = Symbol('APP_CONFIG');
 const TRANSPORT = Symbol('MODEL_TRANSPORT');
@@ -63,6 +66,7 @@ export interface AppDependencies {
   productionMediaStore?: ProductionMediaStore;
   assistantService?: AssistantService;
   evolutionService?: AssetEvolutionService;
+  promptPacksService?: PromptPackService;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
 }
@@ -235,7 +239,8 @@ class ProjectsController {
 @Controller('api/breakdown-runs')
 class BreakdownRunsController {
   constructor(@Inject(BREAKDOWN_SERVICE) private readonly breakdown: BreakdownServicePort,
-    @Inject(STAGE_RUNNER) private readonly runner: ExtractFactsStageRunner | null) {}
+    @Inject(STAGE_RUNNER) private readonly runner: ExtractFactsStageRunner | null,
+    @Inject(PROMPT_PACK_SERVICE) private readonly packs: PromptPackService | null) {}
 
   @Get(':runId')
   getRun(@Param('runId') runId: string) {
@@ -249,7 +254,11 @@ class BreakdownRunsController {
       throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', '执行前须明确传入 allowPaid: true。');
     }
     if (!this.runner) throw new BreakdownError(503, 'STAGE_RUNNER_UNAVAILABLE', '事实提取执行器尚未就绪。请先执行 npm run db:migrate（需要迁移 017）；未就绪时不会发起付费调用。');
-    return this.runner.run(parseOpaqueId(runId, 'runId'));
+    const id = parseOpaqueId(runId, 'runId');
+    if (!this.packs) return this.runner.run(id);
+    const draft = await this.breakdown.getRun(id);
+    const project = await this.breakdown.getProject(draft.projectId);
+    return this.runner.run(id, methodReference(await this.packs.freeze(project, 'breakdown'), 'breakdown'));
   }
 
   @Post(':runId/candidate-plan-revisions')
@@ -309,20 +318,22 @@ class PlanRevisionsController {
 
 @Controller('api')
 class StoryboardController {
-  constructor(@Inject(STORYBOARD_SERVICE) private readonly storyboards: StoryboardService | null) {}
+  constructor(@Inject(STORYBOARD_SERVICE) private readonly storyboards: StoryboardService | null,
+    @Inject(PROMPT_PACK_SERVICE) private readonly packs: PromptPackService | null) {}
   private service() {
     if (!this.storyboards) throw new BreakdownError(503, 'STORYBOARD_UNAVAILABLE', '分镜服务尚未就绪。');
     return this.storyboards;
   }
   @Post('projects/:projectId/storyboards')
-  generate(@Param('projectId') projectId: string, @Body() body: unknown) {
+  async generate(@Param('projectId') projectId: string, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).some(key => !['allowPaid', 'expectedModelConnectionRevision'].includes(key)) || (body as Record<string, unknown>).allowPaid !== true) {
       throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', '生成分镜前须明确传入 allowPaid: true。');
     }
     const expected = (body as Record<string, unknown>).expectedModelConnectionRevision;
     if (expected !== undefined && typeof expected !== 'string') throw new ModelError(400, 'MODEL_SELECTION_INVALID', '模型选择版本格式不正确。');
-    return this.service().generate(parseOpaqueId(projectId, 'projectId'), expected);
+    return this.service().generate(parseOpaqueId(projectId, 'projectId'), expected,
+      methodReference(await this.packs?.freeze(undefined, 'storyboard'), 'storyboard'));
   }
   @Get('projects/:projectId/storyboards')
   async list(@Param('projectId') projectId: string) {
@@ -373,7 +384,7 @@ class SafeErrors implements ExceptionFilter {
     }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
-      || error instanceof AssistantError) {
+      || error instanceof AssistantError || error instanceof PromptPackError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message } });
     }
     const status = error instanceof HttpException ? error.getStatus() :
@@ -391,7 +402,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController,
-    ...(dependencies.evolutionService ? [EvolutionController] : [])], providers: [ModelsService,
+    ...(dependencies.evolutionService ? [EvolutionController] : []),
+    ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
@@ -403,6 +415,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
+    { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
@@ -412,6 +425,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
       || request.url.startsWith('/api/assistant')
+      || request.url.startsWith('/api/prompt-packs')
       || request.url.includes('/desktop-asset')
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');
     const origin = request.headers.origin;

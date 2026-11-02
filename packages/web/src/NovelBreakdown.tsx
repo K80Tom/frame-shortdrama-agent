@@ -8,7 +8,8 @@ import {
 import './novel.css';
 import NovelAssetPanel from './NovelAssetPanel';
 import { assetBindingSummary, type AssetBindingInput } from './asset-library';
-import type { EntityRegistryEntry } from '@lyra/shared';
+import type { EntityRegistryEntry, NovelAdaptationPreview, NovelAdaptationResult } from '@lyra/shared';
+import { screenplayProductionHash } from './navigation';
 import { useDesktopAssetTasks } from './DesktopAssetGeneration';
 import { desktopCompletionNeedsRefresh, desktopReloadAllowed, desktopTaskActive, desktopTaskLabels } from './desktop-asset-generation';
 
@@ -57,6 +58,8 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [assetDraftDirty, setAssetDraftDirty] = useState(false);
+  const [adaptAll, setAdaptAll] = useState(false);
+  const [preview, setPreview] = useState<NovelAdaptationPreview | null>(null);
   const busyRef = useRef(false);
   const gate = useRef(createNovelRequestGate());
   const sourceArea = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +71,10 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
   const importDirty = Boolean(title || rawText || sourceUrl);
   const anyDirty = importDirty || assetDraftDirty || Object.values(draftBook).some(session => novelDraftChanged(session.base, session.items));
   const editable = Boolean(chapter && revision && chapter.latestRevisionId === revision.id);
+  const scope = adaptAll ? source?.chapters ?? [] : chapter ? [chapter] : [];
+  const currentPreview = preview && source?.id === preview.source.documentId && editable
+    && scope.length === preview.source.chapters.length && scope.every((item, index) =>
+      item.id === preview.source.chapters[index]?.chapterId && item.latestRevisionId === preview.source.chapters[index]?.revisionId) ? preview : null;
   const visible = filterNovelItems(items, filter, pendingOnly);
   const selectedItem = visible.find(item => item.id === selectedItemId) ?? visible[0] ?? null;
   const errors = source && chapter && dirty ? validateNovelDraft(source, chapter, items) : [];
@@ -248,8 +255,26 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
     });
   }
 
+  function prepareScript() {
+    if (!source || !editable || anyDirty) return;
+    const chapters = scope.map(item => ({ chapterId: item.id, revisionId: item.latestRevisionId }));
+    void action('整理章节剧本', async isCurrent => {
+      const result = await api<NovelAdaptationPreview>(`/api/novels/${source.id}/screenplay/preview`, { chapters });
+      if (isCurrent()) setPreview(result);
+    });
+  }
+  function adoptScript() {
+    if (!currentPreview || !source || anyDirty) return;
+    void action('采用剧本版本', async isCurrent => {
+      const adopted = await api<NovelAdaptationResult>(`/api/novels/${source.id}/screenplay/adopt`, {
+        chapters: currentPreview.source.chapters, digest: currentPreview.digest,
+      });
+      if (isCurrent()) { onUnsavedChange?.(false); location.hash = screenplayProductionHash(adopted); }
+    });
+  }
+
   return <div className="novel-page">
-    <header className="novel-hero"><div><span>NOVEL · SOURCE FIRST</span><h1>小说逐章拆解</h1><p>先读清原文，再确认事实。人物、场景、道具和对白逐章保存，所有依据可回到原文核对。</p></div><BookOpen size={46} strokeWidth={1} /><p className="novel-boundary">校对确认并保存后，可关联已有素材；缺少时可授权调用设置中选定的生图 API，逐张生成候选并导入资产库，只有人工确认后才正式关联。外观补充属于设计，不改写小说事实。不改编剧本，不生成分镜，不进入 3D 导演台。</p></header>
+    <header className="novel-hero"><div><span>NOVEL · SOURCE FIRST</span><h1>小说逐章拆解</h1><p>人物、场景、道具和对白逐章保存。选用已拆解的章节，整理成剧本后即可进入自动制片。</p></div><BookOpen size={46} strokeWidth={1} /><p className="novel-boundary">已校对的事实可以关联素材。转为剧本时保留原文章节顺序和对白，生成独立剧本项目。</p></header>
 
     <section className="novel-card novel-library"><div className="novel-row"><label htmlFor="novel-library">已保存的小说</label><select id="novel-library" value={source?.id ?? ''} disabled={Boolean(busy) || !library.length} onChange={event => { if (confirmSwitch()) void action('读取小说', isCurrent => loadNovel(event.target.value, null, isCurrent)); }}><option value="" disabled>选择小说</option>{library.map(item => <option key={item.id} value={item.id}>{item.title} · {item.chapterCount} 章</option>)}</select><button disabled={Boolean(busy)} onClick={() => setImportOpen(value => !value)}><Plus size={14} />导入小说</button><button disabled={Boolean(busy)} onClick={() => { if (!confirmSwitch()) return; void action('刷新小说与版本', async isCurrent => { const result = await api<{ novels: LibraryItem[] }>('/api/novels'); if (!isCurrent()) return; setLibrary(result.novels); if (source) await loadNovel(source.id, chapterId, isCurrent); }); }}>刷新</button></div>
       {importOpen && <form className="novel-import" onSubmit={event => { event.preventDefault(); if (busyRef.current || !title.trim() || !rawText.trim() || !confirmSwitch()) return; void action('保存小说与章节', async isCurrent => {
@@ -284,6 +309,16 @@ export default function NovelBreakdown({ onUnsavedChange, initialNovelId, import
         {revision && <section className="novel-card novel-revision-bar"><div className="novel-row"><label htmlFor="novel-revision">版本历史</label><select id="novel-revision" value={revision.id} disabled={Boolean(busy)} onChange={event => { if (confirmSwitch()) { setRevisionId(event.target.value); setSelectedItemId(''); setSelection(null); } }}>{revisions.map((item, index) => <option key={item.id} value={item.id}>V{index + 1} · {revisionLabels[item.createdBy]} · {new Date(item.createdAt).toLocaleString()}{item.id === chapter.latestRevisionId ? ' · 最新' : ''}</option>)}</select></div><p>{editable ? '只编辑当前章的最新版本。保存会追加新版本，不覆盖原文或历史。' : dirty ? '此基准已不是最新版本。当前显示保留的未保存草稿，不是服务器历史原版；可先导出留存，再放弃草稿查看原版。不能覆盖最新保存结果。' : '这是历史版本，只读。切回最新版本后可继续校对。'} · 当前 {items.length} 项，{pendingCount} 项待确认 / 未校对。</p>{revision.content.warnings.length > 0 && <details className="novel-warnings" open><summary>本版本检查提示 · 不等于语义验收通过</summary><ul>{revision.content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
           {dirty && <div className="novel-save-bar"><div><strong>有未保存的本章校对</strong><small>可以保留待确认项再保存；保存本身不调用模型。</small></div><div className="novel-row"><button disabled={Boolean(busy)} onClick={exportUnsavedDraft}>导出草稿</button><button disabled={Boolean(busy)} onClick={() => { if (window.confirm('放弃该版本尚未保存的校对？已保存的历史不会改动。')) setDraftBook(previous => { const next = { ...previous }; delete next[revision.id]; return next; }); }}>放弃草稿</button><button className="novel-primary" disabled={Boolean(busy) || !editable || errors.length > 0} onClick={saveCorrections}><Save size={14} />保存为新版本</button></div></div>}{errors.length > 0 && <ul className="novel-errors" role="alert">{errors.slice(0, 8).map(error => <li key={error}>{error}</li>)}{errors.length > 8 && <li>另有 {errors.length - 8} 个待修正问题。</li>}</ul>}</section>}
 
+        {revision && <section className="novel-card" aria-label="小说转剧本"><h3>小说转剧本</h3>
+          <p>按原文顺序整理动作、人物与对白。预览与采用免费，进入自动制片后再设置预算。</p>
+          <div className="novel-row"><select aria-label="剧本章节范围" value={adaptAll ? 'all' : 'chapter'} disabled={Boolean(busy)} onChange={event => { setAdaptAll(event.target.value === 'all'); setPreview(null); }}>
+            <option value="chapter">当前章节</option><option value="all">全书合为一集</option></select>
+            <button disabled={Boolean(busy) || anyDirty || !editable || scope.some(item => !item.latestRevisionId)} onClick={prepareScript}>预览剧本</button></div>
+          {scope.some(item => !item.latestRevisionId) && <small>所选范围中仍有章节尚未拆解。</small>}
+          {anyDirty && <small>请先保存或放弃当前页面的草稿。</small>}
+          {currentPreview && <><textarea readOnly rows={10} aria-label="转换后的剧本草稿" value={currentPreview.rawText} />
+            <button className="novel-primary" disabled={Boolean(busy) || anyDirty} onClick={adoptScript}>采用剧本并进入自动制片</button></>}
+        </section>}
         {assetCounts && <div className="novel-asset-summary" aria-label="本章已保存资产状态"><strong>本章资产引用 · 已保存版本</strong><span>已关联 {assetCounts.linked}</span><span>待补 {assetCounts.missing}</span><span>引用待重核 {assetCounts.needsReview}</span><span>待校对 {assetCounts.unconfirmed}</span><a href="#/assets">查看资产目录 ↗</a></div>}
         {activeDesktopTasks.length > 0 && <p className="novel-message novel-desktop-notice" role="status">生图任务：{activeDesktopTasks.map(task => `${task.label} · ${desktopTaskLabels[task.status]}`).join('；')}。任务已保存，刷新页面可继续查看进度；不会因刷新重复提交。</p>}
         {completedDesktopTask && (anyDirty || !editable) && <p className="novel-message novel-desktop-notice" role="status">「{completedDesktopTask.label}」图片已导回并关联到服务器新版本。{anyDirty ? '本页有未保存草稿，已保留，没有自动覆盖。请先导出或处理草稿，再刷新查看。' : '当前正在查看历史版本，已保持原视图。刷新可查看新关联。'}</p>}
