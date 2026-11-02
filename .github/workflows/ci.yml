@@ -106,7 +106,7 @@ jobs:
         id: guard
         run: |
           set -euo pipefail
-          gh pr view "$PR_NUMBER" --json isDraft,mergeable,author,headRefOid > /tmp/pr.json
+          gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json isDraft,mergeable,author,headRefOid > /tmp/pr.json
           gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews?per_page=100" > /tmp/reviews.json
           python3 - <<'PY' > /tmp/guard.txt
           import json
