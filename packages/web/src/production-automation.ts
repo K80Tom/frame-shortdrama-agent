@@ -56,7 +56,7 @@ export type ProductionSummary = {
   tasks: { completed: number; total: number; running: number; waitingHuman: number; failed: number };
   shots: { completed: number; total: number };
   issues: { open: number; total: number };
-  budget: { limitMicros: number; reservedMicros: number; spentMicros: number; currency: string };
+  budget: { limitMicros: number; reservedMicros: number; spentMicros: number; frameAssessmentEstimateMicros?: number; currency: string };
 };
 export type ProductionRun = {
   id: string; clientRequestId: string; projectId: string; scriptVersionId: string; status: ProductionRunStatus; version: number;
@@ -174,7 +174,8 @@ export function parseProductionRun(value: unknown): ProductionRun {
     createdAt: text(row.createdAt), updatedAt: text(row.updatedAt), pausedAt: nullableText(row.pausedAt),
     ...(assetRetrievalPolicy ? { assetRetrievalPolicy } : {}),
     summary: { tasks: taskCounts as ProductionSummary['tasks'], shots: shotCounts as ProductionSummary['shots'], issues: issueCounts as ProductionSummary['issues'],
-      budget: { limitMicros: Math.max(0, number(budget.limitMicros)), reservedMicros: Math.max(0, number(budget.reservedMicros)), spentMicros: Math.max(0, number(budget.spentMicros)), currency: text(budget.currency, 'CNY') } },
+      budget: { limitMicros: Math.max(0, number(budget.limitMicros)), reservedMicros: Math.max(0, number(budget.reservedMicros)), spentMicros: Math.max(0, number(budget.spentMicros)),
+        frameAssessmentEstimateMicros: Math.max(0, number(budget.frameAssessmentEstimateMicros)), currency: text(budget.currency, 'CNY') } },
     stages: list(row.stages).map(parseStage).filter(Boolean) as ProductionStage[], tasks: list(row.tasks).map(parseTask).filter(Boolean) as ProductionTask[],
     issues: list(row.issues).map(parseIssue).filter(Boolean) as ProductionIssue[], candidateSets: list(row.candidateSets).map(parseCandidateSet).filter(Boolean) as ProductionCandidateSet[],
     artifacts: list(row.artifacts).flatMap(value => { const item = record(value); if (!item || !text(item.id)) return []; const metadata = jsonSafe(item.metadata); return [{ id: text(item.id), kind: text(item.kind), label: text(item.title, text(item.kind, '产物')), ...(safeLink(item.uri) ? { url: safeLink(item.uri) } : {}), ...(text(item.taskId) ? { taskId: text(item.taskId) } : {}), ...(metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata) && Object.keys(metadata).length > 0 ? { metadata: metadata as Record<string, unknown> } : {}) }]; }),

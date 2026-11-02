@@ -39,11 +39,32 @@ export function parseAliases(value: string): string[] {
   return value.split(/\r?\n/u).map(alias => alias.trim()).filter(Boolean);
 }
 
+/**
+ * Lines the user left exactly as stored keep that spelling, including surrounding spaces.
+ * A new or rewritten line is trimmed. Blank lines are ignored, so pressing Enter on a
+ * padded source alias does not become a manual edit.
+ */
+export function aliasValuesForEdit(existing: string[], draftAliases: string): string[] {
+  const remaining = [...existing];
+  const result: string[] = [];
+  for (const line of draftAliases.split(/\r?\n/u)) {
+    const exactIndex = remaining.indexOf(line);
+    if (exactIndex >= 0) {
+      result.push(remaining.splice(exactIndex, 1)[0]);
+      continue;
+    }
+    const trimmed = line.trim();
+    if (trimmed) result.push(trimmed);
+  }
+  return result;
+}
+
 export function changedEntityFields(entity: FactEntity, draft: EntityDraft): Array<'name' | 'aliases' | 'description'> {
   const fields: Array<'name' | 'aliases' | 'description'> = [];
   const original = draftForEntity(entity);
+  const storedAliases = entity.aliases.map(alias => alias.value);
   if (draft.name !== original.name && draft.name.trim() !== entity.name.value) fields.push('name');
-  if (draft.aliases !== original.aliases && JSON.stringify(parseAliases(draft.aliases)) !== JSON.stringify(entity.aliases.map(alias => alias.value))) fields.push('aliases');
+  if (draft.aliases !== original.aliases && JSON.stringify(aliasValuesForEdit(storedAliases, draft.aliases)) !== JSON.stringify(storedAliases)) fields.push('aliases');
   if (draft.description !== original.description && (draft.description.trim() || null) !== (entity.description?.value ?? null)) fields.push('description');
   return fields;
 }
@@ -56,7 +77,7 @@ export function buildEntityEdits(content: EntityFields, drafts: EntityDrafts): E
     if (!changed.length) return [];
     return [{ kind: group.kind, entityId: entity.id,
       name: changed.includes('name') ? draft.name.trim() : entity.name.value,
-      aliases: changed.includes('aliases') ? parseAliases(draft.aliases) : entity.aliases.map(alias => alias.value),
+      aliases: changed.includes('aliases') ? aliasValuesForEdit(entity.aliases.map(alias => alias.value), draft.aliases) : entity.aliases.map(alias => alias.value),
       description: changed.includes('description') ? draft.description.trim() || null : entity.description?.value ?? null }];
   }));
 }

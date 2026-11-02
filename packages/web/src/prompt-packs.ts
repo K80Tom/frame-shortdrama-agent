@@ -1,4 +1,5 @@
 /** 方法包页面数据层：列表只拿元数据，正文按需单独请求（渐进式披露）。 */
+import type { MethodNode } from '@lyra/shared';
 
 export type PromptPackItem = {
   id: string;
@@ -12,6 +13,7 @@ export type PromptPackItem = {
   source: string;
   /** library=第三方入库；imported=本机自己导入。 */
   origin: 'library' | 'imported';
+  runtimeNodes?: MethodNode[];
 };
 
 export type PromptPackList = { packs: PromptPackItem[]; total: number };

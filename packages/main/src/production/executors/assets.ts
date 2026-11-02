@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { methodReference, MethodReferenceSpaceError } from '../../prompt-packs/runtime';
 import type { AssetKind, AssetRecord } from '@lyra/shared';
 import {
   retrieveAssetForGeneration,
@@ -185,6 +186,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       executor: EXECUTOR_VERSION,
       inputDigest: canonicalDigest({ rule: PROMPT_VERSION, run: frozenRunInput(context.run),
         planId: loaded.state === 'ready' ? loaded.plan.id : null, entity: ref,
+        methodReference: ref?.kind === 'character' ? methodReference(context.run.methodPacks, 'character-image') || undefined : undefined,
         match: match ? { assetId: match.asset?.id ?? null, matchedBy: match.matchedBy,
           ambiguous: match.ambiguous, alternatives: match.alternatives } : null,
         retrieval: retrievalManifest, imageConnection: connectionManifest(connection) }),
@@ -305,8 +307,18 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       return blocked('IMAGE_MODEL_SELECTION_CHANGED', '生图连接或任务输入在执行准备后发生了变化，未发起付费请求。',
         ['对本资产任务局部重试，以新配置重新冻结输入与预算'], embeddingCost);
     }
+    const basePrompt = assetPrompt(ref, context.run.visualStyle);
+    let prompt = basePrompt;
+    if (ref.kind === 'character') {
+      try { prompt += methodReference(context.run.methodPacks, 'character-image', Math.min(8000, 32_000 - basePrompt.length)); }
+      catch (error) {
+        if (error instanceof MethodReferenceSpaceError) return blocked('PROMPT_PACK_INPUT_LIMIT', error.message,
+          ['缩短资产描述或减少方法包后创建新运行'], embeddingCost);
+        throw error;
+      }
+    }
     const generated = await this.clientFactory(connection.clientConfig).generateImage({
-      prompt: assetPrompt(ref, context.run.visualStyle), size: '2K', responseFormat: 'b64_json', watermark: false,
+      prompt, size: '2K', responseFormat: 'b64_json', watermark: false,
     });
     const description = importDescription(ref, plan, context.run.visualStyle, connection.model);
     const saved = await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,

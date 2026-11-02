@@ -17,6 +17,10 @@ export interface PreparedProductionExecution {
   estimateCostMicros: number;
   requiresPaid: boolean;
   provider: string | null;
+  /** The provider gives no invoice amount. Account confirmed submissions at the reserved ceiling. */
+  billingBasis?: 'estimate';
+  /** Prerequisites inserted before this task can be claimed, including on older run snapshots. */
+  prerequisites?: SpawnTaskDraft[];
   /** Temporary local back-pressure. The scheduler leaves the task ready, does
    * not consume an attempt/budget, and may advance another independent task. */
   defer?: { code: string; message: string };
@@ -83,6 +87,8 @@ export type ProductionExecutorOutcome = {
   spawnTasks?: SpawnTaskDraft[];
   /** Continue into an explicit repair subgraph after a failed/uncertain check. */
   continueOnFailedQuality?: boolean;
+  /** Consume the persisted reservation; keep the provider's actual charge unknown. */
+  settleAtEstimate?: true;
   actualCostMicros?: number;
 } | {
   state: 'waitingHuman';

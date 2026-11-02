@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import type { PostgresDatabase } from '../db/client';
-import { NovelError, validateNovelContent, type NovelChapter, type NovelRevision, type NovelSource } from '@lyra/shared';
+import { NovelError, validateNovelContent, novelContentValidatorForBook, type NovelChapter, type NovelRevision, type NovelSource } from '@lyra/shared';
 
 export interface NovelSourceSummary { id: string; title: string; createdAt: string; chapterCount: number }
 export interface NovelAttempt {
@@ -21,6 +21,7 @@ export interface NovelRepository {
   getChapterSource(chapterId: string): Promise<NovelSource | null>;
   listRevisions(chapterId: string): Promise<NovelRevision[]>;
   getRevision(id: string): Promise<NovelRevision | null>;
+  getSourceRevisions(source: NovelSource, ids: string[]): Promise<Map<string, NovelRevision>>;
   saveRevision(revision: NovelRevision, expectedRevisionId: string | null): Promise<NovelRevision>;
   beginAttempt(input: BeginNovelAttempt): Promise<void>;
   finishAttempt(id: string, result: FinishNovelAttempt): Promise<void>;
@@ -69,11 +70,12 @@ function validateSource(source: NovelSource, creating = false): void {
   });
 }
 
-function validateRevision(revision: NovelRevision, source: NovelSource, chapter: NovelChapter): void {
+function validateRevision(revision: NovelRevision, source: NovelSource, chapter: NovelChapter,
+  validateContent = (content: unknown, item: NovelChapter) => validateNovelContent(content, source, item)): void {
   if (!revision || !validId(revision.id) || revision.chapterId !== chapter.id
     || !nullableId(revision.parentRevisionId) || revision.parentRevisionId === revision.id
     || !['model', 'user', 'program'].includes(revision.createdBy) || !validTime(revision.createdAt)) invalid();
-  validateNovelContent(revision.content, source, chapter);
+  validateContent(revision.content, chapter);
 }
 function validateBegin(input: BeginNovelAttempt): void {
   if (!input || !validId(input.id) || !validId(input.chapterId) || !nullableId(input.expectedRevisionId)
@@ -119,6 +121,15 @@ export class InMemoryNovelRepository implements NovelRepository {
     return clone([...this.revisions.values()].filter(revision => revision.chapterId === chapterId));
   }
   async getRevision(id: string): Promise<NovelRevision | null> { return clone(this.revisions.get(id) ?? null); }
+  async getSourceRevisions(source: NovelSource, ids: string[]) {
+    const chapterIds = new Set(source.chapters.map(item => item.id));
+    const result = new Map<string, NovelRevision>();
+    for (const id of ids) {
+      const revision = this.revisions.get(id);
+      if (revision && chapterIds.has(revision.chapterId)) result.set(id, clone(revision));
+    }
+    return result;
+  }
   async saveRevision(input: NovelRevision, expectedRevisionId: string | null): Promise<NovelRevision> {
     const revision = clone(input);
     const { source, chapter } = this.findChapter(revision.chapterId) ?? chapterMissing();
@@ -263,6 +274,19 @@ export class PostgresNovelRepository implements NovelRepository {
       validateRevision(revision, source, chapter);
       return revision;
     });
+  }
+  async getSourceRevisions(source: NovelSource, ids: string[]) {
+    const found = await this.database.query<RevisionRow>(`SELECT r.* FROM novel_revisions r
+      JOIN novel_chapters c ON c.id=r.chapter_id WHERE c.document_id=$1 AND r.id=ANY($2::text[])`, [source.id, ids]);
+    const chapters = new Map(source.chapters.map(chapter => [chapter.id, chapter]));
+    const validateContent = novelContentValidatorForBook(source);
+    return stored(() => new Map(found.rows.map(row => {
+      const revision = mapRevision(row);
+      const chapter = chapters.get(revision.chapterId);
+      if (!chapter) return invalid();
+      validateRevision(revision, source, chapter, validateContent);
+      return [revision.id, revision];
+    })));
   }
   async saveRevision(input: NovelRevision, expectedRevisionId: string | null): Promise<NovelRevision> {
     const revision = clone(input);

@@ -1,5 +1,6 @@
 import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Puzzle, Settings2, Sparkles, Wand2, Workflow } from 'lucide-react';
 import type { Page } from './model';
+import type { NovelAdaptationResult } from '@lyra/shared';
 
 export const workspaceNavigation = [
   { id: 'studio' as Page, label: '首页', en: 'Home', icon: House },
@@ -21,8 +22,14 @@ export const commands = [...workspaceNavigation, ...creationNavigation,
   { id: 'flow' as Page, label: '创作指南', en: 'Workflow', icon: Workflow },
   { id: 'settings' as Page, label: '工作台设置', en: 'Settings', icon: Settings2 },
 ];
-export type WorkspaceRoute = { page: Page; step: number; resourceId?: string };
+export type WorkspaceRoute = { page: Page; step: number; resourceId?: string; screenplay?: NovelAdaptationResult };
+export function screenplayProductionHash(value: NovelAdaptationResult): string {
+  return `#/automation/from-script/${encodeURIComponent(value.projectId)}/${encodeURIComponent(value.scriptVersionId)}`;
+}
 export function routeFromHash(hash: string): WorkspaceRoute {
+  const screenplay = /^#\/automation\/from-script\/([a-z][a-z0-9_-]{2,127})\/([a-z][a-z0-9_-]{2,127})$/u.exec(hash);
+  if (screenplay) return { page: 'automation', step: 1, resourceId: screenplay[0].slice(2),
+    screenplay: { projectId: screenplay[1]!, scriptVersionId: screenplay[2]! } };
   const legacy = /^#step-([1-9])$/.exec(hash);
   if (legacy) return { page: 'flow', step: Number(legacy[1]) };
   const [name, value] = hash.replace(/^#\/?/, '').split('/');
