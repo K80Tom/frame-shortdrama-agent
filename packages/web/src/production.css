@@ -14,6 +14,7 @@
 .production-source{font-size:11px!important;margin:-3px 0 14px!important;overflow-wrap:anywhere}
 .production-source a{color:#f3aa84;text-decoration:underline;text-underline-offset:3px}
 .topbar-create{display:flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid #f18b6260;background:#f18b6220;color:#f3aa84;border-radius:6px;font-size:11px;white-space:nowrap}
+.production-issue-location{display:block;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#d7c4b4;overflow-wrap:anywhere}
 .topbar-create:hover{background:#f18b6238}
 @media(max-width:720px){.production-create{grid-template-columns:1fr;padding:23px;gap:20px}.topbar-create{font-size:0;padding:8px}.topbar-create svg{width:16px;height:16px}}
 

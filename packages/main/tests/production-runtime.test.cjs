@@ -66,6 +66,26 @@ test('breakdown adapter persists a draft boundary, auto-adopts checked output, a
   assert.equal(replay.state, 'succeeded'); assert.equal(f.adoptions.length, 1); assert.equal(f.calls(), 1);
 });
 
+test('failed breakdown check names the field and does not adopt or resubmit', async () => {
+  const f = breakdownFixture('auto');
+  f.check.result = 'failed';
+  f.check.issueIds = ['issue_1'];
+  f.breakdown.listPlanIssues = async () => [{ code: 'DIALOGUE_INCOMPLETE', scope: { kind: 'scene', targetId: 'scene_1', field: {
+    objectKind: 'dialogue', objectId: 'dialogue_1', fieldPath: '/dialogues/dialogue_1/sourceRef',
+    expected: '你终于来了。🙂', actual: '你' } } }];
+  const executor = new BreakdownProductionExecutor(f.breakdown, f.runner, { estimateCostMicros: 200 });
+  await executor.execute(context(f.run, 'breakdown'));
+  const outcome = await executor.reconcile(context(f.run, 'breakdown'), { providerTaskId: f.draft.id });
+  assert.equal(outcome.state, 'waitingHuman');
+  assert.equal(outcome.issue.code, 'PLAN_CHECK_FAILED');
+  assert.match(outcome.issue.message, /DIALOGUE_INCOMPLETE dialogue_1 \/dialogues\/dialogue_1\/sourceRef/);
+  assert.deepEqual(outcome.issue.impact, ['DIALOGUE_INCOMPLETE dialogue_1 /dialogues/dialogue_1/sourceRef']);
+  assert.equal(outcome.qualityChecks[0].result, 'fail');
+  assert.deepEqual(outcome.qualityChecks[0].issues, ['issue_1']);
+  assert.equal(f.adoptions.length, 0);
+  assert.equal(f.calls(), 1);
+});
+
 test('breakdown checkpoint waits for a human and its review hook adopts as user', async () => {
   const f = breakdownFixture('checkpoints');
   const executor = new BreakdownProductionExecutor(f.breakdown, f.runner, { estimateCostMicros: 200 });

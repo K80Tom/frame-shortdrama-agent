@@ -2,7 +2,7 @@ import type { BreakdownServicePort } from '../breakdown/service';
 import { methodReference, MethodReferenceSpaceError } from '../prompt-packs/runtime';
 import type { ExtractFactsStageRunner } from '../breakdown/execution';
 import { BreakdownError, PaidModelExecutionError } from '../breakdown/errors';
-import type { PlanCheckRecord } from '../breakdown/quality';
+import { describePlanCheckFailure, type PlanCheckRecord } from '../breakdown/quality';
 import type { PlanRevisionRecord } from '../breakdown/plan';
 import type { StoryboardRevision, StoryboardService } from '../breakdown/storyboard';
 import { ProductionMediaError, type LocalVideoObject } from '../production-media/contracts';
@@ -144,10 +144,14 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       scriptVersionId: plan.scriptVersionId, adopted: false, scenes: plan.content.scenes.length,
       characters: plan.content.characters.length, locations: plan.content.locations.length, props: plan.content.props.length,
     } };
-    if (check.result !== 'passed') return { state: 'waitingHuman', artifacts: [artifact], actualCostMicros,
-      qualityChecks: [{ level: 'episode', result: 'fail', ruleVersion: check.ruleVersion, summary: '拆解未通过确定性完整性检查', issues: check.issueIds }],
-      issue: { code: 'PLAN_CHECK_FAILED', title: '剧本拆解需要修正', message: '候选版本存在阻断问题，不能采用。',
-        severity: 'error', recommendedActions: ['打开拆解校对页修正候选', '重新检查后局部重试'] } };
+    if (check.result !== 'passed') {
+      const located = describePlanCheckFailure(await this.breakdown.listPlanIssues(check.id));
+      return { state: 'waitingHuman', artifacts: [artifact], actualCostMicros,
+        qualityChecks: [{ level: 'episode', result: 'fail', ruleVersion: check.ruleVersion, summary: '拆解未通过确定性完整性检查', issues: check.issueIds }],
+        issue: { code: 'PLAN_CHECK_FAILED', title: '剧本拆解需要修正', message: located.message,
+          severity: 'error', impact: located.impact,
+          recommendedActions: ['打开拆解校对页，按字段路径修正对应实体、场次或对白', '重新检查后再继续'] } };
+    }
     if (run.automationMode === 'auto') {
       if (project.activePlanRevisionId === plan.id) return this.adopted(plan, check, actualCostMicros);
       try {
