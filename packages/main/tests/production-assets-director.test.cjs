@@ -177,11 +177,14 @@ test('asset child generates exactly one verified image, imports it, and exact re
     imageClientFactory: () => ({ async generateImage(input) { calls++; prompt = input.prompt;
       return { bytes: png(), mimeType: 'image/png', source: 'b64_json' }; } }) });
   const run = production(); const task = scopedTask(run, 'assets', { kind: 'asset', id: 'character_hero' });
+  run.methodPacks = [{ id: 'character-pack', nodes: ['character-image'], digest: 'c', excerpt: '保留颧骨特征' },
+    { id: 'other-pack', nodes: ['video'], digest: 'v', excerpt: '不应出现的推拉镜头' }];
   const firstPrepare = await executor.prepare({ run, task });
   assert.equal(firstPrepare.requiresPaid, true); assert.equal(firstPrepare.estimateCostMicros, 1_500_000);
   const outcome = await executor.execute(context(run, task, firstPrepare));
   assert.equal(outcome.state, 'succeeded'); assert.equal(outcome.actualCostMicros, 1_500_000); assert.equal(calls, 1);
   assert.match(prompt, /已核对的剧本事实/); assert.match(prompt, /沈玥/); assert.match(prompt, /写实雨夜/);
+  assert.match(prompt, /保留颧骨特征/); assert.doesNotMatch(prompt, /不应出现的推拉镜头/);
   const records = await assets.list(); assert.equal(records.length, 1); assert.match(records[0].resourceUrl, /^\/api\/assets\//);
   const replayPrepare = await executor.prepare({ run, task }); assert.equal(replayPrepare.requiresPaid, false);
   const replay = await executor.execute(context(run, task)); assert.equal(replay.state, 'succeeded'); assert.equal(calls, 1);

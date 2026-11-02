@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { ModelError } from '@lyra/shared';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProductionMediaStore } from './store';
@@ -43,6 +44,10 @@ export interface FrameAssessmentReport {
     recommendedTrim: number; recommendedSpeedup: number; recommendedDrop: number;
   };
 }
+
+export type FrameAssessmentResult =
+  | { submission: 'notSubmitted' | 'unknown' }
+  | { submission: 'answered'; assessment: FrameShotAssessment | null };
 
 export interface FrameAssessorOptions {
   /** 每个镜头抽帧数，默认 3（首段/中段/尾段）。 */
@@ -98,15 +103,37 @@ export class FrameAssessor {
   async assess(inputs: readonly FrameAssessmentInput[]): Promise<FrameAssessmentReport> {
     if (inputs.length === 0) throw new ProductionMediaError(400, 'FRAME_ASSESSMENT_EMPTY', '没有可评估的镜头。');
     const shots: FrameShotAssessment[] = [];
-    for (const input of inputs) shots.push(await this.assessShot(input));
-    return { shots, summary: summarize(shots) };
+    for (const input of inputs) {
+      const result = await this.assessOne(input);
+      if (result.submission !== 'answered' || !result.assessment) {
+        throw new ProductionMediaError(502, 'FRAME_ASSESSMENT_UNAVAILABLE', '镜头评估未生成有效结论。');
+      }
+      shots.push(result.assessment);
+    }
+    return { shots, summary: summarizeAssessments(shots) };
   }
 
-  private async assessShot(input: FrameAssessmentInput): Promise<FrameShotAssessment> {
-    const video = await this.store.getVideo(input.mediaId);
-    const frames = await this.extractFrames(video);
-    const verdict = await this.judgeShot(input, frames, video.object.probe.durationSeconds);
-    return verdict;
+  /** Exactly one upstream call can follow local extraction; billing and usable advice are independent. */
+  async assessOne(input: FrameAssessmentInput): Promise<FrameAssessmentResult> {
+    let frames: Buffer[];
+    let duration: number;
+    try {
+      const video = await this.store.getVideo(input.mediaId);
+      duration = video.object.probe.durationSeconds;
+      frames = await this.extractFrames(video);
+    } catch { return { submission: 'notSubmitted' }; }
+    let answer: string;
+    try { answer = await this.judgeShot(input, frames, duration); }
+    catch (error) {
+      // ModelClient attaches callId to errors after dispatch. These codes are local preflight failures.
+      if (error instanceof ModelError && ['INVALID_REQUEST', 'INPUT_TOO_LARGE', 'MODEL_NOT_CONFIGURED',
+        'UNKNOWN_MODEL', 'EFFORT_UNSUPPORTED', 'LOCAL_BUSY'].includes(error.code) && !error.details.callId) {
+        return { submission: 'notSubmitted' };
+      }
+      return { submission: 'unknown' };
+    }
+    try { return { submission: 'answered', assessment: parseAssessment(answer, input.shotId, duration) }; }
+    catch { return { submission: 'answered', assessment: null }; }
   }
 
   /** 均匀抽 framesPerShot 帧（取 15%/50%/85% 位置），编码为 JPEG Buffer。 */
@@ -133,7 +160,7 @@ export class FrameAssessor {
     } finally { await rm(dir, { recursive: true, force: true }).catch(() => undefined); }
   }
 
-  private async judgeShot(input: FrameAssessmentInput, frames: Buffer[], durationSeconds: number): Promise<FrameShotAssessment> {
+  private async judgeShot(input: FrameAssessmentInput, frames: Buffer[], durationSeconds: number): Promise<string> {
     const content: Array<Record<string, unknown>> = [{
       type: 'text',
       text: `镜头：${input.label}\n分镜设计：${input.hint || '（无设计描述）'}\n原片时长：${durationSeconds.toFixed(2)} 秒\n下面是该镜头按时间顺序抽取的 ${frames.length} 帧。`,
@@ -143,7 +170,7 @@ export class FrameAssessor {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content },
     ], jsonOutput: true, allowPaid: true, maxOutputTokens: 1024 });
-    return parseAssessment(answer.text, input.shotId, durationSeconds);
+    return answer.text;
   }
 }
 
@@ -180,7 +207,7 @@ export function parseAssessment(text: string, shotId: string, durationSeconds: n
     return normalized;
 }
 
-function summarize(shots: readonly FrameShotAssessment[]): FrameAssessmentReport['summary'] {
+export function summarizeAssessments(shots: readonly FrameShotAssessment[]): FrameAssessmentReport['summary'] {
   return {
     pass: shots.filter(shot => shot.verdict === 'pass').length,
     weak: shots.filter(shot => shot.verdict === 'weak').length,
