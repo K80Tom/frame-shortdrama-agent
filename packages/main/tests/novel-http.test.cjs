@@ -4,6 +4,10 @@ const { createApp } = require('../dist/app');
 const { readConfig } = require('../dist/config');
 const { InMemoryNovelRepository } = require('../dist/novel/repository');
 const { NovelService } = require('../dist/novel/service');
+const { BreakdownService } = require('../dist/breakdown/service');
+const { InMemoryBreakdownRepository } = require('../dist/breakdown/repository');
+const { ProductionService } = require('../dist/production/service');
+const { MemoryProductionRepository } = require('../dist/production/repository');
 
 // Original test prose: these tests never download a published novel or call a model.
 const RAW_TEXT = '第一章 灯塔\r\n阿澄握着铜钥匙，站在灯塔外。😀\r\n“等雨停。”阿澄说。\r\n第二章 长廊\r\n夏禾把木匣放在长廊。\r\n“谁在那里？”她问。\r\n第三章 渡口\r\n阿澄在渡口接过纸船。\r\n“也许是他。”\r\n';
@@ -47,8 +51,11 @@ async function setup(handler = async request => completion(JSON.stringify(modelO
     return handler(parsed);
   };
   const repository = new InMemoryNovelRepository();
-  const service = new NovelService(repository, CONFIG, transport);
-  const app = await createApp(CONFIG, transport, options.unavailable ? {} : { novelService: service });
+  const scripts = new InMemoryBreakdownRepository();
+  const service = new NovelService(repository, CONFIG, transport, undefined, undefined, scripts);
+  const breakdownService = new BreakdownService(scripts, CONFIG);
+  const productionService = new ProductionService(new MemoryProductionRepository(), { sourceCatalog: breakdownService });
+  const app = await createApp(CONFIG, transport, options.unavailable ? {} : { novelService: service, breakdownService, productionService });
   const request = (method, url, payload) => app.inject({ method, url, headers,
     ...(payload === undefined ? {} : { payload }) });
   return { app, request, calls: () => calls, repository };
@@ -266,3 +273,55 @@ async function within(promise, milliseconds) {
     })]);
   } finally { clearTimeout(timeout); }
 }
+
+test('saved novel facts become an immutable script and only explicit run creation starts production', async t => {
+  const { app, calls, request } = await setup();
+  t.after(() => app.close());
+  const doc = await create(request);
+  const chapterId = doc.chapters[0].id;
+  const url = '/api/novels/' + doc.id + '/screenplay';
+  const seedRev = await seed(request, chapterId);
+  const chapters = [{ chapterId, revisionId: seedRev.id }];
+  assert.equal((await request('POST', url + '/preview', { chapters })).statusCode, 409, 'unprocessed quote seed');
+  const extracted = await request('POST', '/api/novel-chapters/' + chapterId + '/extract', { expectedRevisionId: seedRev.id, allowPaid: true });
+  assert.equal(extracted.statusCode, 201, extracted.body);
+  assert.equal((await request('POST', url + '/preview', { chapters })).statusCode, 409, 'superseded source version');
+  chapters[0].revisionId = body(extracted).id;
+  const preview = await request('POST', url + '/preview', { chapters });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const draft = body(preview);
+  assert.match(draft.rawText, /第1场 第一章 灯塔/);
+  assert.match(draft.rawText, /阿澄：等雨停。/);
+  assert.equal(draft.rawText.split('等雨停。').length, 2);
+  assert.match(draft.rawText, /铜钥匙/);
+  assert.match(draft.rawText, /😀/);
+  assert.doesNotMatch(draft.rawText, /第二章/);
+  assert.deepEqual(draft.source.chapters, chapters);
+  assert.equal((await request('POST', url + '/adopt', { chapters, digest: 'unreviewed' })).statusCode, 409);
+  assert.equal(body(await request('GET', '/api/projects')).items.length, 0);
+  const both = await Promise.all([1,2].map(() => request('POST', url + '/adopt', { chapters, digest: draft.digest })));
+  assert.equal(both[0].statusCode, 201, both[0].body);
+  assert.deepEqual(body(both[0]), body(both[1]));
+  const { projectId, scriptVersionId } = body(both[0]);
+  const project = body(await request('GET', '/api/projects/' + projectId));
+  assert.equal(project.currentScriptVersionId, scriptVersionId);
+  assert.equal(project.source.kind, 'novelAdaptation');
+  assert.deepEqual(project.source.chapters, chapters);
+  const stored = body(await request('GET', '/api/projects/' + projectId + '/script-versions/' + scriptVersionId));
+  assert.equal(stored.rawText, draft.rawText);
+  assert.equal(body(await request('GET', '/api/production-runs')).runs.length, 0);
+  assert.equal(body(await request('GET', '/api/novels/' + doc.id)).rawText, RAW_TEXT);
+  const run = { projectId, scriptVersionId, ratio: '9:16', targetDurationSec: 30, visualStyle: '水彩',
+    qualityPreset: 'balanced', automationMode: 'auto', candidatePolicy: 'direct', candidateLimit: 1,
+    directorPolicy: 'auto', budgetMicros: 5_000_000, currency: 'CNY', clientRequestId: 'novel-adaptation-test' };
+  assert.equal((await request('POST', '/api/production-runs', run)).statusCode, 400);
+  const confirmed = await request('POST', '/api/production-runs', { ...run, allowPaid: true });
+  assert.equal(confirmed.statusCode, 202, confirmed.body);
+  assert.equal(body(confirmed).scriptVersionId, scriptVersionId);
+  const edited = await request('POST', '/api/projects/' + projectId + '/script-versions', { rawText: '第一场 渡口\n阿澄重新核对了对白。' });
+  assert.equal(edited.statusCode, 201, edited.body);
+  assert.equal((await request('POST', url + '/adopt', { chapters, digest: draft.digest })).statusCode, 409,
+    're-adoption cannot reset an edited project to its original screenplay');
+  assert.equal((await request('GET', '/api/projects/' + projectId)).json().currentScriptVersionId, body(edited).id);
+  assert.equal(calls(), 1, 'only the explicit stubbed chapter extraction called a model');
+});

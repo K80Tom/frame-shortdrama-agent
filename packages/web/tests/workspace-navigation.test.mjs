@@ -4,10 +4,13 @@ import { createServer } from 'vite';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { routeFromHash } = await server.ssrLoadModule('/src/navigation.ts');
+const { routeFromHash, screenplayProductionHash } = await server.ssrLoadModule('/src/navigation.ts');
 const { applyHashNavigation } = await server.ssrLoadModule('/src/navigation-guard.ts');
 
 test('workspace routes preserve legacy flow links and safely decode project identities', () => {
+  const screenplay = { projectId: 'project_test', scriptVersionId: 'script_test' };
+  assert.deepEqual(routeFromHash(screenplayProductionHash(screenplay)).screenplay, screenplay);
+  assert.equal(routeFromHash('#/automation/from-script/project_test').screenplay, undefined);
   assert.deepEqual(routeFromHash('#step-5'), { page: 'flow', step: 5 });
   assert.deepEqual(routeFromHash('#/flow/9'), { page: 'flow', step: 9 });
   assert.deepEqual(routeFromHash('#/flow/99'), { page: 'flow', step: 1 });

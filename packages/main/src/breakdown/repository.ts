@@ -1,6 +1,9 @@
 import type { PoolClient, QueryResultRow } from "pg";
+import type { NovelAdaptationPreview, NovelAdaptationResult, NovelAdaptationSource } from '@lyra/shared';
 import {
   SOURCE_INDEX_SCHEMA_VERSION,
+  buildScriptSourceIndex,
+  createScriptVersion,
   sha256Utf8,
   type ScriptSourceIndex,
   type ScriptVersion,
@@ -17,7 +20,7 @@ export const INPUT_MANIFEST_SCHEMA_VERSION = "breakdown-input-manifest/1";
 export interface ProjectRecord {
   id: string;
   title: string;
-  source: CreateProjectRequest["source"] | null;
+  source: CreateProjectRequest["source"] | NovelAdaptationSource | null;
   currentScriptVersionId: string | null;
   activePlanRevisionId: string | null;
   activeStoryboardRevisionId: string | null;
@@ -167,6 +170,7 @@ export interface ExecutionSnapshot {
 }
 
 export interface BreakdownRepository {
+  saveNovelAdaptation(draft: NovelAdaptationPreview): Promise<NovelAdaptationResult>;
   createProject(input: CreateProjectRecordInput): Promise<ProjectRecord>;
   getProject(projectId: string): Promise<ProjectRecord | null>;
   listProjects(): Promise<ProjectRecord[]>;
@@ -212,7 +216,7 @@ export interface BreakdownRepository {
 interface ProjectRow extends QueryResultRow {
   id: string;
   title: string;
-  source_json: CreateProjectRequest["source"] | null;
+  source_json: ProjectRecord["source"];
   current_script_version_id: string | null;
   active_plan_revision_id: string | null;
   active_storyboard_revision_id: string | null;
@@ -327,9 +331,42 @@ const runColumns = `
   t.created_at AS task_created_at
 `;
 
+function novelAdaptationIds(draft: NovelAdaptationPreview): NovelAdaptationResult {
+  return { projectId: 'project_novel_' + draft.digest, scriptVersionId: 'script_novel_' + draft.digest };
+}
+function requireCurrentAdaptation(current: string | null | undefined, ids: NovelAdaptationResult) {
+  if (current !== ids.scriptVersionId) {
+    throw new BreakdownError(409, 'NOVEL_ADAPTATION_PROJECT_EDITED', '该剧本项目已有更新版本，请从自动制片页选择该项目的当前版本。');
+  }
+}
+
 /** PostgreSQL implementation.  It never starts a task or calls a model. */
 export class PostgresBreakdownRepository implements BreakdownRepository {
   constructor(private readonly database: PostgresDatabase) {}
+
+  async saveNovelAdaptation(draft: NovelAdaptationPreview): Promise<NovelAdaptationResult> {
+    const ids = novelAdaptationIds(draft);
+    const createdAt = new Date().toISOString();
+    return this.database.transaction(async client => {
+      // The project primary key serializes simultaneous adoptions of this exact preview.
+      const inserted = await client.query(
+        'INSERT INTO projects (id,title,source_json,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING',
+        [ids.projectId, draft.title, draft.source, createdAt],
+      );
+      if (inserted.rowCount === 1) {
+        const script = createScriptVersion({ id: ids.scriptVersionId, projectId: ids.projectId, version: 1, rawText: draft.rawText, createdAt });
+        await client.query(`INSERT INTO script_versions
+          (id,project_id,version,raw_text,content_sha256,source_index_json,created_at) VALUES ($1,$2,1,$3,$4,$5,$6)`,
+          [script.id, script.projectId, script.rawText, script.contentSha256, buildScriptSourceIndex(script), createdAt]);
+        await client.query('UPDATE projects SET current_script_version_id=$1 WHERE id=$2', [script.id, ids.projectId]);
+      } else {
+        const project = await client.query<{ current_script_version_id: string | null }>(
+          'SELECT current_script_version_id FROM projects WHERE id=$1 FOR SHARE', [ids.projectId]);
+        requireCurrentAdaptation(project.rows[0]?.current_script_version_id, ids);
+      }
+      return ids;
+    });
+  }
 
   async createProject(input: CreateProjectRecordInput): Promise<ProjectRecord> {
     const result = await this.database.query<ProjectRow>(`
@@ -824,6 +861,18 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
   private readonly checks = new Map<string, PlanCheckRecord>();
   private readonly issues = new Map<string, PlanIssueRecord>();
   private readonly adoptions = new Map<string, PlanAdoptionRecord>();
+
+  async saveNovelAdaptation(draft: NovelAdaptationPreview): Promise<NovelAdaptationResult> {
+    const ids = novelAdaptationIds(draft);
+    const existing = this.projects.get(ids.projectId);
+    if (existing) { requireCurrentAdaptation(existing.currentScriptVersionId, ids); return ids; }
+    const createdAt = new Date().toISOString();
+    const script = createScriptVersion({ id: ids.scriptVersionId, projectId: ids.projectId, version: 1, rawText: draft.rawText, createdAt });
+    this.scripts.set(script.id, { ...script, sourceIndex: buildScriptSourceIndex(script) });
+    this.projects.set(ids.projectId, { id: ids.projectId, title: draft.title, source: clone(draft.source),
+      currentScriptVersionId: script.id, activePlanRevisionId: null, activeStoryboardRevisionId: null, createdAt });
+    return ids;
+  }
 
   async createProject(input: CreateProjectRecordInput): Promise<ProjectRecord> {
     const project: ProjectRecord = {

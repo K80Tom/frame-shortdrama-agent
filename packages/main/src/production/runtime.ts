@@ -1,7 +1,8 @@
 import type { BreakdownServicePort } from '../breakdown/service';
+import { methodReference, MethodReferenceSpaceError } from '../prompt-packs/runtime';
 import type { ExtractFactsStageRunner } from '../breakdown/execution';
 import { BreakdownError, PaidModelExecutionError } from '../breakdown/errors';
-import type { PlanCheckRecord } from '../breakdown/quality';
+import { describePlanCheckFailure, type PlanCheckRecord } from '../breakdown/quality';
 import type { PlanRevisionRecord } from '../breakdown/plan';
 import type { StoryboardRevision, StoryboardService } from '../breakdown/storyboard';
 import { ProductionMediaError, type LocalVideoObject } from '../production-media/contracts';
@@ -61,7 +62,8 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
     const active = project.activePlanRevisionId ? await this.breakdown.getPlanRevision(project.activePlanRevisionId) : null;
     const alreadyAdopted = Boolean(active && active.scriptVersionId === run.scriptVersionId);
     return prepared('breakdown', { projectId: run.projectId, scriptVersionId: run.scriptVersionId,
-      visualStyle: run.visualStyle, ratio: run.ratio, targetDurationSec: run.targetDurationSec },
+      visualStyle: run.visualStyle, ratio: run.ratio, targetDurationSec: run.targetDurationSec,
+      methodReference: methodReference(run.methodPacks, 'breakdown') || undefined },
     this.options.estimateCostMicros, !alreadyAdopted, 'configured-text-model');
   }
 
@@ -92,7 +94,7 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       let draft = await this.breakdown.getRun(operation.providerTaskId);
       let plan: PlanRevisionRecord;
       if (draft.status === 'draft' && draft.task.state === 'pending') {
-        plan = (await this.runner.run(draft.id)).plan;
+        plan = (await this.runner.run(draft.id, methodReference(context.run.methodPacks, 'breakdown'))).plan;
         draft = await this.breakdown.getRun(draft.id);
       } else if (draft.status === 'waiting' && draft.task.state === 'waitingHuman') {
         const plans = await this.breakdown.listPlanRevisions(draft.id);
@@ -142,10 +144,14 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       scriptVersionId: plan.scriptVersionId, adopted: false, scenes: plan.content.scenes.length,
       characters: plan.content.characters.length, locations: plan.content.locations.length, props: plan.content.props.length,
     } };
-    if (check.result !== 'passed') return { state: 'waitingHuman', artifacts: [artifact], actualCostMicros,
-      qualityChecks: [{ level: 'episode', result: 'fail', ruleVersion: check.ruleVersion, summary: '拆解未通过确定性完整性检查', issues: check.issueIds }],
-      issue: { code: 'PLAN_CHECK_FAILED', title: '剧本拆解需要修正', message: '候选版本存在阻断问题，不能采用。',
-        severity: 'error', recommendedActions: ['打开拆解校对页修正候选', '重新检查后局部重试'] } };
+    if (check.result !== 'passed') {
+      const located = describePlanCheckFailure(await this.breakdown.listPlanIssues(check.id));
+      return { state: 'waitingHuman', artifacts: [artifact], actualCostMicros,
+        qualityChecks: [{ level: 'episode', result: 'fail', ruleVersion: check.ruleVersion, summary: '拆解未通过确定性完整性检查', issues: check.issueIds }],
+        issue: { code: 'PLAN_CHECK_FAILED', title: '剧本拆解需要修正', message: located.message,
+          severity: 'error', impact: located.impact,
+          recommendedActions: ['打开拆解校对页，按字段路径修正对应实体、场次或对白', '重新检查后再继续'] } };
+    }
     if (run.automationMode === 'auto') {
       if (project.activePlanRevisionId === plan.id) return this.adopted(plan, check, actualCostMicros);
       try {
@@ -178,7 +184,8 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
       alreadyAdopted = board.scriptVersionId === run.scriptVersionId && board.sourcePlanRevisionId === project.activePlanRevisionId;
     }
     return prepared('storyboard', { projectId: run.projectId, scriptVersionId: run.scriptVersionId,
-      activePlanRevisionId: project.activePlanRevisionId }, this.options.estimateCostMicros, !alreadyAdopted, 'configured-general-model');
+      activePlanRevisionId: project.activePlanRevisionId, methodReference: methodReference(run.methodPacks, 'storyboard') || undefined },
+      this.options.estimateCostMicros, !alreadyAdopted, 'configured-general-model');
   }
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
     const { run } = context;
@@ -190,7 +197,7 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
           return this.adopted(run, active, 0);
         }
       }
-      const candidate = await this.storyboards.generate(run.projectId);
+      const candidate = await this.storyboards.generate(run.projectId, undefined, methodReference(run.methodPacks, 'storyboard'));
       const actualCostMicros = context.operationKey ? this.options.estimateCostMicros : 0;
       if (run.automationMode === 'auto') {
         try { await this.storyboards.adopt(run.projectId, candidate.id, project.activeStoryboardRevisionId, 'agent'); }
@@ -323,7 +330,11 @@ export class VideoProductionExecutor implements ProductionExecutor {
       const request = await this.videoRequest(context, references, director, repair);
       const run = await this.videos.create(request);
       return await this.videoOutcome(run, context);
-    } catch (error) { return safeFailure(error, 'VIDEO_TASK_CREATE_FAILED', '镜头视频任务创建失败，未自动重试。'); }
+    } catch (error) {
+      if (error instanceof MethodReferenceSpaceError) return { state: 'blocked', actualCostMicros: 0,
+        issue: { code: 'PROMPT_PACK_INPUT_LIMIT', title: '镜头提示词过长', message: error.message, severity: 'error' } };
+      return safeFailure(error, 'VIDEO_TASK_CREATE_FAILED', '镜头视频任务创建失败，未自动重试。');
+    }
   }
   async reconcile(context: ProductionExecutionContext, operation: { providerTaskId: string | null }): Promise<ProductionExecutorOutcome> {
     if (!operation.providerTaskId) return { state: 'blocked', issue: { code: 'VIDEO_RUN_ID_MISSING', title: '视频任务无法对账',
@@ -347,11 +358,12 @@ export class VideoProductionExecutor implements ProductionExecutor {
     const coordinates = this.candidateCoordinates(task);
     const candidateDirections = ['保持表演克制、人物一致和镜头稳定', '在不改变构图关系的前提下增强运镜节奏',
       '在不改变实体设定的前提下增强光影层次', '保持连续性并强化叙事节奏'];
-    const prompt = [run.visualStyle, shot.design.visualDescription, `景别：${shot.design.shotSize}`,
+    const basePrompt = [run.visualStyle, shot.design.visualDescription, `景别：${shot.design.shotSize}`,
       `运镜：${shot.design.cameraMovement}`, '参考图片对应关系（按传入顺序）：', ...references.promptLines,
       '严格按照图片序号对应的已确认实体，保持人物、场景、服装和道具一致，不得互换身份。',
       `候选创作方向 ${coordinates.candidateIndex + 1}：${candidateDirections[coordinates.candidateIndex % candidateDirections.length]}`,
       ...director.promptLines, ...repair.promptLines].join('\n');
+    const prompt = basePrompt + methodReference(run.methodPacks, 'video', Math.min(4000, 8000 - basePrompt.length));
     return { prompt, ratio: run.ratio, duration: Math.max(4, Math.min(30, Math.ceil(shot.design.durationMs / 1000))),
       resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const, generateAudio: true,
       referenceAssetIds: references.assetIds,
@@ -491,6 +503,7 @@ export class VideoProductionExecutor implements ProductionExecutor {
       referenceAssetIds: [...references.assetIds], referencePromptLines: [...references.promptLines],
       directorSceneArtifactId: director.artifactId, directorPromptLines: [...director.promptLines],
       repairReportArtifactId: repair.artifactId, repairRound: repair.repairRound, repairPromptLines: [...repair.promptLines],
+      ...(run.methodPacks?.length ? { methodPacks: run.methodPacks.filter(pack => pack.nodes.includes('video')).map(pack => pack.digest) } : {}),
       candidate: this.candidateCoordinates(task), connectionRevision };
   }
 

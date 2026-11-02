@@ -19,6 +19,12 @@ export class NovelController {
   @Post('novels') create(@Body() body: unknown) { return this.ready().create(body); }
   @Get('novels/:id') get(@Param('id') id: string) { return this.ready().get(parseOpaqueId(id)); }
   @Get('novels/:id/entities') registry(@Param('id') id: string) { return this.ready().registry(parseOpaqueId(id)); }
+  @Post('novels/:id/screenplay/preview') preview(@Param('id') id: string, @Body() body: unknown) {
+    return this.ready().previewAdaptation(parseOpaqueId(id), body);
+  }
+  @Post('novels/:id/screenplay/adopt') adopt(@Param('id') id: string, @Body() body: unknown) {
+    return this.ready().adoptAdaptation(parseOpaqueId(id), body);
+  }
   @Get('novel-chapters/:id/revisions') async revisions(@Param('id') id: string) {
     return { revisions: await this.ready().revisions(parseOpaqueId(id)) };
   }
