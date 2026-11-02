@@ -177,11 +177,14 @@ test('asset child generates exactly one verified image, imports it, and exact re
     imageClientFactory: () => ({ async generateImage(input) { calls++; prompt = input.prompt;
       return { bytes: png(), mimeType: 'image/png', source: 'b64_json' }; } }) });
   const run = production(); const task = scopedTask(run, 'assets', { kind: 'asset', id: 'character_hero' });
+  run.methodPacks = [{ id: 'character-pack', nodes: ['character-image'], digest: 'c', excerpt: '保留颧骨特征' },
+    { id: 'other-pack', nodes: ['video'], digest: 'v', excerpt: '不应出现的推拉镜头' }];
   const firstPrepare = await executor.prepare({ run, task });
   assert.equal(firstPrepare.requiresPaid, true); assert.equal(firstPrepare.estimateCostMicros, 1_500_000);
   const outcome = await executor.execute(context(run, task, firstPrepare));
   assert.equal(outcome.state, 'succeeded'); assert.equal(outcome.actualCostMicros, 1_500_000); assert.equal(calls, 1);
   assert.match(prompt, /已核对的剧本事实/); assert.match(prompt, /沈玥/); assert.match(prompt, /写实雨夜/);
+  assert.match(prompt, /保留颧骨特征/); assert.doesNotMatch(prompt, /不应出现的推拉镜头/);
   const records = await assets.list(); assert.equal(records.length, 1); assert.match(records[0].resourceUrl, /^\/api\/assets\//);
   const replayPrepare = await executor.prepare({ run, task }); assert.equal(replayPrepare.requiresPaid, false);
   const replay = await executor.execute(context(run, task)); assert.equal(replay.state, 'succeeded'); assert.equal(calls, 1);
@@ -285,6 +288,48 @@ test('unrelated or cross-kind retrieval candidates do not suppress a genuinely m
   const prepared = await executor.prepare({ run, task }); assert.equal(prepared.requiresPaid, true);
   const outcome = await executor.execute(context(run, task, prepared));
   assert.equal(outcome.state, 'succeeded'); assert.equal(outcome.artifacts[0].metadata.generated, true); assert.equal(calls, 1);
+});
+
+test('a newer catalog name that only contains the entity name stays below the reuse gate', async () => {
+  const older = { id: 'asset_portrait', kind: 'character', name: '风衣女警立绘',
+    description: '年轻女警，穿深色风衣，冷色雨夜', resourceUrl: 'https://assets.test/portrait.png',
+    createdAt: '2020-01-01T00:00:00.000Z' };
+  const newer = { id: 'asset_sister', kind: 'character', name: '沈玥的姐姐',
+    description: '另一位亲属', resourceUrl: 'https://assets.test/sister.png',
+    createdAt: '2026-10-01T00:00:00.000Z' };
+  const query = { kind: 'character', name: '沈玥', aliases: ['小玥'], description: '年轻女警，穿深色风衣' };
+  const ranked = retrieveAssetForGeneration(query, [older, newer]);
+  assert.equal(ranked.status, 'unique');
+  assert.equal(ranked.asset.id, older.id);
+  const sisterScore = ranked.candidates.find(item => item.asset.id === newer.id);
+  assert.ok(sisterScore);
+  assert.ok(sisterScore.score < ASSET_RETRIEVAL_THRESHOLD);
+
+  const sisterOnly = retrieveAssetForGeneration(query, [newer]);
+  assert.equal(sisterOnly.asset, null);
+  assert.equal(sisterOnly.status, 'below_threshold');
+  assert.ok(sisterOnly.score < ASSET_RETRIEVAL_THRESHOLD);
+
+  const shorter = { id: 'asset_short', kind: 'character', name: '林晚', description: '另一人',
+    resourceUrl: 'https://assets.test/short.png', createdAt: '2026-11-01T00:00:00.000Z' };
+  const contained = retrieveAssetForGeneration({ kind: 'character', name: '林晚晴', aliases: [],
+    description: '完全不同的路人说明' }, [shorter]);
+  assert.equal(contained.asset, null);
+  assert.equal(contained.status, 'below_threshold');
+
+  const r = readers(); const assets = new AssetService(new InMemoryAssetRepository());
+  await assets.create({ kind: 'character', name: '沈玥的姐姐', description: '另一位亲属',
+    resourceUrl: 'https://assets.test/sister.png' });
+  const executor = new AssetsProductionExecutor({ ...r, assets, config: config(), imageClientFactory: () => ({
+    async generateImage() { throw new Error('episode match must not generate'); },
+  }) });
+  const run = production();
+  const episode = await executor.execute(context(run, run.tasks.find(item => item.stage === 'assets')));
+  assert.equal(episode.state, 'succeeded');
+  const binding = episode.artifacts[0].metadata.bindings.find(item => item.entityId === 'character_hero');
+  assert.equal(binding.assetId, null);
+  assert.equal(binding.ambiguous, false);
+  assert.ok(episode.spawnTasks.some(item => item.scope.id === 'character_hero'));
 });
 
 test('structured retrieval exposes bounded terms and rejects tautological low-confidence matches', () => {

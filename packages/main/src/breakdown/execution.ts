@@ -87,6 +87,7 @@ export interface StageEvidence {
 }
 
 export interface ExtractFactsStageContext {
+  methodReference?: string;
   schemaVersion: typeof EXTRACT_FACTS_CONTEXT_VERSION;
   runId: string;
   taskId: string;
@@ -174,7 +175,7 @@ export class ExtractFactsStageRunner {
     this.targetEstimatedTokens = options.targetEstimatedTokens ?? 4_000;
   }
 
-  async run(runId: string): Promise<ExtractFactsRunResult> {
+  async run(runId: string, methodReference = ""): Promise<ExtractFactsRunResult> {
     const run = await this.service.getRun(runId);
     const model = findModel(run.modelConfig.model);
     if (!this.adapter.forRun && (run.modelConfig.provider !== "maas" || !model || !model.reasoningEfforts.includes(run.modelConfig.reasoningEffort))) {
@@ -185,7 +186,9 @@ export class ExtractFactsStageRunner {
     const script = await this.repository.getScriptVersion(run.projectId, run.scriptVersionId);
     if (!script) throw new BreakdownError(409, "SCRIPT_VERSION_UNAVAILABLE", "执行所需剧本版本不可用。");
     const built = buildExtractFactsStageContext(run, script, this.targetEstimatedTokens);
+    if (methodReference) built.context.methodReference = methodReference;
     const inputDigest = canonicalJsonSha256({
+      ...(methodReference ? { methodReference } : {}),
       contextVersion: EXTRACT_FACTS_CONTEXT_VERSION,
       promptVersion: EXTRACT_FACTS_PROMPT_VERSION,
       executorVersion: this.executor.version,
@@ -262,11 +265,6 @@ export class ExtractFactsStageRunner {
             `[breakdown] extract-facts ledger write failed after the model returned` +
               ` (model=${run.modelConfig.model}, provider=${run.modelConfig.provider}, error=${errorName})`,
           );
-          try {
-            console.error(`[breakdown] raw model output: ${JSON.stringify(result.output).slice(0, 40_000)}`);
-          } catch {
-            console.error("[breakdown] raw model output could not be serialized");
-          }
           throw new BreakdownError(
             503,
             "MODEL_CALL_LEDGER_UNAVAILABLE",
@@ -297,12 +295,9 @@ export class ExtractFactsStageRunner {
         // violation report, the previous output and the evidence catalog back
         // for one bounded correction, then re-validate just as strictly.
         if (!(validation instanceof BreakdownError) || validation.status !== 422) throw validation;
-        // Server-side post-mortem trail: keep the raw (paid) model output in
-        // the log so validation failures can be debugged without re-paying.
-        console.error(
-          `[breakdown] extract-facts validation failed (attempt ${attempt.id}): ${validation.message}\n` +
-          `[breakdown] raw model output: ${JSON.stringify(rawOutput).slice(0, 40_000)}`,
-        );
+        // The candidate may echo private scripts or method excerpts. The model call
+        // record already owns the replayable result; keep only its diagnostic here.
+        console.error(`[breakdown] extract-facts validation failed (attempt ${attempt.id}): ${validation.code}`);
         const evidenceCatalog = [...built.aliases.entries()].map(([key, entry]) => ({
           chunkId: key.slice(0, key.indexOf(":")),
           alias: entry.alias,
@@ -322,6 +317,7 @@ export class ExtractFactsStageRunner {
                 ruleViolationReport: validation.message,
                 previousOutput: rawOutput,
                 evidenceCatalog,
+                ...(methodReference ? { methodReference } : {}),
               }),
             }],
           });

@@ -74,6 +74,37 @@ test('refresh selects newest saved manual revision for current script, not newes
   assert.equal(latestPlanForScript(plans, null), null);
 });
 
+test('alias edits keep untouched source spellings and ignore a trailing blank line', async () => {
+  const facts = content();
+  facts.characters[0].name.value = ' 林晚 ';
+  facts.characters[0].aliases = [value(' 小晚 '), value('晚晚')];
+  const added = createEntityDrafts(facts);
+  added['character:character_1'].aliases = ' 小晚 \n\n晚晚\r\n小晚同学';
+  const [edit] = buildEntityEdits(facts, added);
+  assert.equal(edit.name, ' 林晚 ');
+  assert.deepEqual(edit.aliases, [' 小晚 ', '晚晚', '小晚同学']);
+  assert.deepEqual(changedEntityFields(facts.characters[0], added['character:character_1']), ['aliases']);
+
+  const blankLine = createEntityDrafts(facts);
+  blankLine['character:character_1'].aliases = ' 小晚 \n晚晚\n';
+  assert.deepEqual(buildEntityEdits(facts, blankLine), []);
+  assert.deepEqual(changedEntityFields(facts.characters[0], blankLine['character:character_1']), []);
+
+  const rewritten = createEntityDrafts(facts);
+  rewritten['character:character_1'].aliases = '小晚\n晚晚';
+  assert.deepEqual(buildEntityEdits(facts, rewritten)[0].aliases, ['小晚', '晚晚']);
+  const reordered = createEntityDrafts(facts);
+  reordered['character:character_1'].aliases = '晚晚\n 小晚 ';
+  assert.deepEqual(buildEntityEdits(facts, reordered)[0].aliases, ['晚晚', ' 小晚 ']);
+
+  const { default: FactsEditor } = await server.ssrLoadModule('/src/FactsEditor.tsx');
+  const plan = { id: 'plan_pad', content: { ...facts, scenes: [], dialogues: [], synopsis: null, manualLocks: [] } };
+  const html = renderToStaticMarkup(createElement(FactsEditor, { plan, drafts: blankLine, disabled: false, onChange() {} }));
+  assert.doesNotMatch(html, /尚未保存/);
+  assert.doesNotMatch(html, /待保存修改/);
+  assert.match(html, /已保存/);
+});
+
 test('opening source text with whitespace does not create silent manual edits', () => {
   const facts = content();
   facts.characters[0].name.value = ' 林晚 ';

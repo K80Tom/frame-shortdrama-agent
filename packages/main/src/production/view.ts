@@ -29,20 +29,24 @@ export function publicProductionRun(input: StoredProductionRun) {
     + (entry.kind === 'reserve' ? entry.amountMicros : 0)
     - (entry.kind === 'charge' || entry.kind === 'release' ? entry.amountMicros : 0), 0));
   const spentMicros = run.budgetLedger.filter(entry => entry.kind === 'charge').reduce((sum, entry) => sum + entry.amountMicros, 0);
+  const frameAssessmentEstimateMicros = run.budgetLedger.filter(entry => entry.kind === 'charge' && entry.basis === 'frameAssessmentCeiling')
+    .reduce((sum, entry) => sum + entry.amountMicros, 0);
   const completedTasks = relevantTasks.filter(done).length;
   const stages = productionStageOrder.map(key => {
     const tasks = relevantTasks.filter(task => task.stage === key);
     return { key, label: productionStageLabels[key], state: stageState(tasks),
       completed: tasks.filter(done).length, total: tasks.length, needsAttention: tasks.filter(attention).length };
   });
-  return { ...run,
+  const { methodPacks, ...publicRun } = run;
+  return { ...publicRun,
+    ...(methodPacks ? { methodPacks: methodPacks.map(({ id, digest, nodes }) => ({ id, digest, nodes })) } : {}),
     summary: {
       tasks: { completed: completedTasks, total: relevantTasks.length,
         running: relevantTasks.filter(active).length, waitingHuman: relevantTasks.filter(task => task.status === 'waitingHuman').length,
         failed: relevantTasks.filter(task => task.status === 'failed').length },
       shots: { completed: shotMatrix.filter(shot => shot.completed).length, total: shotMatrix.length },
       issues: { open: openIssues.length, total: run.issues.length },
-      budget: { limitMicros: run.budgetMicros, reservedMicros, spentMicros, currency: run.currency },
+      budget: { limitMicros: run.budgetMicros, reservedMicros, spentMicros, frameAssessmentEstimateMicros, currency: run.currency },
     }, stages, shotMatrix, inbox: openIssues,
   };
 }

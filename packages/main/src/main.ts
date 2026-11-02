@@ -75,6 +75,7 @@ function summarizeRun(run: unknown): Record<string, unknown> {
 const PRODUCTION_COST_CEILINGS = Object.freeze({
   breakdown: 2_000_000,
   storyboard: 2_000_000,
+  frameAssessment: 2_000_000,
   image: 2_000_000,
   video: 5_000_000,
 });
@@ -112,6 +113,11 @@ async function main() {
     database = new PostgresDatabase(databaseConfig);
     try {
       await database.verifyConnection();
+      if (await database.hasMigrations(['020', '021'])) {
+        promptPacksService = new PromptPackService(
+          new PostgresPromptPackStateRepository(database), new PostgresPromptPackImportRepository(database),
+        );
+      }
       if (await database.hasMigrations(['009'])) {
         assetService = new AssetService(new PostgresAssetRepository(database), await database.hasMigrations(['010']));
       }
@@ -123,7 +129,8 @@ async function main() {
         ? new PostgresDesktopTaskRepository(database) : undefined;
       if (await database.hasMigrations(['008'])) {
         novelService = new NovelService(new PostgresNovelRepository(database), config, fetch, assetService,
-          desktopJobs && assetService ? new DesktopCandidateAssetPolicy(desktopJobs, assetService) : undefined);
+          desktopJobs && assetService ? new DesktopCandidateAssetPolicy(desktopJobs, assetService) : undefined,
+          await database.hasMigrations(BREAKDOWN_PERSISTENCE_MIGRATIONS) ? new PostgresBreakdownRepository(database) : undefined);
       }
       if (novelService && assetService && desktopJobs && await database.hasMigrations(['010'])) {
         desktopAssetService = new DesktopAssetService(desktopJobs,
@@ -154,13 +161,8 @@ async function main() {
         if (await database.hasMigrations(['019'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
         }
-        if (await database.hasMigrations(['020', '021'])) {
-          promptPacksService = new PromptPackService(
-            new PostgresPromptPackStateRepository(database),
-            new PostgresPromptPackImportRepository(database),
-          );
-        }
         productionService = new ProductionService(productionRepository, {
+          methodPacks: promptPacksService && ((project) => promptPacksService!.freeze(project)),
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
           sourceCatalog: breakdownService,
           executors: [
@@ -178,12 +180,11 @@ async function main() {
             new ReviewProductionExecutor(productionMediaStore),
             new ComposeProductionExecutor(timelineComposer, {
               resolveProjectTitle: projectId => breakdown.getProject(projectId).then(project => project.title),
-              // 合成前的镜头抽帧评估：默认开启，可用 Lyra_FRAME_ASSESSMENT=0 关闭；
-              // 评估器内部任何失败都会降级为“无剪辑指令”，不会阻塞已付费的成片。
-              ...(process.env.Lyra_FRAME_ASSESSMENT === '0' ? {} : {
-                assessFrames: new FrameAssessor(productionMediaStore, mediaRunner,
-                  { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
-                  'ffmpeg', { framesPerShot: 2 }),
+              ...((process.env.Lyra_FRAME_ASSESSMENT ?? process.env.OHAO_FRAME_ASSESSMENT) === '0' ? {} : {
+                frameAssessment: { ceilingMicrosPerShot: PRODUCTION_COST_CEILINGS.frameAssessment,
+                  assessor: new FrameAssessor(productionMediaStore, mediaRunner,
+                    { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
+                    'ffmpeg', { framesPerShot: 2 }) },
               }),
             }),
             new DeliveryProductionExecutor(productionMediaStore),
