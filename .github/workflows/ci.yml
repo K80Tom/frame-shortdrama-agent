@@ -9,6 +9,8 @@ on:
       - "docs/**"
       - "*.md"
       - ".github/workflows/ci.yml"
+  pull_request_review:
+    types: [submitted, dismissed]
   push:
     branches: [main, dev]
     paths:
@@ -87,69 +89,59 @@ jobs:
           gh pr comment "$PR_NUMBER" --body "PR Autopilot：目标分支已从 main 自动切换到 dev。"
 
   autopilot:
-    name: PR Autopilot
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'dev'
+    name: PR Safety Gate
+    if: github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'dev'
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
+      pull-requests: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      HUMAN_REVIEWERS: 255308153,VerCurL,jbgz-2001,Rennenghui,yeyy-ppp
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: "Guard: conflicts, size, protected paths"
+      - name: "Guard: conflicts and current human approval"
         id: guard
         run: |
           set -euo pipefail
-          gh pr view "$PR_NUMBER" --json isDraft,mergeable,additions,deletions,files > /tmp/pr.json
+          gh pr view "$PR_NUMBER" --json isDraft,mergeable,author,headRefOid > /tmp/pr.json
+          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews?per_page=100" > /tmp/reviews.json
           python3 - <<'PY' > /tmp/guard.txt
           import json
+          import os
 
-          d = json.load(open('/tmp/pr.json'))
+          pull = json.load(open('/tmp/pr.json'))
+          reviews = json.load(open('/tmp/reviews.json'))
           reasons = []
 
-          if d.get('mergeable') != 'MERGEABLE':
-              reasons.append('分支有冲突或合并状态未知：' + str(d.get('mergeable')))
+          if pull.get('mergeable') != 'MERGEABLE':
+              reasons.append('分支有冲突或合并状态未知：' + str(pull.get('mergeable')))
 
-          print('OK' if not reasons else 'BLOCK: ' + '；'.join(sorted(set(reasons))[:6]))
+          allowed = {name.casefold() for name in os.environ['HUMAN_REVIEWERS'].split(',') if name}
+          author = (pull.get('author') or {}).get('login', '').casefold()
+          head = pull.get('headRefOid')
+          latest = {}
+          for review in reviews:
+              login = ((review.get('user') or {}).get('login') or '').casefold()
+              if login:
+                  latest[login] = review
+          approved = [login for login, review in latest.items()
+                      if login in allowed and login != author
+                      and review.get('state') == 'APPROVED'
+                      and review.get('commit_id') == head]
+          if not approved:
+              reasons.append('当前 head 缺少默认审核人中的非作者 APPROVED review')
+
+          print('READY' if not reasons else 'BLOCK: ' + '；'.join(sorted(set(reasons))[:6]))
           PY
           RESULT="$(cat /tmp/guard.txt)"
           echo "reason=$RESULT" >> "$GITHUB_OUTPUT"
-          if [ "$RESULT" = "OK" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: AI review (optional)
-        id: review
-        if: steps.guard.outputs.ok == 'true'
-        continue-on-error: true
-        env:
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_DEFAULT_MODEL: ${{ secrets.LLM_DEFAULT_MODEL }}
-        run: python3 .github/scripts/pr_ai_review.py
-
-      - name: Merge when safe
-        if: steps.guard.outputs.ok == 'true' && steps.review.outputs.should_merge != 'false'
-        run: |
-          set -euo pipefail
-          if gh pr merge "$PR_NUMBER" --squash; then
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：测试通过、无冲突，已自动 squash 合并到 dev。"
-          else
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：条件满足，但合并被分支保护规则拦下。请人工处理。"
-            exit 1
-          fi
-
-      - name: Comment when blocked
-        if: steps.guard.outputs.ok != 'true'
-        run: |
-          gh pr comment "$PR_NUMBER" --body "PR Autopilot：未自动合并，原因：${{ steps.guard.outputs.reason }}。已留待人工处理。"
+          {
+            echo "## PR Safety Gate"
+            echo
+            echo "$RESULT"
+            echo
+            echo "This workflow never merges or approves a pull request. The repository PR manager performs the final squash merge only after all gates pass."
+          } >> "$GITHUB_STEP_SUMMARY"
