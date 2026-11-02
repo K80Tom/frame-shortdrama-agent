@@ -35,7 +35,9 @@ export function publicProductionRun(input: StoredProductionRun) {
     return { key, label: productionStageLabels[key], state: stageState(tasks),
       completed: tasks.filter(done).length, total: tasks.length, needsAttention: tasks.filter(attention).length };
   });
-  return { ...run,
+  const { methodPacks, ...publicRun } = run;
+  return { ...publicRun,
+    ...(methodPacks ? { methodPacks: methodPacks.map(({ id, digest, nodes }) => ({ id, digest, nodes })) } : {}),
     summary: {
       tasks: { completed: completedTasks, total: relevantTasks.length,
         running: relevantTasks.filter(active).length, waitingHuman: relevantTasks.filter(task => task.status === 'waitingHuman').length,

@@ -221,6 +221,8 @@ function videoFixture() {
 
 test('video adapter submits once, reconciles, and exposes only verified local media metadata', async () => {
   const f = videoFixture(); let creates = 0; let ingests = 0; let createdRequest;
+  f.run.methodPacks = [{ id: 'video-pack', digest: 'v', nodes: ['video'], excerpt: '用固定机位构图' },
+    { id: 'image-only', digest: 'i', nodes: ['character-image'], excerpt: '排除的角色生图方法' }];
   const pending = { id: 'video_run_1', status: 'waitingExternal', model: 'video-model', modelConnectionRevision: 'revision_1', result: null, error: null };
   const completed = { ...pending, status: 'completed', result: { videoUrl: 'https://cdn.example.com/video.mp4' } };
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
@@ -235,6 +237,10 @@ test('video adapter submits once, reconciles, and exposes only verified local me
   assert.deepEqual(createdRequest.referenceAssetIds, [ASSET_ONE, ASSET_TWO]);
   assert.match(createdRequest.prompt, /图片1：角色「林晚」、道具「雨伞」/);
   assert.match(createdRequest.prompt, /3D 白模构图约束/);
+  assert.match(createdRequest.prompt, /用固定机位构图/);
+  assert.doesNotMatch(createdRequest.prompt, /排除的角色生图方法/);
+  const { publicVideoRun } = require('../dist/video-automation/contracts');
+  assert.doesNotMatch(publicVideoRun({ ...createdRequest, status: 'queued' }).prompt, /用固定机位构图/);
   assert.match(createdRequest.prompt, /人物站位：林晚/);
   const outcome = await executor.reconcile(ctx, { providerTaskId: pending.id });
   assert.equal(outcome.state, 'succeeded'); assert.equal(creates, 1); assert.equal(ingests, 1);
@@ -250,6 +256,21 @@ test('video adapter submits once, reconciles, and exposes only verified local me
   assert.equal(artifact.metadata.directorConstraintMode, 'prompt-only');
   assert.equal(artifact.metadata.directorSceneArtifactId, 'artifact_director_scene');
   assert.equal('remoteTemporaryUrl' in artifact.metadata, false);
+});
+
+test('insufficient video prompt room blocks before calling the adapter and releases the estimate', async () => {
+  const { run, task, project, board } = videoFixture();
+  board.shots[0].design.visualDescription = '满'.repeat(7950);
+  run.methodPacks = [{ id: 'video', nodes: ['video'], digest: 'v', excerpt: '长镜头' }];
+  let calls = 0;
+  const executor = new VideoProductionExecutor({ getProject: async () => project }, { get: async () => board }, {
+    status: async () => ({ available: true, connectionRevision: 'revision_1' }),
+    create: async () => { calls++; throw Error(); },
+  }, { estimateCostMicros: 500, mediaIngestor: { ingestProviderUrl: async () => localVideo() } });
+  const prepared = await executor.prepare({ run, task });
+  const result = await executor.execute(context(run, 'video', { task, inputDigest: prepared.inputDigest }));
+  assert.equal(result.state, 'blocked'); assert.equal(result.issue.code, 'PROMPT_PACK_INPUT_LIMIT');
+  assert.equal(result.actualCostMicros, 0); assert.equal(calls, 0);
 });
 
 test('video localization retry reuses the completed provider run without another paid submission', async () => {

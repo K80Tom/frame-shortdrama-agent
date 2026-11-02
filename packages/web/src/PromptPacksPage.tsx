@@ -12,9 +12,13 @@ import {
   type PromptPackItem,
 } from './prompt-packs';
 import './prompt-packs.css';
+import type { MethodNode } from '@lyra/shared';
 
 const STAGE_ORDER = ['topic', 'adaptation', 'character', 'episode-outline', 'script', 'script-review', 'storyboard', 'video-prompt', 'production'];
 const MAX_CONTENT_BYTES = 512 * 1024;
+const NODE_LABELS: Record<MethodNode, string> = {
+  breakdown: '事实拆解', 'character-image': '角色生图', storyboard: '分镜生成', video: '镜头视频',
+};
 
 type Props = { notify: (text: string) => void };
 
@@ -232,7 +236,7 @@ export default function PromptPacksPage({ notify }: Props) {
       <div>
         <span className="methods-kicker">METHOD LIBRARY</span>
         <h1>方法包</h1>
-        <p>第三方短剧方法论文本，按阶段注册；默认全部关闭，只在审稿等阶段显式启用后才进入提示词。也可以导入自己的方法。</p>
+        <p>新建制片时锁定已启用的方法。仅在对应节点发起模型请求时附上参考节选；手动拆解和生成分镜采用当次设置。</p>
       </div>
       <div className="methods-head-actions">
         <span className="methods-stat"><strong>{packs.length}</strong> 个包 · <strong>{enabledCount}</strong> 已启用</span>
@@ -279,6 +283,9 @@ export default function PromptPacksPage({ notify }: Props) {
                   {pack.origin === 'imported' && <span className="methods-self">自导入</span>}
                 </div>
                 <p>{pack.summary || '（来源仓库未提供摘要）'}</p>
+                <p>{pack.runtimeNodes?.length
+                  ? `生效节点 · ${pack.runtimeNodes.map(node => NODE_LABELS[node]).join('、')}${pack.stages.includes('adaptation') ? '（改编标签仅用于小说改编项目的事实核对）' : ''}`
+                  : '仅供查阅 · 当前没有匹配的生成节点或可注入正文'}</p>
                 <div className="methods-card-meta">
                   <span className="methods-license">{pack.license || '未声明'}</span>
                   <span className={`methods-quality ${pack.quality === 'evaluated' ? 'evaluated' : ''}`}>
@@ -293,7 +300,7 @@ export default function PromptPacksPage({ notify }: Props) {
                 role="switch"
                 aria-checked={pack.enabled}
                 aria-label={`${pack.enabled ? '停用' : '启用'} ${pack.name}`}
-                disabled={saving.includes(pack.id)}
+                disabled={saving.includes(pack.id) || (!pack.enabled && !pack.runtimeNodes?.length)}
                 onClick={() => void toggle(pack)}
               ><i /></button>
             </article>)}
@@ -332,7 +339,7 @@ export default function PromptPacksPage({ notify }: Props) {
           </div>
           <button className="methods-close" onClick={closeImport} aria-label="关闭导入"><X size={16} /></button>
         </div>
-        <p className="methods-modal-hint">把你自己的方法论文本（SKILL.md、提示词、流程笔记）注册进来。导入后默认关闭，只有打开开关才会进入审稿提示词。</p>
+        <p className="methods-modal-hint">导入后默认关闭。启用时，匹配的生成节点会把正文开头最多 4000 字的节选发送给已配置的模型。每个节点最多 8 个包，多包平分参考长度。选题标签目前仅供查阅。</p>
         <div className="methods-modal-body">
           <label className="methods-field">
             <span>名称 <i>必填</i></span>

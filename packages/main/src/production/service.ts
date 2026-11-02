@@ -1,7 +1,7 @@
 import {
   ProductionError, canonicalDigest, parseCreateProductionRun, parseProductionAction, parseProductionReview,
   parseProductionRunId, productionId, sameProductionRequest, type BudgetEntry, type CandidateSet,
-  type FrozenAssetRetrievalPolicy,
+  type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
 } from '@lyra/shared';
@@ -25,6 +25,7 @@ export interface ProductionServiceOptions {
   sourceCatalog?: ProductionSourceCatalog;
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
+  methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
 }
 
 const terminal = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -53,6 +54,7 @@ export class ProductionService {
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
   private readonly sourceCatalog?: ProductionSourceCatalog;
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
+  private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
   private timer: NodeJS.Timeout | null = null;
   private tickTail: Promise<void> = Promise.resolve();
 
@@ -61,6 +63,7 @@ export class ProductionService {
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
+    this.methodPacks = options.methodPacks;
     for (const executor of [new ProductionPreflightExecutor(), ...(options.executors ?? [])]) this.executors.set(executor.stage, executor);
   }
 
@@ -74,12 +77,12 @@ export class ProductionService {
       if (!sameProductionRequest(existing, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
       return publicProductionRun(existing);
     }
-    if (this.sourceCatalog) {
-      await this.sourceCatalog.getProject(input.projectId);
-      await this.sourceCatalog.getScriptVersion(input.projectId, input.scriptVersionId);
-    }
+    const project = await this.sourceCatalog?.getProject(input.projectId);
+    await this.sourceCatalog?.getScriptVersion(input.projectId, input.scriptVersionId);
     const policy = this.assetRetrievalPolicy ? await this.assetRetrievalPolicy() : undefined;
-    const created = await this.repository.create(compileProductionRun(input, this.timestamp(), undefined, policy));
+    const draft = compileProductionRun(input, this.timestamp(), undefined, policy);
+    if (this.methodPacks) draft.methodPacks = await this.methodPacks(project);
+    const created = await this.repository.create(draft);
     if (!sameProductionRequest(created, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
     return publicProductionRun(created);
   }
