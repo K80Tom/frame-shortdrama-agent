@@ -9,6 +9,7 @@ const { readDatabaseConfig } = require('../dist/db/config');
 const { readConfig } = require('../dist/config');
 const { PostgresNovelRepository } = require('../dist/novel/repository');
 const { NovelService } = require('../dist/novel/service');
+const { countNovelParagraphs, novelCheckpointGate } = require('@lyra/shared');
 const db = new PostgresDatabase(readDatabaseConfig());
 const repository = new PostgresNovelRepository(db);
 const service = new NovelService(repository, readConfig());
@@ -25,17 +26,17 @@ repository.saveRevision = async (revision, expected) => {
 try {
   for (const entry of state.chapters.filter(c => c.errorCode)) {
     if (entry.attempt?.status !== 'failed') throw new Error('未知或未结束调用不能直接重新提交。');
-    const checkpoint = entry.revisions.filter(r => ['extract', 'extract,scan'].includes(r.content.analysis?.calls.map(c => c.stage).join(','))
-      && (r.content.analysis.calls.length === 1 || r.content.analysis.paragraphCoverage.length > 0))
-      .sort((a, b) => b.content.analysis.calls.length - a.content.analysis.calls.length)[0];
-    if (!checkpoint) throw new Error('没有可继续的完整检查点。');
     const current = await service.get(state.source.id);
+    const chapter = current.chapters.find(item => item.id === entry.chapter.id);
+    const stored = await service.revisions(chapter.id);
+    const gate = novelCheckpointGate(stored, chapter.latestRevisionId, countNovelParagraphs(current, chapter));
+    if (!gate.resumeRevisionId) throw new Error('没有可继续的完整检查点。');
     entry.previousAttempts ??= []; entry.previousAttempts.push(entry.attempt);
     entry.previousErrors ??= []; entry.previousErrors.push({ code: entry.errorCode, details: entry.error });
     entry.errorCode = null; entry.error = null;
     try {
-      await service.extract(entry.chapter.id, { expectedRevisionId: current.chapters.find(c => c.id === entry.chapter.id).latestRevisionId,
-        allowPaid: true, mode: 'reviewed', resumeRevisionId: checkpoint.id });
+      await service.extract(entry.chapter.id, { expectedRevisionId: chapter.latestRevisionId,
+        allowPaid: true, mode: 'reviewed', resumeRevisionId: gate.resumeRevisionId });
     } catch (error) {
       entry.errorCode = error.code ?? 'RESUME_FAILED'; entry.error = { message: error.message, details: error.details };
       console.log(JSON.stringify({ chapter: entry.chapter.order, errorCode: entry.errorCode, error: entry.error }));

@@ -1,4 +1,5 @@
 import type { NovelChapter, NovelEvidence, NovelItem, NovelRevision, NovelSource } from '@lyra/shared';
+import { countNovelParagraphs } from '../../shared/src/novel-checkpoint.ts';
 
 export type { NovelChapter, NovelEvidence, NovelItem, NovelRevision, NovelSource };
 export type NovelKind = NovelItem['kind'];
@@ -156,6 +157,38 @@ export function validateNovelDraft(source: NovelSource, chapter: NovelChapter, i
     if (item.review === 'confirmed' && block) errors.push(`${name}不能标为已确认：${block}`);
   }
   return [...new Set(errors)];
+}
+
+export type NovelExtractIntent = 'fresh' | 'resume' | 'restart';
+
+export function novelParagraphCount(source: NovelSource, chapter: NovelChapter): number {
+  return countNovelParagraphs(source, chapter);
+}
+
+/** Paid extract buttons. A saved checkpoint continues; a fresh run must say so. */
+export function novelExtractActions(input: {
+  tooLong: boolean; mode: 'single' | 'reviewed'; checkpointId: string | null; hasRevision: boolean;
+}): { blocked: boolean; primaryLabel: string; primaryIntent: NovelExtractIntent; restartLabel: string | null } {
+  const freshLabel = input.hasRevision ? '重新提取本章（新版本）' : '提取本章人物、场景、道具与对白';
+  if (input.tooLong) return { blocked: true, primaryLabel: freshLabel, primaryIntent: 'fresh', restartLabel: null };
+  if (input.checkpointId && input.mode === 'reviewed') {
+    return { blocked: false, primaryLabel: '从检查点继续', primaryIntent: 'resume', restartLabel: '放弃检查点并重新提取' };
+  }
+  return { blocked: false, primaryLabel: freshLabel, primaryIntent: input.checkpointId ? 'restart' : 'fresh', restartLabel: null };
+}
+
+/** Body for one paid chapter extract. Omits restart confirmation when no checkpoint exists. */
+export function novelExtractPayload(input: {
+  expectedRevisionId: string | null; mode: 'single' | 'reviewed';
+  checkpointId: string | null; intent: NovelExtractIntent;
+}): Record<string, unknown> {
+  if (input.checkpointId && input.intent === 'fresh') throw new Error('已有检查点时必须明确继续或放弃。');
+  if (input.intent === 'resume') {
+    if (input.mode !== 'reviewed' || !input.checkpointId) throw new Error('没有可继续的多阶段检查点。');
+    return { expectedRevisionId: input.expectedRevisionId, allowPaid: true, mode: 'reviewed', resumeRevisionId: input.checkpointId };
+  }
+  return { expectedRevisionId: input.expectedRevisionId, allowPaid: true, mode: input.mode,
+    ...(input.intent === 'restart' ? { confirmRestart: true } : {}) };
 }
 
 /** A late request must never replace the state of a later chapter or an unmounted editor. */

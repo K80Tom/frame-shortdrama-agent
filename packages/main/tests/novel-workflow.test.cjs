@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readConfig } = require('../dist/config');
-const { buildNovelSource, applyNovelCorrections } = require('@lyra/shared');
+const { buildNovelSource, applyNovelCorrections, novelCheckpointGate } = require('@lyra/shared');
 const { NovelReviewWorkflow } = require('../dist/novel/workflow');
 const { NovelService } = require('../dist/novel/service');
 const { InMemoryNovelRepository } = require('../dist/novel/repository');
@@ -129,4 +129,92 @@ test('explicit scan-checkpoint resume preserves IDs and charges only newly submi
   assert.equal(result.content.analysis.calls.length, 5);
   assert.deepEqual(result.content.items.map(i => i.id), resume.items.map(i => i.id));
   assert.ok(!JSON.stringify(result).includes('discard-only-commentary'));
+});
+
+test('service refuses a fresh paid rerun after a failed review and resumes only the unfinished stage', async () => {
+  const r = new InMemoryNovelRepository(); const s = await r.createSource(source());
+  const failed = transport([draft(), scan(), { issues: [{ code: 'nope' }] }]);
+  await assert.rejects(new NovelService(r, config, failed.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: null, allowPaid: true, mode: 'reviewed' }), { code: 'NOVEL_WORKFLOW_INVALID' });
+  assert.equal(failed.count(), 3);
+  const latest = (await r.getSource(s.id)).chapters[0].latestRevisionId;
+  const revisions = await r.listRevisions(s.chapters[0].id);
+  const extractOnly = revisions.find(revision => revision.content.analysis.calls.map(call => call.stage).join(',') === 'extract');
+  const scanCheckpoint = revisions.find(revision => revision.content.analysis.calls.map(call => call.stage).join(',') === 'extract,scan');
+  const again = transport([draft(), scan(), { issues: [] }]);
+  await assert.rejects(new NovelService(r, config, again.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: latest, allowPaid: true, mode: 'reviewed' }), { code: 'NOVEL_CHECKPOINT_RESUME_REQUIRED' });
+  await assert.rejects(new NovelService(r, config, again.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: latest, allowPaid: true, mode: 'single' }), { code: 'NOVEL_CHECKPOINT_RESUME_REQUIRED' });
+  await assert.rejects(new NovelService(r, config, again.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: latest, allowPaid: true, mode: 'reviewed', resumeRevisionId: extractOnly.id }), { code: 'NOVEL_RESUME_INVALID' });
+  assert.equal(again.count(), 0);
+  assert.equal((await r.listAttempts(s.chapters[0].id)).length, 1);
+  const resumed = transport([ { issues: [] } ], body => {
+    assert.match(body.messages[0].content, /复核合并初稿/);
+    assert.doesNotMatch(body.messages[0].content, /首次完整拆解|独立逐段查漏/);
+  });
+  const saved = await new NovelService(r, config, resumed.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: latest, allowPaid: true, mode: 'reviewed', resumeRevisionId: scanCheckpoint.id });
+  assert.equal(resumed.count(), 1);
+  assert.equal(saved.content.analysis.status, 'reviewed');
+  assert.deepEqual(saved.content.items.map(item => item.id), scanCheckpoint.content.items.map(item => item.id));
+});
+
+test('confirmRestart is the only fresh rerun, and a later human edit blocks checkpoint resume', async () => {
+  const r = new InMemoryNovelRepository(); const s = await r.createSource(source());
+  const failed = transport([draft(), scan(), { issues: [{ code: 'nope' }] }]);
+  await assert.rejects(new NovelService(r, config, failed.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: null, allowPaid: true, mode: 'reviewed' }), { code: 'NOVEL_WORKFLOW_INVALID' });
+  const latest = (await r.getSource(s.id)).chapters[0].latestRevisionId;
+  const restarted = transport([draft(), scan(), { issues: [] }], (body, index) => {
+    if (index === 0) assert.match(body.messages[0].content, /首次完整拆解/);
+  });
+  const saved = await new NovelService(r, config, restarted.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: latest, allowPaid: true, mode: 'reviewed', confirmRestart: true });
+  assert.equal(restarted.count(), 3);
+  assert.equal(saved.content.analysis.status, 'reviewed');
+  const checkpoint = saved;
+  const edited = applyNovelCorrections(checkpoint, s, s.chapters[0], { expectedRevisionId: checkpoint.id,
+    items: checkpoint.content.items.map(item => ({ ...item, description: `${item.description}人工` })) });
+  await r.saveRevision({ id: 'human_after_checkpoint', chapterId: s.chapters[0].id, parentRevisionId: checkpoint.id,
+    createdBy: 'user', createdAt: new Date().toISOString(), content: edited }, checkpoint.id);
+  const blocked = transport([{ issues: [] }]);
+  const humanLatest = (await r.getSource(s.id)).chapters[0].latestRevisionId;
+  await assert.rejects(new NovelService(r, config, blocked.fn).extract(s.chapters[0].id, {
+    expectedRevisionId: humanLatest, allowPaid: true, mode: 'reviewed', resumeRevisionId: checkpoint.id }), { code: 'NOVEL_RESUME_INVALID' });
+  assert.equal(blocked.count(), 0);
+});
+
+test('a finished review does not hide behind an older scan checkpoint', () => {
+  const item = { review: 'unreviewed', origin: 'model' };
+  const scan = { id: 'scan', parentRevisionId: 'extract', createdBy: 'model', content: { items: [item], analysis: {
+    status: 'partial', calls: [{ stage: 'extract' }, { stage: 'scan' }], paragraphCoverage: [{}, {}, {}] } } };
+  const reviewed = { id: 'done', parentRevisionId: 'scan', createdBy: 'model', content: { items: [item], analysis: {
+    status: 'reviewed', calls: [{ stage: 'extract' }, { stage: 'scan' }, { stage: 'verify' }], paragraphCoverage: [{}, {}, {}] } } };
+  assert.equal(novelCheckpointGate([scan, reviewed], 'done', 3).resumeRevisionId, null);
+  const failed = { id: 'fail', parentRevisionId: 'scan', createdBy: 'model', content: { items: [item], analysis: {
+    status: 'partial', calls: [{ stage: 'extract' }, { stage: 'scan' }, { stage: 'verify' }], paragraphCoverage: [{}, {}, {}] } } };
+  assert.equal(novelCheckpointGate([scan, failed], 'fail', 3).resumeRevisionId, 'scan');
+});
+
+test('chapter length gate counts code points and does not open an attempt', async () => {
+  const repo = new InMemoryNovelRepository();
+  const heading = '第一章 雨\n';
+  const oversized = await repo.createSource(buildNovelSource({ title: '长章', rawText: `${heading}${'😀'.repeat(20_000)}` }));
+  assert.ok(oversized.chapters[0].end - oversized.chapters[0].start > 20_000);
+  let calls = 0;
+  await assert.rejects(new NovelService(repo, config, async () => { calls += 1; throw new Error('should not be called'); }).extract(
+    oversized.chapters[0].id, { expectedRevisionId: null, allowPaid: true, mode: 'reviewed' }), { code: 'NOVEL_CHAPTER_TOO_LONG' });
+  assert.equal(calls, 0);
+  assert.equal((await repo.listAttempts(oversized.chapters[0].id)).length, 0);
+  const boundaryRepo = new InMemoryNovelRepository();
+  const boundary = await boundaryRepo.createSource(buildNovelSource({ title: '边界', rawText: `${heading}${'😀'.repeat(20_000 - Array.from(heading).length)}` }));
+  assert.equal(boundary.chapters[0].end - boundary.chapters[0].start, 20_000);
+  await assert.rejects(new NovelService(boundaryRepo, config, async () => { calls += 1; throw new Error('boundary sent'); }).extract(
+    boundary.chapters[0].id, { expectedRevisionId: null, allowPaid: true, mode: 'single' }), error => {
+    assert.notEqual(error.code, 'NOVEL_CHAPTER_TOO_LONG');
+    return true;
+  });
+  assert.equal(calls, 1);
 });
