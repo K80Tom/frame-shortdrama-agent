@@ -187,7 +187,8 @@ export class TimelineComposer {
    * 汇总逐镜头剪辑指令（剔除/裁短/加速）与目标时长：
    * 1) 先应用评估建议，被调整的镜头不再按目标等比压缩；
    * 2) 剩余镜头按目标总时长等比压缩兜底；
-   * 3) 若仅靠压缩剩余镜头无法落到目标，则对全部镜头统一压缩。
+   * 3) 若仅靠压缩剩余镜头无法落到目标，则按已调整后的播放时长统一压缩，
+   *    并把压缩后的源时长写回 trim，保留已有倍速，使 FFmpeg 与计划时长一致。
    */
   private planClipDurations(edit: NormalizedEditRequest, kept: readonly OwnedLocalVideo[],
     directiveMap: ReadonlyMap<string, TimelineClipDirective>, probed: readonly number[]):
@@ -221,13 +222,24 @@ export class TimelineComposer {
     scale = Math.min(1, scale);
     if (scale <= 0 || (sumFree * Math.min(1, scale) > 0 && probed.some((value, index) => !adjusted[index] && value * Math.min(1, scale) < MIN_CLIP_SECONDS))) {
       const all = durations.reduce((total, value) => total + value, 0);
-      const fallback = all > 0 ? (target - cards + overlap) / all : 0;
-      if (fallback <= 0 || Math.min(...probed) * fallback < MIN_CLIP_SECONDS) {
+      // Scale the playback durations that already include trim/speedup. Multiplying
+      // the original probe by a factor computed from the shortened total overshoots
+      // the target, and clearing trim/speed leaves FFmpeg playing the full clips.
+      const raw = all > 0 ? (target - cards + overlap) / all : 0;
+      const fallback = Math.min(1, raw);
+      if (fallback <= 0 || durations.some(value => value * fallback < MIN_CLIP_SECONDS)) {
         throw new ProductionMediaError(422, 'TIMELINE_TARGET_TOO_SHORT',
           '目标时长过短：按比例压缩后单个镜头不足 1 秒，无法保持转场稳定。');
       }
-      return { durations: probed.map(value => value * fallback), trimSeconds: probed.map(() => null),
-        speedFactors: probed.map(() => 1) };
+      const nextDurations = durations.map(value => value * fallback);
+      return {
+        durations: nextDurations,
+        trimSeconds: nextDurations.map((playback, index) => {
+          const sourceSeconds = playback * speedFactors[index]!;
+          return sourceSeconds < probed[index]! - 0.0005 ? sourceSeconds : null;
+        }),
+        speedFactors,
+      };
     }
     if (scale < 1) {
       for (let index = 0; index < probed.length; index++) {
