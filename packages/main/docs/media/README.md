@@ -21,6 +21,10 @@
 | --- | --- | --- |
 | [product-tour.gif](product-tour.gif) | 960 × 600，约 6 fps，约 14 秒 | 仓库首页内嵌预览。 |
 | [product-tour.mp4](product-tour.mp4) | 1440 × 900，约 14 秒，H.264，无音轨 | 可下载的清晰版本。 |
+| [promo-45s-preview.gif](promo-45s-preview.gif) | 560 px 宽，5 fps，8 秒节选 | 仓库首页直接展示的 45 秒功能概览预览。 |
+| [promo-90s-preview.gif](promo-90s-preview.gif) | 560 px 宽，5 fps，8 秒节选 | 仓库首页直接展示的 90 秒产品演示预览。 |
+| [evolution-tour-preview.gif](evolution-tour-preview.gif) | 560 px 宽，5 fps，10 秒节选 | 仓库首页直接展示的自进化页面预览。 |
+| [shot-1-preview.gif](shot-1-preview.gif) | 560 px 宽，5 fps，约 6 秒 | 仓库首页直接展示的单镜头候选预览。 |
 
 新版导览依次展示自动制作、首页、项目、资产和插件，并在最后一页停留片刻。自动制作画面突出核心链路：剧本拆解、资产复用或补齐、分镜、按需 3D、视频候选、技术复核、有限返修、FFmpeg 合片和交付。导览只记录真实界面，不用动画假装供应商任务已经完成，也不展示虚构成片。
 

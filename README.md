@@ -216,20 +216,43 @@ npm run cli -- run cancel
 
 ## 界面与演示素材
 
-仓库首页只展示当前 Lyra 品牌的工作台截图。其余录屏保留用于说明功能演进，其中部分录制于品牌更名前，出现的 OHAO / FRAME 名称和旧布局不代表当前页面。
+下面直接展示轻量 GIF 预览，无需先打开附件。需要查看完整画质时，可使用每项下方的高清 MP4 链接。部分素材录制于品牌更名前，画面中的 OHAO / FRAME 名称和旧布局不代表当前页面。
 
-<details>
-<summary><strong>展开历史功能录屏与媒体样例</strong></summary>
-
-- [14 秒工作台导览（MP4）](packages/main/docs/media/product-tour.mp4?raw=true)
-- [45 秒功能概览](packages/main/docs/media/promo-45s.mp4?raw=true)
-- [90 秒产品演示](packages/main/docs/media/promo-90s.mp4?raw=true)
-- [自进化页面演示](packages/main/docs/media/evolution-tour.mp4?raw=true)
-- [单镜头候选样例](packages/main/docs/media/shot-1-preview.mp4?raw=true)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>14 秒工作台导览</strong><br><br>
+      <img src="packages/main/docs/media/product-tour.gif" width="100%" alt="Lyra 工作台导览">
+      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/product-tour.mp4">查看高清 MP4</a>
+    </td>
+    <td width="50%" valign="top">
+      <strong>45 秒功能概览</strong><br><br>
+      <img src="packages/main/docs/media/promo-45s-preview.gif" width="100%" alt="Lyra 45 秒功能概览预览">
+      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/promo-45s.mp4">查看完整 MP4</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>90 秒产品演示</strong><br><br>
+      <img src="packages/main/docs/media/promo-90s-preview.gif" width="100%" alt="Lyra 90 秒产品演示预览">
+      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/promo-90s.mp4">查看完整 MP4</a>
+    </td>
+    <td width="50%" valign="top">
+      <strong>自进化页面演示</strong><br><br>
+      <img src="packages/main/docs/media/evolution-tour-preview.gif" width="100%" alt="Lyra 自进化页面演示预览">
+      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/evolution-tour.mp4">查看完整 MP4</a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <strong>单镜头候选样例</strong><br><br>
+      <img src="packages/main/docs/media/shot-1-preview.gif" width="100%" alt="Lyra 单镜头候选样例预览">
+      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/shot-1-preview.mp4">查看完整 MP4</a>
+    </td>
+  </tr>
+</table>
 
 这些素材用于界面和流程说明，不作为模型质量或自动化能力的验收证据。
-
-</details>
 
 ## 当前能力边界
 
