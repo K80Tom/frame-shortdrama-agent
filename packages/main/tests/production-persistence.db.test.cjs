@@ -46,8 +46,8 @@ if (!process.env.DATABASE_URL) {
       assert.equal(saved.version, 1); assert.equal(saved.status, 'running');
       assert.equal((await repository.list()).some(item => item.id === saved.id && item.version === 1), true);
       const rows = await database.query(`SELECT r.version, r.status, r.run_json->>'version' AS json_version,
-        COUNT(e.id)::int AS events FROM production_runs r
-        LEFT JOIN production_outbox_events e ON e.run_id=r.id WHERE r.id=$1 GROUP BY r.id`, [saved.id]);
+        COUNT(e.outbox_id)::int AS events FROM production_runs r
+        LEFT JOIN data_outbox_events e ON e.aggregate_id=r.id WHERE r.id=$1 GROUP BY r.id`, [saved.id]);
       assert.deepEqual(rows.rows[0], { version: 1, status: 'running', json_version: '1', events: 2 });
       await assert.rejects(repository.replace(created, created.version), error => error.code === 'PRODUCTION_RUN_CONFLICT');
       const tampered = structuredClone(saved); tampered.visualStyle = '篡改冻结输入';
