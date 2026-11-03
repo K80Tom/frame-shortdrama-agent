@@ -7,7 +7,7 @@ import { canonicalDigest } from './production';
  * 事件本身不可变；eventDigest 覆盖除数据库投递状态外的全部字段。
  */
 
-export const DATA_EVENT_SCHEMA_VERSION = 'lyra-data-event/1';
+export const DATA_EVENT_SCHEMA_VERSION = 'lyra.data.event/v1';
 export const DATA_EVENT_SENSITIVITY_CEILING = 'internal' as const;
 export const DATA_EVENT_MAX_PAYLOAD_BYTES = 4096;
 

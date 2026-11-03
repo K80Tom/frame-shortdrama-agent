@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -160,6 +160,7 @@ async function main() {
         );
       }
       if (await database.hasMigrations(['015', '016'])
+        && await database.hasMigrations(DATA_OUTBOX_MIGRATIONS)
         && breakdownService instanceof BreakdownService && stageRunner && storyboardService
         && assetService && videoAutomationService) {
         const breakdown = breakdownService;

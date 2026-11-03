@@ -18,3 +18,6 @@ export const EVALUATION_CATALOG_MIGRATIONS = ["022"] as const;
 
 /** Offline-first EvaluationRun snapshots, attempts, and append-only events. */
 export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
+
+/** Unified transactional outbox; production writes require it before starting. */
+export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;

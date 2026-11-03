@@ -1,7 +1,7 @@
 # DataEventV1 与统一事务 Outbox 设计（#49 第一阶段）
 
 状态：**Proposed**，等待契约评审。本文只冻结事件契约、Outbox 边界与 Legacy 迁移方案，不代表 Dispatcher/Projector 已实现。
-契约版本：`lyra-data-event/1`；共享实现：`packages/shared/src/data-event.ts`；测试：`packages/main/tests/data-event-contract.test.cjs`。
+契约版本：`lyra.data.event/v1`；共享实现：`packages/shared/src/data-event.ts`；测试：`packages/main/tests/data-event-contract.test.cjs`。
 
 依赖口径：`#48` 的 ADR `packages/main/docs/adr/0001-data-domain-governance.md`（`lyra-data-governance/1`，当前 `Proposed`）与目录 `packages/main/contracts/data-governance/catalog-v1.json`。本文不另造数据域、命名、敏感级别或保留期；关闭 #49 前 #48 必须先合入。事件敏感级别上限沿用目录的 `eventSensitivityCeiling: "internal"`。
 

@@ -267,8 +267,8 @@ if (!process.env.DATABASE_URL) {
       const after = await runRow(harness.database, created.id);
       assert.ok(after.version - before.version >= 1);
       assert.equal(after.version, run.version);
-      const started = await harness.database.query(`SELECT COUNT(*)::int AS count FROM production_outbox_events
-        WHERE run_id=$1 AND event_type='production.task.started' AND payload_json->>'taskId'=$2`, [run.id, breakdownTask.id]);
+      const started = await harness.database.query(`SELECT COUNT(*)::int AS count FROM data_outbox_events
+        WHERE aggregate_id=$1 AND event_type='production.task.started' AND payload_json->>'taskId'=$2`, [run.id, breakdownTask.id]);
       assert.equal(started.rows[0].count, 1, 'the losing scheduler writes no claim event');
 
       run = await driveUntil(first, created.id, candidate => candidate.status === 'completed');
