@@ -1,0 +1,46 @@
+name: "🏛️ Epic (史诗/领域系统)"
+description: "用于规划系统级模块、跨阶段核心流水线或领域级里程碑。"
+title: "epic(<area>): <简明史诗标题>"
+labels: ["type/epic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Epic 用于管理一组具有共同业务目标的子 Issue。请明确定义完成标准与全局红线，不把大批代码堆入单个 PR。
+  - type: textarea
+    id: goal
+    attributes:
+      label: "🎯 目标与愿景"
+      description: "一句话阐明该 Epic 试图达成的核心业务价值与能力闭环。"
+      placeholder: "例如：把一集剧本/小说，从对白提取到声线资产绑定，完整推进成带字级时间戳的多候选配音音轨..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "📋 拆解子任务清单 (Sub-Issues)"
+      description: "列出归属于该 Epic 的具体子任务 Issue 编号（支持 Markdown Checkbox 语法）。"
+      value: |
+        - [ ] # 子任务 1
+        - [ ] # 子任务 2
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: "⛔ 非目标与全局红线"
+      description: "本 Epic 明确不做什么，以及必须坚守的硬性约束（如付费防重扣、不连数据库等）。"
+      placeholder: "例如：1. 本阶段不做未授权音色克隆；2. 严禁无感扣费..."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "✅ 整体验收标准 (DoD)"
+      description: "整个 Epic 达成何种状态才被视为完整关闭。"
+      value: |
+        - [ ] 每个子阶段均有不可变持久化记录与恢复证据。
+        - [ ] 关键付费节点保持人工确认卡纪律。
+        - [ ] 具备完整的离线自动化回归测试。
+    validations:
+      required: true
