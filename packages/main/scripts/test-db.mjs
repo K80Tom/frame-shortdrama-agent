@@ -6,7 +6,7 @@ if (!process.env.DATABASE_URL) {
 } else {
   const result = spawnSync(process.execPath, ['--test',
     'tests/breakdown-persistence.db.test.cjs', 'tests/production-persistence.db.test.cjs',
-    'tests/production-e2e.db.test.cjs'], {
+    'tests/production-e2e.db.test.cjs', 'tests/evaluation-catalog.db.test.cjs'], {
     stdio: 'inherit',
     env: process.env,
   });

@@ -12,3 +12,6 @@ export const BREAKDOWN_PERSISTENCE_MIGRATIONS = ["001", "002", "003", "004", "00
  * makes the completion UPDATE fail after the charge.
  */
 export const EXTRACT_FACTS_LEDGER_MIGRATIONS = ["017"] as const;
+
+/** Evaluation catalog tables, immutability triggers, and usage ledger. */
+export const EVALUATION_CATALOG_MIGRATIONS = ["022"] as const;
