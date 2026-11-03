@@ -35,7 +35,7 @@
 | 字段 | 约束 |
 |---|---|
 | `eventId` | `evt_` + 32 位小写 hex；全局唯一，不可变 |
-| `eventType` | `<domain>.<aggregate>.<event_name>`，3–5 段小写 snake_case |
+| `eventType` | `<domain>.<aggregate>.<event_name>`，恰好 3 段小写 snake_case |
 | `schemaVersion` | `lyra.<domain>.<fact>/v<major>`，如 `lyra.production.run/v1` |
 | `aggregateType` | `novel_chapter` / `script` / `asset` / `production_run` / `production_attempt` / `external_operation` / `quality_check` / `delivery_artifact`（评测适配器后续再加 `evaluation_run`） |
 | `aggregateId` | 权威聚合的稳定 ID，不是显示名 |

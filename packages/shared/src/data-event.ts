@@ -225,7 +225,7 @@ function parseAuthorityRef(value: unknown, path: string): DataEventAuthorityRef 
 export function parseDataEventV1(value: unknown, path = 'event'): DataEventV1 {
   const record = object(value, path, EVENT_KEYS);
   const eventType = patternId(required(record, 'eventType', path), `${path}.eventType`,
-    /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){2,4}$/u, '事件类型', 96);
+    /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){2}$/u, '事件类型', 96);
   const schemaVersion = patternId(required(record, 'schemaVersion', path), `${path}.schemaVersion`,
     /^lyra\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\/v[1-9][0-9]*$/u, 'schema 版本', 96);
   const aggregateVersion = integer(required(record, 'aggregateVersion', path), `${path}.aggregateVersion`,

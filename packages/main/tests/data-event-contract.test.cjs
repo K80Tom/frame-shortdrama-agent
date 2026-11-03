@@ -55,6 +55,8 @@ test('缺权威摘要、非法 schema、非法事件类型、版本和时间都�
   assertCode(() => parseDataEventV1(badSchema), 'DATA_EVENT_INPUT_INVALID', 'schemaVersion');
   const badType = { ...eventFixture(), eventType: 'ProductionRunSucceeded' };
   assertCode(() => parseDataEventV1(badType), 'DATA_EVENT_INPUT_INVALID', 'eventType');
+  const tooManySegments = { ...eventFixture(), eventType: 'production.run.attempt.succeeded' };
+  assertCode(() => parseDataEventV1(tooManySegments), 'DATA_EVENT_INPUT_INVALID', 'eventType');
   const badVersion = { ...eventFixture(), aggregateVersion: 0 };
   assertCode(() => parseDataEventV1(badVersion), 'DATA_EVENT_INPUT_INVALID', 'aggregateVersion');
   const badTime = { ...eventFixture(), occurredAt: '2026-11-03T00:00:02.000Z' };
