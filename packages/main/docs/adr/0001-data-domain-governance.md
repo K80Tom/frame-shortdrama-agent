@@ -2,7 +2,7 @@
 
 
 
-* 状态：Proposed（评审并合入后成为 Accepted）
+* 状态：Accepted
 
 * 日期：2026-11-03
 

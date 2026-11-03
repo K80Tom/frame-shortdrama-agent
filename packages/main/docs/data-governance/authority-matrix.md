@@ -200,29 +200,44 @@
 | 运行与质量 | `runId=run_example_001`；`runVersion=7`；`taskId=task_example_009`；`attemptNumber=1`；`sequence=12`；`checkId=check_example_001`；`method=technical`；`ruleVersion=video-technical/1` |
 | 交付 | `deliveryId=delivery_example_001`；`artifactId=artifact_example_001`；`mediaId=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` |
 
-写操作主体具有 `production:operate`，读取运行另有 `production:read`，读取资产另有 `asset:read`，成本明细另有 `cost:read`，清理另有 `retention:purge`；任一权限都不隐含其他权限。#49 目标形态的安全事件可以只保留下列字段，**当前 outbox 尚未承诺此结构**：
+写操作主体具有 `production:operate`，读取运行另有 `production:read`，读取资产另有 `asset:read`，成本明细另有 `cost:read`，清理另有 `retention:purge`；任一权限都不隐含其他权限。以下是与 `DataEventV1` 对齐的安全事件示例；现有 Legacy Outbox 仍按既有契约读取：
 
 ```json
 {
-  "schemaVersion": "lyra-data-governance/1",
-  "eventType": "production.delivery.ready.v1",
-  "eventId": "evt_example_001",
+  "eventId": "evt_00000000000000000000000000000001",
+  "eventType": "production.delivery.ready",
+  "schemaVersion": "lyra.production.delivery_ready/v1",
+  "aggregateType": "production_run",
+  "aggregateId": "run_example_001",
+  "aggregateVersion": 7,
   "occurredAt": "2026-01-01T00:00:00Z",
   "recordedAt": "2026-01-01T00:00:02Z",
-  "processedAt": "2026-01-01T00:00:05Z",
-  "projectId": "prj_example_001",
-  "runId": "run_example_001",
-  "runVersion": 7,
-  "sequence": 12,
-  "scriptVersionId": "script_example_003",
-  "storyboardRevisionId": "storyboard_example_002",
-  "deliveryId": "delivery_example_001",
-  "artifactId": "artifact_example_001",
-  "mediaId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "status": "ready",
-  "sensitivity": "internal"
+  "correlationId": "corr_example_001",
+  "causationId": null,
+  "idempotencyKey": "production_run:run_example_001:7:production.delivery.ready",
+  "authoritativeRef": {
+    "kind": "production_run",
+    "id": "run_example_001",
+    "revisionId": "version_7",
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "payload": {
+    "projectId": "prj_example_001",
+    "runId": "run_example_001",
+    "runVersion": 7,
+    "sequence": 12,
+    "scriptVersionId": "script_example_003",
+    "storyboardRevisionId": "storyboard_example_002",
+    "deliveryId": "delivery_example_001",
+    "artifactId": "artifact_example_001",
+    "mediaId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "ready",
+    "sensitivity": "internal"
+  }
 }
 ```
+
+`processedAt=2026-01-01T00:00:05Z` 由投影 checkpoint 记录，不写入事件，也不覆盖原事件时间。
 
 用 `runId` 读取权威聚合并核对项目、剧本与版本，再沿 `source_json` 和当前修订指针回到小说、章节、Plan 与 Storyboard；资产接受状态回到章节修订，交付对象回到私有媒体存储。事件不含原文、提示词、媒体字节、绝对路径或供应商原始响应。
 

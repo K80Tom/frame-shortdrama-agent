@@ -1,5 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const Ajv2020 = require('ajv/dist/2020');
 const {
   DataEventContractError,
   assertDataEventDigest,
@@ -111,4 +114,29 @@ test('聚合版本与幂等键必须可定位到同一事实', () => {
   const duplicateVersion = { ...eventFixture(), eventId: id('evt', 'd') };
   assert.equal(parseDataEventV1(duplicateVersion).aggregateVersion, event.aggregateVersion);
   assert.notEqual(parseDataEventV1(duplicateVersion).eventId, event.eventId);
+});
+
+test('#48 已接受目录与小说到交付事件示例保持机器可校验', () => {
+  const adr = readFileSync(join(__dirname, '../docs/adr/0001-data-domain-governance.md'), 'utf8');
+  assert.match(adr, /^\* 状态：Accepted$/mu);
+
+  const contractDir = join(__dirname, '../contracts/data-governance');
+  const catalog = JSON.parse(readFileSync(join(contractDir, 'catalog-v1.json'), 'utf8'));
+  const schema = JSON.parse(readFileSync(join(contractDir, 'catalog-schema-v1.json'), 'utf8'));
+  const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  assert.equal(catalog.status, 'accepted');
+
+  const matrix = readFileSync(join(__dirname, '../docs/data-governance/authority-matrix.md'), 'utf8');
+  const blocks = [...matrix.matchAll(/```json\s*\n([\s\S]*?)\n```/gu)];
+  assert.equal(blocks.length, 1, '小说到交付链必须保留一个 JSON 事件示例');
+  const raw = JSON.parse(blocks[0][1]);
+  const event = parseDataEventV1(raw);
+  assert.equal(event.eventType, 'production.delivery.ready');
+  assert.equal(event.schemaVersion, 'lyra.production.delivery_ready/v1');
+  assert.equal(event.idempotencyKey,
+    dataEventIdempotencyKey(event.aggregateType, event.aggregateId, event.aggregateVersion, event.eventType));
+  assert.equal(event.payload.runId, event.aggregateId);
+  assert.equal(event.payload.sensitivity, 'internal');
+  assert.ok(!('processedAt' in raw), 'processedAt 属于投影 checkpoint，不属于事件');
 });

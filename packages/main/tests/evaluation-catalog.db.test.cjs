@@ -52,19 +52,22 @@ after(async () => { await database?.close(); });
 test('022 迁移创建评测目录表与不可变 Trigger', async () => {
   const migrations = await database.query("SELECT version FROM schema_migrations WHERE version = '022'");
   assert.equal(migrations.rowCount, 1);
-  const tables = await database.query(`SELECT table_name FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name LIKE 'evaluation_%' ORDER BY table_name`);
-  assert.deepEqual(tables.rows.map(row => row.table_name), [
+  // 只校验 022 自己交付的对象；后续 migration 可以合法增加 evaluation_* 表和 Trigger。
+  const expectedTables = [
     'evaluation_cases', 'evaluation_dataset_revisions', 'evaluation_datasets',
     'evaluation_lifecycle_events', 'evaluation_revision_usage', 'evaluation_rubric_dimensions',
-    'evaluation_rubric_revisions', 'evaluation_rubrics']);
-  const triggers = await database.query(`SELECT tgname FROM pg_trigger
-    WHERE NOT tgisinternal AND tgname LIKE 'evaluation_%' ORDER BY tgname`);
-  assert.deepEqual(triggers.rows.map(row => row.tgname), [
+    'evaluation_rubric_revisions', 'evaluation_rubrics'];
+  const tables = await database.query(`SELECT table_name FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`, [expectedTables]);
+  assert.deepEqual(tables.rows.map(row => row.table_name), expectedTables);
+  const expectedTriggers = [
     'evaluation_case_guard_trigger', 'evaluation_dataset_revision_guard_trigger',
     'evaluation_lifecycle_append_only', 'evaluation_rubric_dimension_guard_trigger',
     'evaluation_rubric_revision_guard_trigger', 'evaluation_usage_append_only',
-    'evaluation_usage_guard_trigger']);
+    'evaluation_usage_guard_trigger'];
+  const triggers = await database.query(`SELECT tgname FROM pg_trigger
+    WHERE NOT tgisinternal AND tgname = ANY($1::text[]) ORDER BY tgname`, [expectedTriggers]);
+  assert.deepEqual(triggers.rows.map(row => row.tgname), expectedTriggers);
 });
 
 test('三类离线夹具通过真实 PostgreSQL 迁移与契约', async () => {
