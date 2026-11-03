@@ -1,0 +1,50 @@
+name: "🐛 Bug (缺陷反馈)"
+description: "报告代码错误、数据不一致、UI 故障或异常崩溃。"
+title: "fix(<area>): <简要缺陷描述>"
+labels: ["type/fix"]
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: "🚨 严重级别"
+      options:
+        - "priority/P0 (系统崩溃、付费资损、数据损坏、分支阻塞)"
+        - "priority/P1 (核心功能异常、关键节点流程中断)"
+        - "priority/P2 (局部非关键错误、UI 显示异常)"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: "📝 现象描述"
+      description: "清晰说明遇到了什么问题，附上错误代码或现象。"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "🔄 复现步骤"
+      description: "按步骤列出如何触发该 Bug。"
+      value: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 输入 ...
+        4. 观察到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "🎯 预期行为 vs 实际行为"
+      value: |
+        - **预期行为**：
+        - **实际行为**：
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "🔍 日志、环境或关联数据"
+      description: "运行 ID (runId)、任务 ID (taskId)、控制台报错日志（注意抹除密钥！）。"
+    validations:
+      required: false

@@ -8,7 +8,7 @@ on:
       - "package*.json"
       - "docs/**"
       - "*.md"
-      - ".github/workflows/ci.yml"
+      - ".github/**"
   push:
     branches: [main, dev]
     paths:
@@ -16,7 +16,7 @@ on:
       - "package*.json"
       - "docs/**"
       - "*.md"
-      - ".github/workflows/ci.yml"
+      - ".github/**"
 
 concurrency:
   group: lyra-ci-${{ github.workflow }}-${{ github.ref }}
@@ -26,8 +26,27 @@ permissions:
   contents: read
 
 jobs:
+  branch-guard:
+    name: Branch Guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify target branch policy
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          HEAD_REF="${{ github.head_ref }}"
+          echo "PR Base branch: $BASE_REF"
+          echo "PR Head branch: $HEAD_REF"
+          if [ "$BASE_REF" = "main" ] && [ "$HEAD_REF" != "dev" ]; then
+            echo "::error title=Target Branch Invalid::普通功能与修复 PR 的目标分支必须为 'dev'。只有发版 PR（dev -> main）才允许以 'main' 为目标分支。请在 PR 顶部点击 Edit 将 base branch 修改为 'dev'。"
+            exit 1
+          fi
+          echo "分支合规检查通过。"
+
   backend:
     name: Backend tests
+    needs: [branch-guard]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -49,6 +68,7 @@ jobs:
 
   frontend:
     name: Frontend tests and build
+    needs: [branch-guard]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -69,87 +89,22 @@ jobs:
       - name: Build frontend
         run: npm --prefix packages/web run build
 
-  retarget:
-    name: Retarget PR to dev
-    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Point base branch to dev
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          gh api -X PATCH "repos/${{ github.repository }}/pulls/$PR_NUMBER" -f base=dev
-          gh pr comment "$PR_NUMBER" --body "PR Autopilot：目标分支已从 main 自动切换到 dev。"
-
-  autopilot:
-    name: PR Autopilot
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'dev'
+  ai-review:
+    name: Read-only AI Review
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     needs: [backend, frontend]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
         with:
           node-version: 22.19.0
-      - name: "Guard: conflicts, size, protected paths"
-        id: guard
-        run: |
-          set -euo pipefail
-          gh pr view "$PR_NUMBER" --json isDraft,mergeable,additions,deletions,files > /tmp/pr.json
-          python3 - <<'PY' > /tmp/guard.txt
-          import json
-
-          d = json.load(open('/tmp/pr.json'))
-          reasons = []
-
-          if d.get('mergeable') != 'MERGEABLE':
-              reasons.append('分支有冲突或合并状态未知：' + str(d.get('mergeable')))
-
-          print('OK' if not reasons else 'BLOCK: ' + '；'.join(sorted(set(reasons))[:6]))
-          PY
-          RESULT="$(cat /tmp/guard.txt)"
-          echo "reason=$RESULT" >> "$GITHUB_OUTPUT"
-          if [ "$RESULT" = "OK" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: AI review (optional)
-        id: review
-        if: steps.guard.outputs.ok == 'true'
+      - name: AI Code Review (Informational Only)
         continue-on-error: true
         env:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_DEFAULT_MODEL: ${{ secrets.LLM_DEFAULT_MODEL }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: python3 .github/scripts/pr_ai_review.py
-
-      - name: Merge when safe
-        if: steps.guard.outputs.ok == 'true' && steps.review.outputs.should_merge != 'false'
-        run: |
-          set -euo pipefail
-          if gh pr merge "$PR_NUMBER" --squash; then
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：测试通过、无冲突，已自动 squash 合并到 dev。"
-          else
-            gh pr comment "$PR_NUMBER" --body "PR Autopilot：条件满足，但合并被分支保护规则拦下。请人工处理。"
-            exit 1
-          fi
-
-      - name: Comment when blocked
-        if: steps.guard.outputs.ok != 'true'
-        run: |
-          gh pr comment "$PR_NUMBER" --body "PR Autopilot：未自动合并，原因：${{ steps.guard.outputs.reason }}。已留待人工处理。"

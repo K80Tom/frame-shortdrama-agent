@@ -1,0 +1,56 @@
+name: "✨ Feature (新特性/业务功能)"
+description: "提出可独立交付、可具体验收的新功能、API 或用户体验改进。"
+title: "feat(<area>): <简要功能说明>"
+labels: ["type/feat"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "🔥 优先级"
+      options:
+        - "priority/P0 (阻塞级，影响核心链路可用性或安全)"
+        - "priority/P1 (关键级，本轮重点交付能力)"
+        - "priority/P2 (演进级，持续优化与增强)"
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: "📖 业务背景与用户价值"
+      description: "为什么要做这个功能？解决什么痛点？关联哪个父 Epic？"
+      placeholder: "父 Epic：#...\n背景说明：..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "🔍 实施范围 (Scope)"
+      description: "具体包含哪些模块改动（数据结构、后端 API、前端界面、状态机等）？"
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: "🚫 非目标 (Non-Goals)"
+      description: "本次改动明确不覆盖的内容，防止范围蔓延（Scope Creep）。"
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "✅ 验收标准 (Acceptance Criteria / DoD)"
+      description: "可量化、可核验的具体验收条件列表。"
+      value: |
+        - [ ] 核心业务逻辑实现与状态转移正确。
+        - [ ] 离线测试覆盖正常路径与异常分支。
+        - [ ] 不破坏已有的数据库向后兼容性与 API 契约。
+        - [ ] 文档与类型定义同步更新。
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: "⚠️ 潜在风险与安全影响"
+      description: "是否涉及外部付费调用、长耗时任务、数据库迁移或 SSRF/凭证暴露风险？"
+    validations:
+      required: false
