@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lyra.local/schemas/data-governance-catalog-v1.json",
+  "title": "Lyra Data Governance Catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "status",
+    "sourceIssue",
+    "owners",
+    "policies",
+    "domains",
+    "fields",
+    "metrics",
+    "requiredConsumers",
+    "consumerRule"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "lyra-data-governance-catalog/1" },
+    "contractVersion": { "const": "lyra-data-governance/1" },
+    "status": { "enum": ["proposed", "accepted", "deprecated"] },
+    "sourceIssue": { "type": "integer", "minimum": 1 },
+    "owners": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/owner" }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retention", "sensitivity", "accessScopes", "eventSensitivityCeiling", "forbiddenEventFields"],
+      "properties": {
+        "retention": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "sensitivity": {
+          "type": "object",
+          "required": ["public", "internal", "confidential", "secret"],
+          "additionalProperties": false,
+          "properties": {
+            "public": { "type": "string", "minLength": 1 },
+            "internal": { "type": "string", "minLength": 1 },
+            "confidential": { "type": "string", "minLength": 1 },
+            "secret": { "type": "string", "minLength": 1 }
+          }
+        },
+        "accessScopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z]+:[a-z]+$" }
+        },
+        "eventSensitivityCeiling": { "const": "internal" },
+        "forbiddenEventFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 9,
+      "items": { "$ref": "#/$defs/domain" }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/field" }
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/metric" }
+    },
+    "requiredConsumers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^#[0-9]+$" }
+    },
+    "consumerRule": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module"],
+      "properties": {
+        "module": { "type": "string", "pattern": "^packages/" }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "schemaRef",
+        "systemOfRecord",
+        "key",
+        "versionKey",
+        "eventTime",
+        "recordTime",
+        "immutableFields",
+        "retention",
+        "sensitivity"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z]+\\.[a-z][a-z0-9_]*$" },
+        "schemaRef": { "type": "string", "minLength": 1 },
+        "systemOfRecord": { "type": "string", "minLength": 1 },
+        "key": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "versionKey": { "type": "string", "minLength": 1 },
+        "eventTime": { "type": "string", "minLength": 1 },
+        "recordTime": { "type": "string", "minLength": 1 },
+        "immutableFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "retention": { "enum": ["project_lifetime", "run_lifetime", "replay_lifetime"] },
+        "sensitivity": { "enum": ["public", "internal", "confidential", "secret"] }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "owner", "readScope", "writeScope", "facts"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z]+$" },
+        "owner": { "type": "string", "minLength": 1 },
+        "readScope": { "type": "string", "pattern": "^[a-z]+:[a-z]+$" },
+        "writeScope": { "type": "string", "pattern": "^[a-z]+:[a-z]+$" },
+        "facts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/fact" }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "owner", "sensitivity", "eventForm"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "sensitivity": { "enum": ["public", "internal", "confidential", "secret"] },
+        "eventForm": { "type": "string", "minLength": 1 }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "owner", "sourceFact", "aggregation", "groupBy", "unknownRule"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^lyra\\.[a-z]+\\.[a-z0-9_]+\\.v[1-9][0-9]*$" },
+        "owner": { "type": "string", "minLength": 1 },
+        "sourceFact": { "type": "string", "pattern": "^[a-z]+\\.[a-z][a-z0-9_]*$" },
+        "aggregation": { "type": "string", "minLength": 1 },
+        "groupBy": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "unknownRule": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
