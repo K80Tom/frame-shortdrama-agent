@@ -15,3 +15,6 @@ export const EXTRACT_FACTS_LEDGER_MIGRATIONS = ["017"] as const;
 
 /** Evaluation catalog tables, immutability triggers, and usage ledger. */
 export const EVALUATION_CATALOG_MIGRATIONS = ["022"] as const;
+
+/** Offline-first EvaluationRun snapshots, attempts, and append-only events. */
+export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
