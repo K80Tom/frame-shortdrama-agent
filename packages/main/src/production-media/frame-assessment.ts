@@ -185,14 +185,18 @@ export function parseAssessment(text: string, shotId: string, durationSeconds: n
     if (Object.keys(source).some(key => !['verdict', 'scores', 'issues', 'advice'].includes(key))) {
       throw new ProductionMediaError(502, 'FRAME_ASSESSMENT_INVALID', '画面评估出现了未知字段。');
     }
-    const verdict = VERDICTS.includes(source.verdict as FrameVerdict) ? source.verdict as FrameVerdict : 'weak';
+    const reported = VERDICTS.includes(source.verdict as FrameVerdict) ? source.verdict as FrameVerdict : 'weak';
     const scoresSource = record(source.scores) ?? {};
     const scores = {
       identity: score(scoresSource.identity), anatomy: score(scoresSource.anatomy),
       action: score(scoresSource.action), quality: score(scoresSource.quality),
     };
+    // Missing scores normalize to 0. Preserve an already stricter model verdict,
+    // and only allow pass when every dimension clears the failure floor.
+    const verdict = stricterVerdict(reported, verdictFromScores(scores));
     const issues = Array.isArray(source.issues) ? source.issues.filter((item): item is string => typeof item === 'string')
       .map(item => item.slice(0, 80)).slice(0, 5) : [];
+    if (verdict !== reported && issues.length < 5) issues.push('分数低于维度规则，已降级判定');
     const adviceSource = record(source.advice) ?? {};
     const action = ACTIONS.includes(adviceSource.action as FrameAction) ? adviceSource.action as FrameAction : 'keep';
     const speedFactor = clampNumber(adviceSource.speedFactor, 1, 2, 1);
@@ -204,7 +208,27 @@ export function parseAssessment(text: string, shotId: string, durationSeconds: n
       advice: { action: action === 'trim' && trimSeconds === null ? 'keep' : action, speedFactor, trimSeconds, reason } };
     if (normalized.advice.action !== 'trim') normalized.advice.trimSeconds = null;
     if (normalized.advice.action !== 'speedup') normalized.advice.speedFactor = 1;
+    // A rejected shot must not silently remain on the timeline. Explicit trim
+    // and speedup advice remains available as a bounded salvage instruction.
+    if (normalized.verdict === 'reject' && normalized.advice.action === 'keep') {
+      normalized.advice.action = 'drop';
+      if (normalized.issues.length < 5) normalized.issues.push('不合格镜头不会按保留处理');
+    }
     return normalized;
+}
+
+const VERDICT_RANK: Record<FrameVerdict, number> = { pass: 0, weak: 1, reject: 2 };
+
+/** Prompt rule: one dimension at or below 2 is weak; two or more are reject. */
+function verdictFromScores(scores: FrameShotAssessment['scores']): FrameVerdict {
+  const low = [scores.identity, scores.anatomy, scores.action, scores.quality].filter(value => value <= 2).length;
+  if (low >= 2) return 'reject';
+  if (low === 1) return 'weak';
+  return 'pass';
+}
+
+function stricterVerdict(reported: FrameVerdict, fromScores: FrameVerdict): FrameVerdict {
+  return VERDICT_RANK[fromScores] > VERDICT_RANK[reported] ? fromScores : reported;
 }
 
 export function summarizeAssessments(shots: readonly FrameShotAssessment[]): FrameAssessmentReport['summary'] {
