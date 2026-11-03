@@ -204,3 +204,47 @@ test('historical editor has no writable evidence controls and the import page ex
   assert.match(page, /整理成剧本后即可进入自动制片/);
   assert.match(page, /没有预置或凭空补写的小说正文/);
 });
+
+test('cross-chapter registry shows same-name candidates as separate rows', async () => {
+  const { EntityRegistryPanel } = await server.ssrLoadModule('/src/NovelBreakdown.tsx');
+  const entries = [
+    { id: 'entity_a', kind: 'character', entityType: 'person', name: '周宁', aliases: ['周宁', '小周'], occurrences: [
+      { chapterId: 'c1', revisionId: 'r1', itemId: 'i1', confirmed: true, sourceRefs: [] }] },
+    { id: 'entity_b', kind: 'character', entityType: 'person', name: '周宁', aliases: ['周宁'], occurrences: [
+      { chapterId: 'c2', revisionId: 'r2', itemId: 'i2', confirmed: false, sourceRefs: [] }] },
+  ];
+  const candidates = [{ id: 'shared-name:entity_a:entity_b', relation: 'shared-name', kind: 'character',
+    entityIds: ['entity_a', 'entity_b'], names: ['周宁', '周宁'], sharedTerms: ['周宁'],
+    evidence: [{ chapterId: 'c1', revisionId: 'r1', itemId: 'i1', quote: '周宁把铁盒' },
+      { chapterId: 'c2', revisionId: 'r2', itemId: 'i2', quote: '周宁朝家走去' }] }];
+  const html = renderToStaticMarkup(createElement(EntityRegistryPanel, { entries, mergeCandidates: candidates }));
+  assert.match(html, /名称相似不自动合并/);
+  assert.match(html, /目前仍是两个独立身份/);
+  assert.match(html, /周宁把铁盒/);
+  assert.match(html, /周宁朝家走去/);
+  assert.equal(html.match(/<tr>/g).length, 3);
+  const quiet = renderToStaticMarkup(createElement(EntityRegistryPanel, { entries: entries.slice(0, 1), mergeCandidates: [] }));
+  assert.doesNotMatch(quiet, /待核对身份/);
+  assert.equal(quiet.match(/<tr>/g).length, 2);
+});
+
+test('cross-chapter registry renders at most 500 candidates and explains truncation', async () => {
+  const { EntityRegistryPanel } = await server.ssrLoadModule('/src/NovelBreakdown.tsx');
+  const entries = [{ id: 'entity_a', kind: 'character', entityType: 'person', name: '周宁', aliases: ['周宁'], occurrences: [] }];
+  const candidates = Array.from({ length: 501 }, (_, index) => ({
+    id: `shared-name:entity_a:entity_${index}`,
+    relation: 'shared-name',
+    kind: 'character',
+    entityIds: ['entity_a', `entity_${index}`],
+    names: ['周宁', `周宁${index}`],
+    sharedTerms: ['周宁'],
+    evidence: [],
+  }));
+  const html = renderToStaticMarkup(createElement(EntityRegistryPanel, {
+    entries, mergeCandidates: candidates, mergeCandidatesTruncated: true,
+  }));
+  assert.match(html, /仅显示前 500 组/);
+  assert.match(html, /请缩小范围或等待分页能力/);
+  assert.equal(html.match(/<li>/g)?.length, 500);
+  assert.doesNotMatch(html, /周宁500/);
+});

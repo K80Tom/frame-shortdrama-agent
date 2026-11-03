@@ -13,7 +13,7 @@ import type { NovelRepository } from './repository';
 import type { AssetService } from '../assets/service';
 import { applyNovelAssetBindings } from './assets';
 import { NovelReviewWorkflow } from './workflow';
-import { buildEntityRegistry } from '@lyra/shared';
+import { buildEntityRegistry, proposeEntityMergeCandidates } from '@lyra/shared';
 import { buildNovelScreenplay } from '@lyra/agent';
 import type { BreakdownRepository } from '../breakdown/repository';
 
@@ -112,7 +112,14 @@ export class NovelService {
   async registry(sourceId: string) {
     const source = await this.get(sourceId);
     const revisions = await this.latestRevisions(source);
-    return { entries: buildEntityRegistry(source, revisions), revisionIds: revisions.map(r => r.id) };
+    const entries = buildEntityRegistry(source, revisions);
+    const proposed = proposeEntityMergeCandidates(entries);
+    return {
+      entries,
+      mergeCandidates: proposed.candidates,
+      mergeCandidatesTruncated: proposed.truncated,
+      revisionIds: revisions.map(r => r.id),
+    };
   }
   private async latestRevisions(source: Awaited<ReturnType<NovelService['get']>>, beforeOrder = Infinity) {
     const revisions = await Promise.all(source.chapters.filter(c => c.order < beforeOrder && c.latestRevisionId)

@@ -1,0 +1,30 @@
+name: "♻️ Refactor (重构与工程优化)"
+description: "不改变系统外部行为的代码清理、性能优化或架构下沉。"
+title: "refactor(<area>): <简要重构目标>"
+labels: ["type/refactor"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: "💡 重构动机"
+      description: "当前代码存在哪些坏味道、维护瓶颈或架构边界混乱？"
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "📐 重构范围"
+      description: "涉及哪些包（shared / main / agent / web / cli）与文件？"
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: "🛡️ 兼容性保证与测试验证"
+      description: "如何保证对现有调用方、数据库旧数据和外部 API 完全无害？"
+      value: |
+        - [ ] 现有测试套件完整通过。
+        - [ ] 无外部破坏性契约变更。
+        - [ ] 代码符合 AGENTS.md 跨包硬约束。
+    validations:
+      required: true
