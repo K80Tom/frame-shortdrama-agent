@@ -25,6 +25,11 @@ export interface EntityMergeCandidate {
   sharedTerms: string[];
   evidence: EntityMergeEvidence[];
 }
+export const MAX_ENTITY_MERGE_CANDIDATES = 500;
+export interface EntityMergeCandidateResult {
+  candidates: EntityMergeCandidate[];
+  truncated: boolean;
+}
 
 /** A derived, version-bound registry. No cross-chapter writes or name-only auto-merges. */
 export function buildEntityRegistry(source: NovelSource, revisions: NovelRevision[]): EntityRegistryEntry[] {
@@ -68,55 +73,105 @@ function occurrenceEvidence(occurrence: EntityRegistryEntry['occurrences'][numbe
     quote: evidenceQuote(occurrence.sourceRefs[0]?.quote ?? '') };
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareOccurrences(left: EntityRegistryEntry['occurrences'][number],
+  right: EntityRegistryEntry['occurrences'][number]): number {
+  return compareText(left.chapterId, right.chapterId)
+    || compareText(left.revisionId, right.revisionId)
+    || compareText(left.itemId, right.itemId);
+}
+
 /**
  * Same names and alias overlaps stay separate entries. This only lists the
  * pairs a person should accept or reject, plus repeated items that already
  * share one identity inside a single chapter.
  */
-export function proposeEntityMergeCandidates(entries: readonly EntityRegistryEntry[]): EntityMergeCandidate[] {
+export function proposeEntityMergeCandidates(entries: readonly EntityRegistryEntry[]): EntityMergeCandidateResult {
+  const indexed = entries.map(entry => {
+    const terms = [...entityTerms(entry)].sort(compareText);
+    return { entry, normalizedName: normalizeEntityLabel(entry.name), terms, termSet: new Set(terms) };
+  }).sort((left, right) => compareText(left.entry.id, right.entry.id)
+    || compareText(left.entry.kind, right.entry.kind)
+    || compareText(left.entry.entityType ?? '', right.entry.entityType ?? '')
+    || compareText(left.entry.name, right.entry.name));
   const candidates: EntityMergeCandidate[] = [];
-  for (const entry of entries) {
+  let truncated = false;
+  const append = (candidate: EntityMergeCandidate): boolean => {
+    if (candidates.length >= MAX_ENTITY_MERGE_CANDIDATES) {
+      truncated = true;
+      return false;
+    }
+    candidates.push(candidate);
+    return true;
+  };
+
+  duplicateCandidates:
+  for (const { entry, terms } of indexed) {
     const byChapter = new Map<string, EntityRegistryEntry['occurrences']>();
     for (const occurrence of entry.occurrences) {
       const list = byChapter.get(occurrence.chapterId) ?? [];
       list.push(occurrence);
       byChapter.set(occurrence.chapterId, list);
     }
-    for (const [chapterId, occurrences] of byChapter) {
+    for (const chapterId of [...byChapter.keys()].sort(compareText)) {
+      const occurrences = byChapter.get(chapterId)!.slice().sort(compareOccurrences);
       if (occurrences.length < 2) continue;
-      candidates.push({
+      if (!append({
         id: `duplicate-chapter:${entry.id}:${chapterId}`,
         relation: 'duplicate-chapter',
         kind: entry.kind,
         entityIds: [entry.id],
         names: [entry.name],
-        sharedTerms: [...entityTerms(entry)].sort((left, right) => left.localeCompare(right)),
+        sharedTerms: terms,
         evidence: occurrences.map(occurrenceEvidence),
-      });
+      })) break duplicateCandidates;
     }
   }
-  for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
-      const left = entries[leftIndex]!;
-      const right = entries[rightIndex]!;
-      if (left.kind !== right.kind) continue;
-      if (left.entityType && right.entityType && left.entityType !== right.entityType) continue;
-      const shared = [...entityTerms(left)].filter(term => entityTerms(right).has(term))
-        .sort((a, b) => a.localeCompare(b));
-      if (shared.length === 0) continue;
-      const ordered = [left, right].sort((a, b) => a.id.localeCompare(b.id));
-      const namesEqual = normalizeEntityLabel(left.name).length > 0
-        && normalizeEntityLabel(left.name) === normalizeEntityLabel(right.name);
-      candidates.push({
-        id: `${namesEqual ? 'shared-name' : 'shared-alias'}:${ordered[0]!.id}:${ordered[1]!.id}`,
-        relation: namesEqual ? 'shared-name' : 'shared-alias',
-        kind: left.kind,
-        entityIds: [ordered[0]!.id, ordered[1]!.id],
-        names: [ordered[0]!.name, ordered[1]!.name],
-        sharedTerms: shared,
-        evidence: [ordered[0]!, ordered[1]!].flatMap(entry => entry.occurrences.slice(0, 1).map(occurrenceEvidence)),
-      });
+
+  if (!truncated) {
+    const byKindAndTerm = new Map<string, typeof indexed>();
+    for (const item of indexed) {
+      for (const term of item.terms) {
+        const key = JSON.stringify([item.entry.kind, term]);
+        const bucket = byKindAndTerm.get(key) ?? [];
+        bucket.push(item);
+        byKindAndTerm.set(key, bucket);
+      }
+    }
+    const seenPairs = new Set<string>();
+    pairCandidates:
+    for (const key of [...byKindAndTerm.keys()].sort(compareText)) {
+      const bucket = byKindAndTerm.get(key)!;
+      for (let leftIndex = 0; leftIndex < bucket.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < bucket.length; rightIndex += 1) {
+          const left = bucket[leftIndex]!;
+          const right = bucket[rightIndex]!;
+          if (left.entry.id === right.entry.id) continue;
+          if (left.entry.entityType && right.entry.entityType && left.entry.entityType !== right.entry.entityType) continue;
+          const pairKey = JSON.stringify([left.entry.id, right.entry.id]);
+          if (seenPairs.has(pairKey)) continue;
+          seenPairs.add(pairKey);
+          const shared = left.terms.filter(term => right.termSet.has(term));
+          const namesEqual = left.normalizedName.length > 0 && left.normalizedName === right.normalizedName;
+          const evidence = [left.entry, right.entry].flatMap(entry => {
+            const occurrence = entry.occurrences.slice().sort(compareOccurrences)[0];
+            return occurrence ? [occurrenceEvidence(occurrence)] : [];
+          });
+          if (!append({
+            id: `${namesEqual ? 'shared-name' : 'shared-alias'}:${left.entry.id}:${right.entry.id}`,
+            relation: namesEqual ? 'shared-name' : 'shared-alias',
+            kind: left.entry.kind,
+            entityIds: [left.entry.id, right.entry.id],
+            names: [left.entry.name, right.entry.name],
+            sharedTerms: shared,
+            evidence,
+          })) break pairCandidates;
+        }
+      }
     }
   }
-  return candidates.sort((left, right) => left.id.localeCompare(right.id));
+  return { candidates: candidates.sort((left, right) => compareText(left.id, right.id)), truncated };
 }

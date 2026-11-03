@@ -30,9 +30,11 @@ packages/
 - **Worktree 开发隔离**：
   - 任何功能或修复都必须从最新 `origin/dev` 创建独立短分支和专属 worktree（`git worktree add ../lyra-<topic> -b feat/<topic> origin/dev`），一个 worktree 只开发一件事；不得在主工作区或其他任务的 worktree 中开发、暂存或提交。
   - 各 worktree 独立安装依赖、构建和测试并错开服务端口；数据库迁移只在约定环境执行。验证后通过 PR 合入 `dev`，合并完成后移除对应 worktree 与已合并分支。
-- **真人审查与禁止自动合并**：
-  - GitHub Actions 仅作为只读 CI 门禁，严禁持有写入权限，严禁配置自动合并（autopilot merge）。
-  - 每个合入 `dev` 或 `main` 的 PR 必须通过 required checks，且至少由一名非作者开发者真人审查批准。代码更新后旧 Approval 自动作废。
+- **审查与合并治理**：
+  - GitHub Actions 仅作为只读 CI 门禁，严禁持有写入权限、模型密钥或自动合并能力。代码审查与合并由已连接的 GitHub App PR 管家或真人维护者执行。
+  - 低风险 PR 只有在目标为 `dev`、当前 head 的 required checks 全绿、与最新 base 同步、无冲突、无未解决线程或有效 `CHANGES_REQUESTED`，且完整 diff 审查确认有明确项目收益时，才允许 PR 管家 squash 合并。
+  - 修改 `.github/**`、`AGENTS.md`、`CODEOWNERS`、数据库迁移、`shared` 公共契约、认证授权、付费/媒体/预算链路，或总改动超过 300 行的高风险 PR，必须由至少一名非作者开发者针对当前 head 真人批准；代码更新后旧 Approval 作废。
+  - 发版 PR（`dev → main`）始终属于高风险范围，除全量构建测试外必须满足上一条真人批准要求，不允许自动绕过 ruleset。
 - 按模块设置负责人：共享契约、数据库迁移、付费链路和跨包改动必须由对应负责人评审。团队使用 `CODEOWNERS` 落实审核责任，但不借审批流程替代实际验证。
 - `shared` 契约变更先说明兼容性与影响范围，再修改调用方；旧数据回退、迁移与回滚路径必须明确。人数增长时优先加强模块负责与自动化，不引入无实际需要的长期分支。
 

@@ -227,3 +227,24 @@ test('cross-chapter registry shows same-name candidates as separate rows', async
   assert.doesNotMatch(quiet, /待核对身份/);
   assert.equal(quiet.match(/<tr>/g).length, 2);
 });
+
+test('cross-chapter registry renders at most 500 candidates and explains truncation', async () => {
+  const { EntityRegistryPanel } = await server.ssrLoadModule('/src/NovelBreakdown.tsx');
+  const entries = [{ id: 'entity_a', kind: 'character', entityType: 'person', name: '周宁', aliases: ['周宁'], occurrences: [] }];
+  const candidates = Array.from({ length: 501 }, (_, index) => ({
+    id: `shared-name:entity_a:entity_${index}`,
+    relation: 'shared-name',
+    kind: 'character',
+    entityIds: ['entity_a', `entity_${index}`],
+    names: ['周宁', `周宁${index}`],
+    sharedTerms: ['周宁'],
+    evidence: [],
+  }));
+  const html = renderToStaticMarkup(createElement(EntityRegistryPanel, {
+    entries, mergeCandidates: candidates, mergeCandidatesTruncated: true,
+  }));
+  assert.match(html, /仅显示前 500 组/);
+  assert.match(html, /请缩小范围或等待分页能力/);
+  assert.equal(html.match(/<li>/g)?.length, 500);
+  assert.doesNotMatch(html, /周宁500/);
+});

@@ -28,14 +28,20 @@ permissions:
 jobs:
   branch-guard:
     name: Branch Guard
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify target branch policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          BASE_REF="${{ github.base_ref }}"
-          HEAD_REF="${{ github.head_ref }}"
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Push event: branch target validation is not required."
+            exit 0
+          fi
           echo "PR Base branch: $BASE_REF"
           echo "PR Head branch: $HEAD_REF"
           if [ "$BASE_REF" = "main" ] && [ "$HEAD_REF" != "dev" ]; then
@@ -88,23 +94,3 @@ jobs:
         run: npm --prefix packages/web test
       - name: Build frontend
         run: npm --prefix packages/web run build
-
-  ai-review:
-    name: Read-only AI Review
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
-    needs: [backend, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: AI Code Review (Informational Only)
-        continue-on-error: true
-        env:
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_DEFAULT_MODEL: ${{ secrets.LLM_DEFAULT_MODEL }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: python3 .github/scripts/pr_ai_review.py

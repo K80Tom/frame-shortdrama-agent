@@ -113,7 +113,13 @@ export class NovelService {
     const source = await this.get(sourceId);
     const revisions = await this.latestRevisions(source);
     const entries = buildEntityRegistry(source, revisions);
-    return { entries, mergeCandidates: proposeEntityMergeCandidates(entries), revisionIds: revisions.map(r => r.id) };
+    const proposed = proposeEntityMergeCandidates(entries);
+    return {
+      entries,
+      mergeCandidates: proposed.candidates,
+      mergeCandidatesTruncated: proposed.truncated,
+      revisionIds: revisions.map(r => r.id),
+    };
   }
   private async latestRevisions(source: Awaited<ReturnType<NovelService['get']>>, beforeOrder = Infinity) {
     const revisions = await Promise.all(source.chapters.filter(c => c.order < beforeOrder && c.latestRevisionId)

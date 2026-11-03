@@ -5,7 +5,7 @@ const { buildNovelSource, applyNovelCorrections, novelCheckpointGate } = require
 const { NovelReviewWorkflow } = require('../dist/novel/workflow');
 const { NovelService } = require('../dist/novel/service');
 const { InMemoryNovelRepository } = require('../dist/novel/repository');
-const { buildEntityRegistry, proposeEntityMergeCandidates } = require('@lyra/shared');
+const { buildEntityRegistry, proposeEntityMergeCandidates, MAX_ENTITY_MERGE_CANDIDATES } = require('@lyra/shared');
 const config = readConfig({ LLM_BASE_URL: 'https://model.test', LLM_API_KEY: 'test-only-key' });
 const source = () => buildNovelSource({ title: '原创查漏练习', rawText: '第一章 港口\n周宁把铁盒放在路灯旁。\n“等一会。”周宁说。\n第二章 回家\n周宁朝家走去。\n' });
 const entity = (id, label, kind = 'character') => ({ tempId: id, label, description: '',
@@ -116,13 +116,14 @@ test('registry survives storage, reuses supported identities and does not name-m
   const separate = buildEntityRegistry(s, [rev, sameName]);
   assert.equal(separate.filter(e => e.name === '周宁').length, 2);
   const hinted = proposeEntityMergeCandidates(separate);
-  assert.equal(hinted.length, 1);
-  assert.equal(hinted[0].relation, 'shared-name');
-  assert.deepEqual(hinted[0].entityIds, separate.filter(entry => entry.name === '周宁').map(entry => entry.id).sort());
+  assert.equal(hinted.truncated, false);
+  assert.equal(hinted.candidates.length, 1);
+  assert.equal(hinted.candidates[0].relation, 'shared-name');
+  assert.deepEqual(hinted.candidates[0].entityIds, separate.filter(entry => entry.name === '周宁').map(entry => entry.id).sort());
   sameName.content.items[0].canonicalEntityId = entries[0].id;
   const linked = buildEntityRegistry(s, [rev, sameName]);
   assert.equal(linked.filter(e => e.name === '周宁').length, 1);
-  assert.deepEqual(proposeEntityMergeCandidates(linked), []);
+  assert.deepEqual(proposeEntityMergeCandidates(linked), { candidates: [], truncated: false });
 });
 test('merge candidates keep different people, different types, and mere name containment independent', () => {
   const occurrence = (chapterId, itemId, quote) => ({ chapterId, revisionId: `rev_${chapterId}`, itemId, confirmed: true,
@@ -131,27 +132,27 @@ test('merge candidates keep different people, different types, and mere name con
     occurrences: [occurrence('chapter_a', id, name)], ...extra });
   const sameName = [entry('entity_b', '周宁'), entry('entity_a', '周 宁')];
   const spaced = proposeEntityMergeCandidates(sameName);
-  assert.equal(spaced.length, 1);
-  assert.equal(spaced[0].relation, 'shared-name');
-  assert.deepEqual(spaced[0].entityIds, ['entity_a', 'entity_b']);
+  assert.equal(spaced.candidates.length, 1);
+  assert.equal(spaced.candidates[0].relation, 'shared-name');
+  assert.deepEqual(spaced.candidates[0].entityIds, ['entity_a', 'entity_b']);
   assert.deepEqual(sameName.map(item => item.name), ['周宁', '周 宁']);
   const alias = proposeEntityMergeCandidates([
     entry('entity_luo', '罗峰', { occurrences: [occurrence('chapter_a', 'item_luo', '罗峰把铁盒放下')] }),
     entry('entity_feng', '峰哥', { aliases: ['峰哥', '罗峰'], occurrences: [occurrence('chapter_b', 'item_feng', '峰哥是罗峰')] }),
   ]);
-  assert.equal(alias.length, 1);
-  assert.equal(alias[0].relation, 'shared-alias');
-  assert.deepEqual(alias[0].names, ['峰哥', '罗峰']);
-  assert.deepEqual(alias[0].evidence.map(item => item.quote), ['峰哥是罗峰', '罗峰把铁盒放下']);
+  assert.equal(alias.candidates.length, 1);
+  assert.equal(alias.candidates[0].relation, 'shared-alias');
+  assert.deepEqual(alias.candidates[0].names, ['峰哥', '罗峰']);
+  assert.deepEqual(alias.candidates[0].evidence.map(item => item.quote), ['峰哥是罗峰', '罗峰把铁盒放下']);
   assert.deepEqual(proposeEntityMergeCandidates([
     entry('entity_person', '周宁'),
     entry('entity_beast', '周宁', { entityType: 'creature' }),
-  ]), []);
+  ]), { candidates: [], truncated: false });
   assert.deepEqual(proposeEntityMergeCandidates([
     entry('entity_short', '陆'),
     entry('entity_long', '陆行远'),
     { ...entry('entity_place', '周宁'), kind: 'location', entityType: 'place' },
-  ]), []);
+  ]), { candidates: [], truncated: false });
   const book = source();
   const duplicate = buildEntityRegistry(book, [{ id: 'rev_dup', chapterId: book.chapters[0].id, content: { items: [
     { id: 'cup_a', kind: 'prop', label: '塑料杯', description: '', sourceRefs: [{ documentId: 'x', start: 0, end: 3, quote: '塑料杯' }],
@@ -163,10 +164,35 @@ test('merge candidates keep different people, different types, and mere name con
   ], warnings: [] } }]);
   assert.equal(duplicate.length, 1);
   const repeated = proposeEntityMergeCandidates(duplicate);
-  assert.equal(repeated.length, 1);
-  assert.equal(repeated[0].relation, 'duplicate-chapter');
-  assert.deepEqual(repeated[0].evidence.map(item => item.itemId), ['cup_a', 'cup_b']);
+  assert.equal(repeated.candidates.length, 1);
+  assert.equal(repeated.candidates[0].relation, 'duplicate-chapter');
+  assert.deepEqual(repeated.candidates[0].evidence.map(item => item.itemId), ['cup_a', 'cup_b']);
   assert.equal(duplicate[0].occurrences.length, 2);
+});
+test('merge candidate index aggregates shared terms, is deterministic, and stops at the hard limit', () => {
+  const occurrence = (id, quote) => ({ chapterId: `chapter_${id}`, revisionId: `revision_${id}`, itemId: `item_${id}`,
+    confirmed: true, sourceRefs: [{ documentId: 'novel', start: 0, end: Array.from(quote).length, quote }] });
+  const entry = (id, name, aliases) => ({ id, kind: 'character', entityType: 'person', name, aliases,
+    occurrences: [occurrence(id, name)] });
+  const aggregate = proposeEntityMergeCandidates([
+    entry('entity_b', '乙', ['共同称呼', '另一个称呼']),
+    entry('entity_a', '甲', ['另一个称呼', '共同称呼']),
+  ]);
+  assert.equal(aggregate.truncated, false);
+  assert.equal(aggregate.candidates.length, 1);
+  assert.deepEqual(aggregate.candidates[0].entityIds, ['entity_a', 'entity_b']);
+  assert.deepEqual(aggregate.candidates[0].sharedTerms, ['共同称呼', '另一个称呼'].sort());
+
+  const crowded = Array.from({ length: 2000 }, (_, index) => {
+    const suffix = String(index).padStart(4, '0');
+    return entry(`entity_${suffix}`, `人物${suffix}`, ['共同称呼']);
+  });
+  const forward = proposeEntityMergeCandidates(crowded);
+  const reversed = proposeEntityMergeCandidates(crowded.slice().reverse());
+  assert.equal(forward.truncated, true);
+  assert.equal(forward.candidates.length, MAX_ENTITY_MERGE_CANDIDATES);
+  assert.equal(new Set(forward.candidates.map(candidate => candidate.id)).size, MAX_ENTITY_MERGE_CANDIDATES);
+  assert.deepEqual(reversed, forward);
 });
 function locateQuote(raw, quote, nth) {
   const points = Array.from(raw);
@@ -197,10 +223,28 @@ test('registry API returns same-name candidates and leaves both chapter identiti
   await service.correct(seed2.id, { expectedRevisionId: seed2.id, items: [person('person_ch2', 'entity_zhou_ch2', third)] });
   const registry = await service.registry(s.id);
   assert.equal(registry.entries.filter(entry => entry.name === '周宁').length, 2);
+  assert.equal(registry.mergeCandidatesTruncated, false);
   assert.equal(registry.mergeCandidates.length, 1);
   assert.equal(registry.mergeCandidates[0].relation, 'shared-name');
   assert.deepEqual(registry.mergeCandidates[0].entityIds, ['entity_zhou_ch1', 'entity_zhou_ch2']);
   assert.deepEqual(registry.mergeCandidates[0].evidence.map(item => item.quote), ['周宁', '周宁']);
+});
+test('registry API exposes truncation when the bounded candidate list is incomplete', async () => {
+  const r = new InMemoryNovelRepository(); const s = await r.createSource(source());
+  const service = new NovelService(r, config, async () => { throw new Error('no model'); });
+  const first = locateQuote(s.rawText, '周宁', 1);
+  const seed = await service.seed(s.chapters[0].id, { expectedRevisionId: null });
+  const items = Array.from({ length: 33 }, (_, index) => ({
+    id: `person_${String(index).padStart(2, '0')}`, kind: 'character', label: '周宁', description: '',
+    sourceRefs: [{ documentId: s.id, ...first }], speakerId: null, classification: null, entityType: 'person',
+    occurrence: 'present', canonicalEntityId: `entity_${String(index).padStart(2, '0')}`, aliases: [],
+    uncertainty: null, review: 'confirmed', origin: 'user',
+  }));
+  await service.correct(seed.id, { expectedRevisionId: seed.id, items });
+  const registry = await service.registry(s.id);
+  assert.equal(registry.entries.length, 33);
+  assert.equal(registry.mergeCandidates.length, MAX_ENTITY_MERGE_CANDIDATES);
+  assert.equal(registry.mergeCandidatesTruncated, true);
 });
 test('explicit scan-checkpoint resume preserves IDs and charges only newly submitted stages', async () => {
   const s = source(); const checkpoints = [];
