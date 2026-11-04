@@ -616,6 +616,102 @@
           "immutableFields": ["id", "domain", "revision", "event_json", "created_at"],
           "retention": "project_lifetime",
           "sensitivity": "internal"
+        },
+        {
+          "id": "evaluation.dataset",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_datasets",
+          "systemOfRecord": "evaluation_datasets",
+          "key": ["id"],
+          "versionKey": "id",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "kind", "created_at"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.dataset_revision",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_dataset_revisions",
+          "systemOfRecord": "evaluation_dataset_revisions",
+          "key": ["dataset_id", "revision"],
+          "versionKey": "id",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "dataset_id", "revision", "kind", "note", "content_summary", "slices", "tags", "authorization_json", "sensitivity", "provenance_json", "content_digest", "digest"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.dataset_case",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_cases",
+          "systemOfRecord": "evaluation_cases",
+          "key": ["revision_id", "case_id"],
+          "versionKey": "content_digest",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["revision_id", "case_id", "ordinal", "kind", "title", "intent", "input_json", "expectation_json", "source_json", "version_refs_json", "content_summary", "authorization_json", "sensitivity", "tags", "slices", "input_digest", "content_digest"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.rubric",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubrics",
+          "systemOfRecord": "evaluation_rubrics",
+          "key": ["id"],
+          "versionKey": "id",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "kind", "created_at"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.rubric_revision",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubric_revisions",
+          "systemOfRecord": "evaluation_rubric_revisions",
+          "key": ["rubric_id", "revision"],
+          "versionKey": "id",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "rubric_id", "revision", "kind", "note", "summary", "missing_result_policy", "content_digest", "digest"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.rubric_dimension",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubric_dimensions",
+          "systemOfRecord": "evaluation_rubric_dimensions",
+          "key": ["revision_id", "dimension_key"],
+          "versionKey": "dimension_key",
+          "eventTime": "rubric_revision.created_at",
+          "recordTime": "rubric_revision.created_at",
+          "immutableFields": ["revision_id", "dimension_key", "ordinal", "label", "description", "scale_json", "thresholds_json", "evidence_json"],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "evaluation.revision_usage",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_revision_usage",
+          "systemOfRecord": "evaluation_revision_usage",
+          "key": ["id"],
+          "versionKey": "usage_kind+usage_ref",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "dataset_revision_id", "rubric_revision_id", "usage_kind", "usage_ref", "note", "created_at"],
+          "retention": "project_lifetime",
+          "sensitivity": "internal"
+        },
+        {
+          "id": "evaluation.lifecycle_event",
+          "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_lifecycle_events",
+          "systemOfRecord": "evaluation_lifecycle_events",
+          "key": ["id"],
+          "versionKey": "action+created_at",
+          "eventTime": "created_at",
+          "recordTime": "created_at",
+          "immutableFields": ["id", "target_kind", "dataset_revision_id", "rubric_revision_id", "action", "actor", "reason", "created_at"],
+          "retention": "project_lifetime",
+          "sensitivity": "internal"
         }
       ]
     }
@@ -638,7 +734,11 @@
     { "path": "production_runs.run_json.artifacts", "owner": "delivery", "sensitivity": "confidential", "eventForm": "artifactId+mediaId+sha256+status" },
     { "path": "production_runs.run_json.budgetLedger", "owner": "cost", "sensitivity": "confidential", "eventForm": "kind+amountMicros+currency+basis" },
     { "path": "evolution_evidence.evidence_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "evidenceId+runDigest" },
-    { "path": "evolution_probes.probe_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "probeId+fixtureVersion+verdict+safeMetrics" }
+    { "path": "evolution_probes.probe_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "probeId+fixtureVersion+verdict+safeMetrics" },
+    { "path": "evaluation_dataset_revisions.authorization_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "authorizationStatus+expiresAt" },
+    { "path": "evaluation_cases.input_json/expectation_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "caseId+inputDigest+contentDigest" },
+    { "path": "evaluation_rubric_revisions.missing_result_policy", "owner": "evaluation", "sensitivity": "internal", "eventForm": "uncertain+skipped+evaluator_error" },
+    { "path": "evaluation_rubric_dimensions.scale_json/thresholds_json/evidence_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "dimensionKey+label" }
   ],
   "metrics": [
     {

@@ -115,8 +115,16 @@
 | 离线 Probe 报告 | `evolution_probes` | `id` / `fixtureVersion + policyDigest` | `created_at` | 整份报告不可变，`modelCalls` 必须为 0 | `run_lifetime` / `confidential` |
 | 当前策略 Registry | `evolution_registry` | `domain` / 当前策略修订 | `updated_at` | 当前值只能由 Registry 事件推进，不能回写历史运行 | `project_lifetime` / `confidential` |
 | Registry 采用/回滚历史 | `evolution_registry_events` | `id`；`(domain,revision)` | `created_at` | 整份事件不可变；回滚是追加新版本 | `project_lifetime` / `internal` |
+| 评测数据集身份 | `evaluation_datasets` | `id` / `id`（`kind` 固定） | `created_at`；`updated_at` 仅标题/描述 | `id/kind/created_at`；标题、描述可改 | `project_lifetime` / `confidential` |
+| 数据集不可变 revision | `evaluation_dataset_revisions` | `(dataset_id,revision)` / `id`（`revision` 单调） | `created_at`；`frozen_at/deprecated_at` 只追加状态 | `id/dataset_id/revision/kind/note/content_summary/slices/tags/authorization_json/sensitivity/provenance_json/content_digest/digest`；冻结后内容不可改 | `project_lifetime` / `confidential` |
+| 数据集 case | `evaluation_cases` | `(revision_id,case_id)` / `case_id`；`input_digest/content_digest` 去重 | `created_at` | `revision_id/case_id/ordinal/kind/title/intent/input_json/expectation_json/source_json/version_refs_json/content_summary/authorization_json/sensitivity/tags/slices/input_digest/content_digest` | `project_lifetime` / `confidential` |
+| 评测量表身份 | `evaluation_rubrics` | `id` / `id`（`kind` 固定） | `created_at`；`updated_at` 仅标题/描述 | `id/kind/created_at`；标题、描述可改 | `project_lifetime` / `confidential` |
+| 量表不可变 revision | `evaluation_rubric_revisions` | `(rubric_id,revision)` / `id`（`revision` 单调） | `created_at`；`frozen_at/deprecated_at` 只追加状态 | `id/rubric_id/revision/kind/note/summary/missing_result_policy/content_digest/digest`；冻结后内容不可改 | `project_lifetime` / `confidential` |
+| 量表维度 | `evaluation_rubric_dimensions` | `(revision_id,dimension_key)` / `dimension_key` | 所属 revision 的 `created_at` | `revision_id/dimension_key/ordinal/label/description/scale_json/thresholds_json/evidence_json` | `project_lifetime` / `confidential` |
+| 评测引用账本 | `evaluation_revision_usage` | `id`；`(dataset_revision_id 或 rubric_revision_id,usage_kind,usage_ref)` 唯一 | `created_at` | `id/dataset_revision_id/rubric_revision_id/usage_kind/usage_ref/note/created_at`；只 INSERT | `project_lifetime` / `internal` |
+| 评测生命周期事件 | `evaluation_lifecycle_events` | `id`；`(target_kind,dataset_revision_id 或 rubric_revision_id,action,created_at)` 定位 | `created_at` | `id/target_kind/dataset_revision_id/rubric_revision_id/action/actor/reason/created_at`；只 INSERT | `project_lifetime` / `internal` |
 
-这里只覆盖当前资产检索离线评测事实。通用评测数据集、标注、授权和评分由 #53/#17 扩展，不得直接把 Probe 结果当作通用质量分。
+这里同时覆盖当前资产检索离线评测事实和 022 已落地的通用评测目录（数据集/量表身份、不可变 revision、case、dimension、引用账本与生命周期事件）。通用评测的标注、授权登记、split 与评分仍由 #53/#17 扩展；但已落地目录事实以本节为唯一权威来源，不得在 #53 另建同义表，也不得直接把 Probe 结果当作通用质量分。
 
 ## 3. 字段 Owner 与扩散规则
 
