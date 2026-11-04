@@ -143,9 +143,9 @@ async function driveUntil(service, runId, predicate, { maxTicks = 80, approveChe
 }
 
 async function outboxStats(database, runId) {
-  const result = await database.query(`SELECT COUNT(*)::int AS count, MIN(sequence)::int AS min,
-    MAX(sequence)::int AS max, COUNT(DISTINCT sequence)::int AS distinct_sequences
-    FROM production_outbox_events WHERE run_id=$1`, [runId]);
+  const result = await database.query(`SELECT COUNT(*)::int AS count, MIN(aggregate_version)::int AS min,
+    MAX(aggregate_version)::int AS max, COUNT(DISTINCT aggregate_version)::int AS distinct_sequences
+    FROM data_outbox_events WHERE aggregate_id=$1`, [runId]);
   return result.rows[0];
 }
 

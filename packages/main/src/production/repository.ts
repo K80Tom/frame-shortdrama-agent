@@ -1,6 +1,10 @@
 import type { PostgresDatabase } from '../db/client';
 import { isDeepStrictEqual } from 'node:util';
 import { CREATE_KEYS, ProductionError, type StoredProductionRun } from '@lyra/shared';
+import { DataEventError } from '../data/event';
+import { DataEventContractError } from '@lyra/shared';
+import { DataOutbox } from '../data/outbox';
+import { productionOutboxDataEvent } from '../data/production-outbox';
 
 export interface ProductionRepository {
   list(): Promise<StoredProductionRun[]>;
@@ -67,11 +71,18 @@ export class MemoryProductionRepository implements ProductionRepository {
 interface RunRow { run_json: unknown }
 function databaseFailure(error: unknown): never {
   if (error instanceof ProductionError) throw error;
+  if (error instanceof DataEventError) throw error;
+  if (error instanceof DataEventContractError) {
+    throw new DataEventError(error.status, error.code, error.message, error.details);
+  }
   return unavailable();
 }
 
 export class PostgresProductionRepository implements ProductionRepository {
-  constructor(private readonly database: PostgresDatabase) {}
+  private readonly outbox: DataOutbox;
+  constructor(private readonly database: PostgresDatabase) {
+    this.outbox = new DataOutbox(database);
+  }
   async list() {
     try {
       const rows = await this.database.query<RunRow>('SELECT run_json FROM production_runs ORDER BY created_at DESC, id COLLATE "C" DESC');
@@ -93,7 +104,8 @@ export class PostgresProductionRepository implements ProductionRepository {
   async create(input: StoredProductionRun) {
     const run = validateStored(input);
     try {
-      return await this.database.transaction(async client => {
+      return await this.outbox.transaction(async tx => {
+        const client = tx.client;
         await client.query("SELECT pg_advisory_xact_lock(hashtext('shortdrama:production:' || $1::text))", [run.clientRequestId]);
         const existing = await client.query<RunRow>('SELECT run_json FROM production_runs WHERE client_request_id=$1', [run.clientRequestId]);
         if (existing.rows[0]) return validateStored(existing.rows[0].run_json);
@@ -102,9 +114,7 @@ export class PostgresProductionRepository implements ProductionRepository {
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [run.id, run.clientRequestId, run.projectId, run.scriptVersionId, run.status, run.version, run, run.createdAt, run.updatedAt]);
         for (const event of run.outbox) {
-          await client.query(`INSERT INTO production_outbox_events
-            (id,run_id,sequence,event_type,payload_json,created_at) VALUES($1,$2,$3,$4,$5,$6)`,
-          [event.id, event.runId, event.sequence, event.type, event.payload, event.createdAt]);
+          await tx.append(productionOutboxDataEvent(run, event));
         }
         return clone(run);
       });
@@ -113,7 +123,8 @@ export class PostgresProductionRepository implements ProductionRepository {
   async replace(input: StoredProductionRun, expectedVersion: number) {
     const run = validateStored(input);
     try {
-      return await this.database.transaction(async client => {
+      return await this.outbox.transaction(async tx => {
+        const client = tx.client;
         const selected = await client.query<RunRow>('SELECT run_json FROM production_runs WHERE id=$1 FOR UPDATE', [run.id]);
         const current = selected.rows[0] ? validateStored(selected.rows[0].run_json) : null;
         if (!current || current.version !== expectedVersion || run.version !== expectedVersion || !immutableEqual(current, run)) conflict();
@@ -123,9 +134,7 @@ export class PostgresProductionRepository implements ProductionRepository {
         if (updated.rowCount !== 1) conflict();
         const currentEvents = new Set(current.outbox.map(event => event.id));
         for (const event of next.outbox.filter(event => !currentEvents.has(event.id))) {
-          await client.query(`INSERT INTO production_outbox_events
-            (id,run_id,sequence,event_type,payload_json,created_at) VALUES($1,$2,$3,$4,$5,$6)`,
-          [event.id, event.runId, event.sequence, event.type, event.payload, event.createdAt]);
+          await tx.append(productionOutboxDataEvent(next, event));
         }
         return next;
       });

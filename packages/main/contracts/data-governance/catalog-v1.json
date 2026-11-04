@@ -1,7 +1,7 @@
 {
   "schemaVersion": "lyra-data-governance-catalog/1",
   "contractVersion": "lyra-data-governance/1",
-  "status": "proposed",
+  "status": "accepted",
   "sourceIssue": 48,
   "owners": {
     "novel": { "module": "packages/main/src/novel" },

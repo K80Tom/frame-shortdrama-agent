@@ -43,6 +43,9 @@ import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
+import { EVALUATION_SERVICE, EvaluationController } from './evaluation/controller';
+import { EvaluationError } from '@lyra/shared';
+import type { EvaluationService } from './evaluation/service';
 import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
 import { methodReference } from './prompt-packs/runtime';
 import { PromptPackError, type PromptPackService } from './prompt-packs/service';
@@ -66,6 +69,7 @@ export interface AppDependencies {
   productionMediaStore?: ProductionMediaStore;
   assistantService?: AssistantService;
   evolutionService?: AssetEvolutionService;
+  evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
@@ -382,6 +386,10 @@ class SafeErrors implements ExceptionFilter {
     if (error instanceof ModelError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message, ...error.details } });
     }
+    if (error instanceof EvaluationError) {
+      return reply.status(error.status).send({ error: { code: error.code, message: error.message,
+        details: error.details } });
+    }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError) {
@@ -403,6 +411,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
+    ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
@@ -415,6 +424,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
+    { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
   class ModelsModule {}
@@ -424,6 +434,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
+      || request.url.startsWith('/api/evaluation')
       || request.url.startsWith('/api/assistant')
       || request.url.startsWith('/api/prompt-packs')
       || request.url.includes('/desktop-asset')

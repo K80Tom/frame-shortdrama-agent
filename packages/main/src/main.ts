@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -39,6 +39,8 @@ import { AssistantOrchestrator } from '@lyra/agent';
 import { AssistantService } from '@lyra/agent';
 import { PostgresEvolutionRepository } from './evolution/postgres-repository';
 import { AssetEvolutionService } from './evolution/service';
+import { PostgresEvaluationRepository } from './evaluation/postgres-repository';
+import { EvaluationService } from './evaluation/service';
 import { PostgresPromptPackImportRepository, PostgresPromptPackStateRepository } from './prompt-packs/repository';
 import { PromptPackService } from './prompt-packs/service';
 
@@ -99,6 +101,7 @@ async function main() {
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
   let evolutionService: AssetEvolutionService | undefined;
+  let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
   const mediaRunner = new BoundedProcessRunner();
   const productionMediaStore = new ProductionMediaStore(
@@ -113,6 +116,9 @@ async function main() {
     database = new PostgresDatabase(databaseConfig);
     try {
       await database.verifyConnection();
+      if (await database.hasMigrations(EVALUATION_CATALOG_MIGRATIONS)) {
+        evaluationService = new EvaluationService(new PostgresEvaluationRepository(database));
+      }
       if (await database.hasMigrations(['020', '021'])) {
         promptPacksService = new PromptPackService(
           new PostgresPromptPackStateRepository(database), new PostgresPromptPackImportRepository(database),
@@ -154,6 +160,7 @@ async function main() {
         );
       }
       if (await database.hasMigrations(['015', '016'])
+        && await database.hasMigrations(DATA_OUTBOX_MIGRATIONS)
         && breakdownService instanceof BreakdownService && stageRunner && storyboardService
         && assetService && videoAutomationService) {
         const breakdown = breakdownService;
@@ -235,6 +242,7 @@ async function main() {
     productionMediaStore,
     assistantService,
     evolutionService,
+    evaluationService,
     promptPacksService,
     close: async () => {
       await Promise.all([desktopAssetService?.stop(), videoAutomationService?.stop(), productionService?.stop()]);
