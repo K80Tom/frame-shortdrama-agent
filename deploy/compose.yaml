@@ -1,0 +1,87 @@
+name: lyra
+
+# Lyra 一键部署：PostgreSQL + main（数据/付费主权层）+ web（工作台）
+#
+# 用法：
+#   1. 复制 .env.example 为 .env，至少设置 POSTGRES_PASSWORD 并填写自己的 LLM key
+#   2. docker compose up -d
+#   3. 浏览器打开 http://localhost:8788
+#
+# 镜像默认来自 GitHub Container Registry；本地自建可设 LYRA_IMAGE_PREFIX 覆盖。
+
+services:
+  postgres:
+    image: ${LYRA_POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-shortdrama_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-shortdrama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请复制 .env.example 为 .env 并设置 POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    shm_size: 128mb
+    stop_grace_period: 30s
+
+  # 一次性迁移：数据库结构变更显式执行，HTTP 服务启动不做隐式 schema 变更。
+  migrate:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-main:${LYRA_TAG:-latest}
+    command: ["node", "dist/db/migrate.js"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shortdrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-shortdrama_agent}
+      # 容器内通过 compose 服务名访问数据库，需显式声明主机白名单。
+      DATABASE_HOST_ALLOWLIST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  main:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-main:${LYRA_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: 8788
+      # 容器内必须绑 0.0.0.0，否则 web 容器无法访问；本机运行仍默认 127.0.0.1。
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shortdrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-shortdrama_agent}
+      DATABASE_HOST_ALLOWLIST: postgres
+    volumes:
+      # 模型连接文件与媒体产物持久化
+      - lyra_data:/app/outputs/private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  web:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-web:${LYRA_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${LYRA_PORT:-8788}:80"
+    depends_on:
+      main:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  lyra_data:

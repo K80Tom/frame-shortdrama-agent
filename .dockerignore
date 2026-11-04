@@ -1,0 +1,21 @@
+# 构建上下文只保留源码；依赖在镜像内安装。
+.git
+.github
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!deploy/.env.example
+outputs
+*.log
+
+# 只读参考与素材目录不参与镜像构建
+reference
+树干转场复刻
+.creative-design
+
+# 本地环境文件
+.venv
+.vscode
+.idea
+.DS_Store

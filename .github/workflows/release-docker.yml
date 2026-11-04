@@ -1,0 +1,139 @@
+# 发布 Lyra Docker 一键包：构建 main / web 镜像推送到 GHCR，并在 GitHub Release 挂上部署包。
+#
+# 触发：
+#   - 推送 v* 标签（如 v0.1.0）
+#   - 或手动 workflow_dispatch 指定版本
+#
+# 说明：
+#   - 仓库顶层 permissions 为只读，本工作流显式声明所需的最小写权限（packages / contents）。
+#   - 镜像名必须全小写（GHCR 要求），这里由仓库名转换得到。
+#   - 同时构建 linux/amd64 与 linux/arm64，覆盖 Intel/AMD 与 Apple Silicon 本地电脑。
+
+name: Release Docker
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布版本（例如 v0.1.0）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  BUNDLE_NAME: lyra-docker
+
+jobs:
+  images:
+    name: 构建 ${{ matrix.suffix }} 镜像
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suffix: main
+            file: deploy/Dockerfile.main
+          - suffix: web
+            file: deploy/Dockerfile.web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 计算小写镜像前缀
+        id: image
+        run: echo "prefix=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: 解析版本
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          test -n "$VERSION" || { echo "缺少版本号"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.prefix }}-${{ matrix.suffix }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: 生成一键包并创建 Release
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析版本
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          test -n "$VERSION" || { echo "缺少版本号"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 打包部署文件
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p bundle/lyra-docker
+          cp deploy/compose.yaml deploy/nginx.conf deploy/.env.example deploy/README.md \
+             deploy/Dockerfile.main deploy/Dockerfile.web bundle/lyra-docker/
+          tar -czf "${BUNDLE_NAME}-${VERSION}.tar.gz" -C bundle lyra-docker
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Lyra ${{ steps.version.outputs.version }}
+          files: ${{ env.BUNDLE_NAME }}-*.tar.gz
+          draft: false
+          body: |
+            一键部署包（Docker Compose）
+
+            需要 Docker Desktop 或 Docker Engine 24+（含 compose 插件）。
+
+            快速开始：
+            ```sh
+            tar -xzf ${{ env.BUNDLE_NAME }}-${{ steps.version.outputs.version }}.tar.gz
+            cd lyra-docker              # 解压后目录
+            cp .env.example .env        # 至少填 POSTGRES_PASSWORD；模型 key 可在页面里配
+            docker compose up -d
+            ```
+
+            浏览器打开 http://127.0.0.1:8788（或 http://localhost:8788）即可。
+
+            - 镜像：`ghcr.io/k80tom/frame-shortdrama-agent-main:${{ steps.version.outputs.version }}`、`-web` 同版本（同时提供 linux/amd64 与 linux/arm64）。
+            - 数据库、模型连接与媒体产物分别落在 `lyra_pgdata`、`lyra_lyra_data` 两个卷；`docker compose down` 不会删除数据。
+            - 本包不包含任何密钥；所有模型凭据由使用者自行填写。
