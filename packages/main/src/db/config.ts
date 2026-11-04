@@ -13,6 +13,11 @@ export class DatabaseConfigError extends Error {
 /**
  * P0 uses a local PostgreSQL instance only.  Keep this separate from the model
  * configuration so model-only tests and utilities never need a database.
+ *
+ * Container deployments reach PostgreSQL by compose service name rather than a
+ * loopback address. That is allowed only when the operator explicitly lists the
+ * host in DATABASE_HOST_ALLOWLIST; the default stays loopback-only so a stray
+ * DATABASE_URL can never silently point at a remote server.
  */
 export function readDatabaseConfig(env: NodeJS.ProcessEnv = process.env): DatabaseConfig | null {
   const connectionString = env.DATABASE_URL;
@@ -26,6 +31,14 @@ export function readDatabaseConfig(env: NodeJS.ProcessEnv = process.env): Databa
   }
 
   const allowedHosts = new Set(["127.0.0.1", "[::1]"]);
+  for (const candidate of (env.DATABASE_HOST_ALLOWLIST ?? "").split(",")) {
+    const host = candidate.trim().toLowerCase();
+    if (!host) continue;
+    if (!/^[a-z0-9][a-z0-9.-]{0,62}$/.test(host)) {
+      throw new DatabaseConfigError("Invalid DATABASE_HOST_ALLOWLIST entry");
+    }
+    allowedHosts.add(host);
+  }
   const databaseName = decodeURIComponent(url.pathname.replace(/^\//, ""));
   const port = url.port === "" ? 5432 : Number(url.port);
   if (
