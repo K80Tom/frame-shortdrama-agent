@@ -3,6 +3,11 @@ import type { ModelConnections } from './models/connections';
 
 export interface AppConfig {
   port: number;
+  /**
+   * 监听地址。本机运行默认回环；容器部署需通过 HOST=0.0.0.0 放开给同网络的其他容器。
+   * 未设置时保持 127.0.0.1，不改变本地安全语义。
+   */
+  host?: string;
   provider: 'maas' | 'openai-compatible';
   baseUrl: string;
   apiKey: string;
@@ -53,11 +58,18 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('LLM_REASONING_EFFORT is unsupported for LLM_DEFAULT_MODEL');
   }
   const port = integer('PORT', 8788, 1024, 65535);
+  // Container deployments must bind 0.0.0.0 so sibling containers can reach the API.
+  // Unset keeps the loopback-only default; only letters, digits and . : - are accepted.
+  const rawHost = env.HOST?.trim();
+  if (rawHost !== undefined && !/^[A-Za-z0-9.:-]{1,64}$/.test(rawHost)) {
+    throw new Error('Invalid HOST');
+  }
+  const host = rawHost || undefined;
   const intranetFlag = env.MEDIA_ALLOW_INTRANET_SOURCES;
   if (intranetFlag !== undefined && !['1', 'true', '0', 'false'].includes(intranetFlag.trim().toLowerCase())) {
     throw new Error('Invalid MEDIA_ALLOW_INTRANET_SOURCES');
   }
-  return Object.freeze({ port, provider: 'maas', baseUrl, apiKey, defaultModel, reasoningEffort,
+  return Object.freeze({ port, ...(host ? { host } : {}), provider: 'maas', baseUrl, apiKey, defaultModel, reasoningEffort,
     maxOutputTokens: integer('LLM_MAX_OUTPUT_TOKENS', 8192, 256, 32768),
     timeoutMs: integer('LLM_TIMEOUT_MS', 180000, 1000, 600000),
     maxConcurrentCalls: integer('LLM_MAX_CONCURRENT_CALLS', 2, 1, 8),

@@ -440,14 +440,19 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.includes('/desktop-asset')
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');
     const origin = request.headers.origin;
-    const allowedBrowser = origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173';
+    const hostHeader = request.headers.host ?? '';
+    // 本机访问既可能是 127.0.0.1 也可能是 localhost；容器部署时由同机 nginx 反代，
+    // Host 保留浏览器原始 host:port，因此同源 Origin 也应视为合法。
+    const localHost = /^127\.0\.0\.1(?::\d+)?$/.test(hostHeader) || /^localhost(?::\d+)?$/.test(hostHeader);
+    const sameOrigin = origin !== undefined && localHost && origin === `http://${hostHeader}`;
+    const allowedBrowser = origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173' || sameOrigin;
     if (allowedBrowser) {
       reply.header('Access-Control-Allow-Origin', origin);
       reply.header('Vary', 'Origin');
       reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       reply.header('Access-Control-Allow-Headers', 'Content-Type, X-Shortdrama-Call');
     }
-    if (!/^127\.0\.0\.1(?::\d+)?$/.test(request.headers.host ?? '') || (origin && !allowedBrowser) ||
+    if (!localHost || (origin && !allowedBrowser) ||
         (request.method === 'POST' && request.headers['x-shortdrama-call'] !== '1')) {
       return reply.code(403).send({ error: { code: 'LOCAL_CLIENT_ONLY', message: '仅允许本机客户端访问；POST 需 X-Shortdrama-Call: 1。' } });
     }

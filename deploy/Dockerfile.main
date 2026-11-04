@@ -1,0 +1,48 @@
+#
+# Lyra main（数据与付费主权层）镜像：NestJS + PostgreSQL 客户端 + ffmpeg 媒体链。
+# 构建上下文为仓库根目录：
+#   docker build -f deploy/Dockerfile.main -t lyra-main .
+
+ARG NODE_IMAGE=node:22-bookworm-slim
+FROM ${NODE_IMAGE} AS build
+WORKDIR /src
+
+ENV NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
+
+# file: 依赖（@lyra/shared、@lyra/agent）按顺序安装并构建。
+# --install-links 把 file: 依赖复制成实体目录，避免跨阶软链断裂。
+COPY packages/shared ./packages/shared
+RUN npm --prefix packages/shared install --install-links --no-audit --no-fund \
+ && npm --prefix packages/shared run build
+
+COPY packages/agent ./packages/agent
+RUN npm --prefix packages/agent install --install-links --no-audit --no-fund \
+ && npm --prefix packages/agent run build
+
+COPY packages/main ./packages/main
+RUN npm --prefix packages/main install --install-links --no-audit --no-fund \
+ && npm --prefix packages/main run build
+
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE} AS runtime
+
+# ffmpeg / ffprobe 是媒体链的硬依赖（抽帧、探针、拼接）。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=8788
+
+COPY --from=build /src/packages/main/package.json ./package.json
+COPY --from=build /src/packages/main/migrations ./migrations
+COPY --from=build /src/packages/main/dist ./dist
+COPY --from=build /src/packages/main/node_modules ./node_modules
+
+# outputs/private 保存模型连接与媒体产物，由 compose 挂卷持久化。
+RUN mkdir -p outputs/private/production-media
+
+EXPOSE 8788
+CMD ["node", "dist/main.js"]

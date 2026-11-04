@@ -253,11 +253,12 @@ async function main() {
   await desktopAssetService?.start();
   await videoAutomationService?.start();
   await productionService?.start();
-  await app.listen(config.port, '127.0.0.1');
+  await app.listen(config.port, config.host ?? '127.0.0.1');
   const persistence = breakdownService instanceof BreakdownService ? 'PostgreSQL ready' : 'breakdown persistence unavailable';
   const extractFacts = stageRunner ? 'extract-facts ledger ready' : 'extract-facts ledger unavailable';
   const production = productionService ? 'production orchestration ready' : 'production orchestration unavailable';
-  console.log(`Local backend ready: http://127.0.0.1:${config.port} (${persistence}, ${extractFacts}, ${production}, local only)`);
+  const listenHost = config.host ?? '127.0.0.1';
+  console.log(`Local backend ready: http://${listenHost}:${config.port} (${persistence}, ${extractFacts}, ${production}, local only)`);
 }
 main().catch(() => {
   console.error('本机后端启动失败：请检查 .env、本机 PostgreSQL 和端口占用。未输出凭据或原始错误。');
