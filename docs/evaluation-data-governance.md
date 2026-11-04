@@ -2,6 +2,8 @@
 
 状态：与 GitHub issue #40 同步落地。本文件说明 Lyra 评测目录（Evaluation Catalog）的数据保留、脱敏、授权与版本不可变边界。
 
+评测目录的权威来源登记见 `docs/data-governance/authority-matrix.md` 第 2.9 节；机器可读版本见 `contracts/data-governance/catalog-v1.json` 的 `evaluation` 域。
+
 本期范围只有**题库、量表和版本管理**：
 
 - 不做 EvaluationRun、评分器、Promptfoo/Langfuse 接入、Web 页面或 CLI。
