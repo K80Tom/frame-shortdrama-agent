@@ -4,5 +4,5 @@
 # Protect repository automation and agent instructions.
 /.github/ @K80Tom @255308153
 
-# Active OHAO product.
-/shortdrama-agent-lab/ @K80Tom @255308153
+# Active Lyra product.
+/packages/ @K80Tom @255308153
