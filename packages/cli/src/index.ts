@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseCreateProductionRun, type CreateProductionRun } from '@lyra/shared';
+import { parsePlatformPreflightReport } from '@lyra/shared';
 
 const DEFAULT_API = process.env.Lyra_API ?? 'http://127.0.0.1:8788';
 const PENDING_FILE = join(homedir(), '.lyra', 'pending-run.json');
@@ -147,8 +148,13 @@ async function main(): Promise<void> {
 
   if (group === 'doctor') {
     const health = await request<{ status: string }>('GET', '/healthz', flags);
+    const preflight = parsePlatformPreflightReport(await request<unknown>('GET', '/api/platform/preflight', flags));
     const models = await request<{ models?: unknown[] }>('GET', '/api/models', flags);
-    print({ health, models }, json, () => {
+    print({ health, models, preflight }, json, () => {
+      console.log('生产能力：' + preflight.status + '；仅本地检查，未验证供应商可用性。');
+      for (const check of preflight.checks.filter(item => item.status !== 'ready')) {
+        console.log(check.id + ' [' + check.status + '] ' + check.stages.join(',') + '：' + check.action);
+      }
       console.log(`后端：${apiBase(flags)} 状态 ${health.status}`);
       const list = Array.isArray(models) ? models : (models as { models?: unknown[] }).models ?? [];
       console.log(`模型配置：${Array.isArray(list) ? list.length : 0} 条（仅列出本机可见配置，不含密钥）`);
