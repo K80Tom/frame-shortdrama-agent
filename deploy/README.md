@@ -1,6 +1,10 @@
-# Lyra 一键部署（Docker Compose）
+# Lyra 当前 Docker Compose 部署包
 
-把一集剧本推进成可检查、可恢复、可交付的短剧成片。本包让你在自己电脑上以四个 compose 服务（PostgreSQL、一次性迁移、main、web）运行 Lyra，不需要安装 Node、数据库或 ffmpeg。
+把一集剧本推进成可检查、可恢复、可交付的短剧成片。本包以四个 compose 服务（PostgreSQL、一次性迁移、main、web）运行当前 Early Preview，不需要在宿主机安装 Node、数据库或 ffmpeg。
+
+> **定位说明：** 这是当前开发/评估部署包，不是已完成的 Stage 1 多租户生产拓扑。Stage 1 目标包含 API/Worker 分进程、Redis、Milvus、MinIO 或 S3/OSS/COS、登录授权与可恢复任务，详见[生产部署架构与分阶段演进路线](../docs/production-architecture-roadmap.md)。
+
+> **安全警告：** 当前 Compose 包尚未提供生产级登录鉴权、workspace 隔离、HTTPS、限流和密钥托管，不要把默认 `8788` 端口直接暴露到公网。仅在开发环境、受信内网或已有额外防火墙/访问控制的评估环境使用。
 
 ## 前置条件
 
