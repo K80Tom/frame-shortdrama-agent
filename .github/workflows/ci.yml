@@ -67,10 +67,12 @@ jobs:
             packages/shared/package-lock.json
             packages/agent/package-lock.json
             packages/main/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install backend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
-      - name: Build shared and agent
-        run: npm --prefix packages/shared run build && npm --prefix packages/agent run build
+        run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
+      - name: Build agent
+        run: npm --prefix packages/agent run build
       - name: Run backend tests
         run: npm --prefix packages/main test
 
@@ -107,10 +109,12 @@ jobs:
             packages/shared/package-lock.json
             packages/agent/package-lock.json
             packages/main/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install backend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
-      - name: Build shared and agent
-        run: npm --prefix packages/shared run build && npm --prefix packages/agent run build
+        run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
+      - name: Build agent
+        run: npm --prefix packages/agent run build
       - name: Reject unsafe application-role targets
         env:
           PGHOST: 127.0.0.1
@@ -165,10 +169,10 @@ jobs:
           cache-dependency-path: |
             packages/shared/package-lock.json
             packages/web/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install frontend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/web ci --install-links
-      - name: Build shared contract
-        run: npm --prefix packages/shared run build
+        run: npm --prefix packages/web ci --install-links
       - name: Run frontend tests
         run: npm --prefix packages/web test
       - name: Build frontend

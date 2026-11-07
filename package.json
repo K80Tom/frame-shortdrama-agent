@@ -7,7 +7,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "setup": "npm --prefix packages/shared install && npm --prefix packages/agent install --install-links && npm --prefix packages/main install && npm --prefix packages/cli install && npm --prefix packages/web install --install-links",
+    "setup": "npm --prefix packages/shared install && npm --prefix packages/shared run build && npm --prefix packages/agent install --install-links && npm --prefix packages/agent run build && npm --prefix packages/main install && npm --prefix packages/cli install && npm --prefix packages/web install --install-links",
     "build": "npm --prefix packages/shared run build && npm --prefix packages/agent run build && npm --prefix packages/main run build && npm --prefix packages/cli run build && npm --prefix packages/web run build",
     "test": "npm run build && npm --prefix packages/main test && npm --prefix packages/web test",
     "dev": "npm --prefix packages/main run dev",
