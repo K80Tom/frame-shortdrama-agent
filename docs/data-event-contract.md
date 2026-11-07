@@ -1,9 +1,10 @@
-# DataEventV1 与统一事务 Outbox 设计（#49 第一阶段）
+# DataEventV1 与统一事务 Outbox 契约
 
-状态：**Proposed**，等待契约评审。本文只冻结事件契约、Outbox 边界与 Legacy 迁移方案，不代表 Dispatcher/Projector 已实现。
-契约版本：`lyra.data.event/v1`；共享实现：`packages/shared/src/data-event.ts`；测试：`packages/main/tests/data-event-contract.test.cjs`。
+状态：**基础实现已落地；Stage 1 多租户生产化待实现**。迁移 024、事务 Outbox、生产状态接入、Dispatcher、Projector、Checkpoint、死信/隔离与范围重放组件均已有代码和测试，但 Dispatcher 尚未接入独立常驻运行时；本文同时约束后续 `workspace_id` 兼容升级。
 
-依赖口径：`#48` 的 ADR `packages/main/docs/adr/0001-data-domain-governance.md`（`lyra-data-governance/1`，当前 `Proposed`）与目录 `packages/main/contracts/data-governance/catalog-v1.json`。本文不另造数据域、命名、敏感级别或保留期；关闭 #49 前 #48 必须先合入。事件敏感级别上限沿用目录的 `eventSensitivityCeiling: "internal"`。
+契约版本：`lyra.data.event/v1`；共享实现：`packages/shared/src/data-event.ts`；数据库迁移：`packages/main/migrations/024_data_event_outbox.sql`；测试入口：`packages/main/tests/data-event-contract.test.cjs`、`data-outbox-*.test.cjs`、`data-pipeline.test.cjs` 与 `data-projection.db.test.cjs`。
+
+数据域、命名、敏感级别和保留期沿用 [数据治理 ADR](../packages/main/docs/adr/0001-data-domain-governance.md) 与 [机器可读目录](../packages/main/contracts/data-governance/catalog-v1.json)。事件敏感级别上限为 `internal`。
 
 ## 1. DataEventV1 示例
 
@@ -11,7 +12,7 @@
 {
   "eventId": "evt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "eventType": "production.run.succeeded",
-  "schemaVersion": "lyra.production.run/v1",
+  "schemaVersion": "lyra.data.event/v1",
   "aggregateType": "production_run",
   "aggregateId": "run_001",
   "aggregateVersion": 3,
@@ -36,15 +37,15 @@
 |---|---|
 | `eventId` | `evt_` + 32 位小写 hex；全局唯一，不可变 |
 | `eventType` | `<domain>.<aggregate>.<event_name>`，恰好 3 段小写 snake_case |
-| `schemaVersion` | `lyra.<domain>.<fact>/v<major>`，如 `lyra.production.run/v1` |
-| `aggregateType` | `novel_chapter` / `script` / `asset` / `production_run` / `production_attempt` / `external_operation` / `quality_check` / `delivery_artifact`（评测适配器后续再加 `evaluation_run`） |
+| `schemaVersion` | 当前构造器固定为 `lyra.data.event/v1`；后续版本必须显式新增契约，不能原地改 V1 |
+| `aggregateType` | `novel_chapter` / `script` / `asset` / `production_run` / `production_attempt` / `external_operation` / `quality_check` / `delivery_artifact` / `evaluation_run` |
 | `aggregateId` | 权威聚合的稳定 ID，不是显示名 |
-| `aggregateVersion` | 单聚合内单调正整数；同一版本 + 事件类型唯一 |
+| `aggregateVersion` | 单聚合内单调正整数；当前数据库约束同一聚合版本只能对应一个事件 |
 | `occurredAt` | 业务事实发生时间，UTC ISO 8601 |
 | `recordedAt` | 事实被记录/写入 Outbox 的时间，UTC；不得早于 `occurredAt` |
 | `correlationId` | 跨事件关联 ID |
 | `causationId` | 直接上游 `eventId`，没有则 `null` |
-| `idempotencyKey` | 写入方生成，推荐 `dataEventIdempotencyKey(...)` |
+| `idempotencyKey` | 写入方生成，推荐 `dataEventIdempotencyKey(...)`；当前数据库不以它作为唯一约束 |
 | `authoritativeRef` | 权威来源 `kind/id/revisionId/digest`；只存引用与摘要，不存正文 |
 | `payload` | 只允许一层标量/标量数组，≤24 字段、≤4096 字节；只放投影必需的最小字段 |
 
@@ -60,7 +61,7 @@
 
 ## 3. 统一事务 Outbox
 
-### 表结构（建议，迁移编号由协调人分配）
+### 已落地表结构（迁移 024）
 
 `data_outbox_events`：
 
@@ -68,14 +69,14 @@
 - `event_id` UNIQUE；`event_type`、`schema_version`
 - `aggregate_type`、`aggregate_id`、`aggregate_version`
 - `occurred_at`、`recorded_at`
-- `correlation_id`、`causation_id`、`idempotency_key` UNIQUE
+- `correlation_id`、`causation_id`、`idempotency_key`
 - `authoritative_ref_json`、`payload_json`、`event_digest`
 - `legacy_source`、`legacy_event_id`（仅迁移行；UNIQUE `(legacy_source, legacy_event_id)`）
-- `published_at`、`publish_attempts`、`last_error`
-- UNIQUE `(aggregate_type, aggregate_id, aggregate_version, event_type)`，禁止同一事实重复版本
-- 索引 `(published_at, occurred_at, outbox_id) WHERE published_at IS NULL` 供 Dispatcher 扫描
+- `status`（`pending` / `published` / `failed` / `dead_letter`）、`attempts`、`available_at`、`published_at`、`last_error`、`created_at`
+- UNIQUE `(event_id)`、`(aggregate_type, aggregate_id, aggregate_version)`、`(legacy_source, legacy_event_id)`
+- 索引 `(available_at, occurred_at) WHERE status IN ('pending', 'failed')` 供 Dispatcher 扫描
 
-`data_consumer_checkpoints` 与投影表由 D 阶段实现，本阶段只冻结命名空间规则。
+迁移同时建立 `data_consumer_records`、`data_projection_records`、`data_consumer_checkpoints`、`data_dead_letters` 与 `data_quarantine_records`。`PostgresProjectionStore` 保证投影、已处理记录与 checkpoint 在同一事务提交。
 
 ### 事务边界（硬约束）
 
@@ -88,13 +89,15 @@ await database.transaction(async client => {
 });
 ```
 
-- `appendDataEvent(client, event)` 必须显式接收 `PoolClient`；没有 client 直接报 `DATA_OUTBOX_TRANSACTION_REQUIRED`。
+- `appendDataEvent(client, event)` 在类型和调用边界上显式要求 `PoolClient`；业务代码应通过现有事务或 `DataOutbox.transaction()` 获取它，不得传普通连接替代事务 client。
 - 禁止“先提交业务数据，再另起事务写事件”，也禁止在 repository 内再嵌套 `database.transaction()`。
 - 业务写入回滚时事件一起回滚，不留孤立事件。
-- 现有 `packages/main/src/production/repository.ts` 的 create/replace 是首批改造点：保留同一事务内写 `production_runs`，把两处 `production_outbox_events` 直插改为统一 Outbox 追加。
-- 切换期只允许一条写路径：新业务写 `data_outbox_events`；旧 `production_outbox_events` 停止新增，只保有历史数据。禁止长期双写两套格式。
+- `packages/main/src/production/repository.ts` 的 create/replace 已在写 `production_runs` 的同一事务中追加统一 Outbox，新生产写入不再双写旧表。
+- 新业务只写 `data_outbox_events`；旧 `production_outbox_events` 仅作为历史迁移来源保留。禁止重新引入长期双写。
 
-### 首批接入
+### Stage 1 计划接入清单
+
+当前只有 `production_run` 状态事件已接入统一 Outbox；其余聚合类型是后续接入要求，不得描述为现有写入链路。
 
 | 业务事实 | aggregateType | 写入要求 |
 |---|---|---|
@@ -111,40 +114,43 @@ await database.transaction(async client => {
 
 ## 4. Legacy `production_outbox_events` 迁移方案
 
-现状：`packages/main/migrations/015_production_orchestration.sql` 的 `production_outbox_events` 有 `id`、`run_id`、`sequence`、`event_type`、`payload_json`、`created_at`、`delivered_at`；旧事件只有 `createdAt`，没有 aggregate version、correlation、authoritative digest。
+`packages/main/migrations/015_production_orchestration.sql` 的 `production_outbox_events` 有 `id`、`run_id`、`sequence`、`event_type`、`payload_json`、`created_at`、`delivered_at`。`packages/main/src/data/legacy.ts` 已提供可重入映射，不修改旧表。
 
 映射规则（显式 Legacy Schema，禁止猜业务语义）：
 
 - `legacy_source = 'production_outbox_events'`，`legacy_event_id = old.id`。
-- 新 `eventId = 'evt_' + sha256('legacy:production_outbox_events:' + old.id).slice(0, 32)`，确定性生成；重复回填不会产生第二个事件。
-- `aggregateType = 'production_run'`，`aggregateId = old.run_id`，`aggregateVersion = old.sequence`。**明确说明**：旧 sequence 只是 run 内事件序号，不是业务聚合版本；迁移后它进入 Legacy 命名空间，不与新事件的版本空间混用。
+- 新 `eventId = 'evt_' + sha256('production_outbox_events:' + old.id).slice(0, 32)`，确定性生成；重复执行不会产生第二个事件。
+- `aggregateType = 'production_run'`，`aggregateId = old.run_id`，`aggregateVersion = old.sequence`。旧 sequence 是 run 内事件序号，映射后承担 Legacy 事件版本。
 - `occurredAt = recordedAt = old.created_at`；旧数据无法区分发生/记录时间，二者同值，未知保持未知。
-- `schemaVersion = 'lyra.production.outbox_legacy/v1'`；`eventType` 保留旧 `event_type` 并登记为 legacy 映射（不是新事件命名）。
-- `payload = { legacySequence: old.sequence }`；旧 `payload_json` 不复制进新事件，原文保留在旧表供审计，避免把未知全文/供应商内容带进新 Outbox。
-- `authoritativeRef = { kind: 'production_run', id: old.run_id, revisionId: 'production_run:' + old.run_id + ':v' + run.version, digest: sha256(canonical(run.run_json)) }`；由迁移脚本读取 `production_runs.run_json` 计算，不依赖 SQL 近似。
-- `publishedAt = old.delivered_at`；未投递为 `null`；`publishAttempts = old.delivered_at IS NULL ? 0 : 1`，只表达已知投递状态。
-- 旧表迁移后保留只读；新 Dispatcher 只读 `data_outbox_events`。旧事件不能重复投影：`event_id` 唯一 + `(legacy_source, legacy_event_id)` 唯一 + 消费者 `(consumerName, eventId)` 处理记录三重保护。
+- `schemaVersion` 仍为 `lyra.data.event/v1`；`eventType` 保留旧值并通过当前 V1 校验。
+- `payload` 先按字段名、形状和长度保留浅层标量/标量数组，再由 V1 对整个事件校验；如仍含敏感字段或敏感值，映射会被拒绝。没有可保留字段或事件为 `production.run.operations_reconciled` 时补 `legacySequence`。
+- `authoritativeRef.kind = 'production_outbox_event'`，`id = old.id`；摘要覆盖旧行 ID、run、sequence、event type、payload 与时间字段。
+- `delivered_at` 映射为 `published` / `pending` 和 `published_at`；历史投递次数未知，因此 `attempts` 保持 `0`。
+- 旧表迁移后不再作为新写源，新 Dispatcher 只读 `data_outbox_events`；当前尚未施加数据库级只读保护。旧事件不能重复投影：`event_id` 唯一 + `(legacy_source, legacy_event_id)` 唯一 + 消费者 `(consumerName, eventId)` 处理记录三重保护。
 
-迁移步骤：
-
-1. 建新表与唯一约束/索引，不改旧表。
-2. 迁移前核对：旧事件总数、`id` 集合、按 `run_id` 的 sequence 范围、`delivered_at` 已投递/未投递数量、关联 `production_runs.version`。
-3. 分批回填（单批一个事务，记录游标）；每批再核对行数与 ID 集合。
-4. 切换写入：业务 repository 只写新 Outbox；旧表置为只读（Trigger 或权限），禁止双写。
-5. 迁移后核对：新旧数量一致、每个旧 ID 恰好一个新事件、aggregateVersion 与旧 sequence 一一对应、`publishedAt` 与旧 `delivered_at` 状态一致、`production_runs` 交付状态不变。
-6. 回滚：保留旧表与旧读取路径；停止新 Dispatcher，恢复旧读取；新表可保留但不得作为第二写源。
-
-必须提供迁移前后核对测试：数量、ID 集合、aggregate version、交付状态四项；以及“同一旧事件只投影一次”的消费者测试。
+当前迁移在一个事务中按 `created_at, id` 遍历旧行，使用 `legacy_source + legacy_event_id` 跳过已迁移记录，并核对旧表当前行数与映射数。迁移和投影测试覆盖可重入、计数、版本、交付状态与消费者去重。大数据量环境在执行前仍需补充分批游标、旧表数据库级只读保护与对应回滚演练；这些不能被文档误写成现有保障。
 
 ## 5. 错误码
 
 校验层：`DATA_EVENT_INPUT_INVALID`、`DATA_EVENT_SENSITIVE_FIELD`、`DATA_EVENT_PAYLOAD_TOO_LARGE`、`DATA_EVENT_DIGEST_MISMATCH`。
-事务 Outbox 层：`DATA_OUTBOX_TRANSACTION_REQUIRED`、`DATA_OUTBOX_DUPLICATE_EVENT`、`DATA_OUTBOX_AGGREGATE_VERSION_CONFLICT`、`DATA_OUTBOX_IDEMPOTENCY_CONFLICT`、`DATA_OUTBOX_NOT_FOUND`。
-Legacy 层：`DATA_OUTBOX_LEGACY_MAPPING_INVALID`、`DATA_OUTBOX_LEGACY_DUPLICATE`、`DATA_OUTBOX_LEGACY_COUNT_MISMATCH`。
+事务 Outbox 层：`DATA_OUTBOX_TRANSACTION_REQUIRED`、`DATA_OUTBOX_DUPLICATE_EVENT`、`DATA_OUTBOX_AGGREGATE_VERSION_CONFLICT`、`DATA_OUTBOX_NOT_FOUND`。
+Legacy 层：`DATA_OUTBOX_LEGACY_DUPLICATE`、`DATA_OUTBOX_LEGACY_COUNT_MISMATCH`。
 
-## 6. 边界
+## 6. 当前 Dispatcher、投影与重放边界
 
-- 首期不接 Kafka、不做完整投影 UI、不从缺失值推断成功/失败。
+- `DataDispatcher` 已支持批量扫描、指数退避、最大尝试次数与 dead-letter 状态；`DataProjector` 已支持幂等、单聚合版本检查、未知 schema 隔离和原子 checkpoint。
+- `DataReplayService` 已支持按时间、聚合和事件类型范围重放，以及不写任何状态的 dry-run；重放使用独立消费者命名空间，不推进线上 checkpoint。
 - 消费者不得回写业务状态；事件不携带原始媒体、全文、密钥、令牌或完整供应商响应。
-- 单 aggregate 有序、范围重放、dry-run 由 D 阶段实现，但命名空间与事件契约在本阶段冻结。
-- 评测事件适配器（`EvaluationEvent → DataEventV1`）不在本期强制绑定；#41 先用自己的 append-only 事件表。
+- 当前这些组件是可复用底座，尚未由主应用注册为持续运行的 Dispatcher 循环；独立 Worker/Dispatcher 进程、租户隔离与生产运维仍属于 Stage 1 实现工作。Dispatcher 达到最大尝试次数时会把 Outbox 行标为 `dead_letter`，当前不会同步写 `data_dead_letters` 消费者表。
+
+## 7. Stage 1 多租户兼容规则
+
+1. `DataEventV1` 没有 `workspaceId`。不得给 V1 原地加字段或改变 `dataEventDigest`，否则历史事件会失去可验证性。
+2. 新建 `DataEventV2`（或等价的版本化租户 envelope），把顶层 `workspaceId` 纳入摘要与校验；Dispatcher 和消费者在历史 V1 仍可重放期间持续双读 V1/V2，除非历史事件已完成可核验迁移或归档。
+3. Outbox 通过新增可空列/映射表把历史 V1 归到明确的默认 workspace，不改旧 payload、事件摘要或事件 ID；完成回填和核对后再收紧约束。
+4. 消费者命名空间、checkpoint、去重键与投影记录都必须包含租户作用域。Redis、Milvus、通知及需要异步同步的对象元数据统一消费 PostgreSQL Outbox，业务请求不得跨存储直接双写；媒体字节仍通过 `ObjectStorage` 端口或受控签名 URL 传输，并由 `main` 验真。
+
+## 8. 与 EvaluationRun、Kafka 的关系
+
+- `evaluation_run_events` 是单次评测运行的 append-only 领域历史，不是第二套跨存储 Outbox。需要向 Redis、Milvus、通知或分析投影时，应在同一 PostgreSQL 事务追加统一 `data_outbox_events`；当前适配尚未接入。
+- Stage 1 不接 Kafka。Stage 3 如达到多消费者和长期回放触发条件，由 Outbox Relay 发布到 Kafka；Kafka 可以承载终态事件，但不是媒体字节或任务最终状态的权威存储，PostgreSQL 仍是业务事实源。
