@@ -13,12 +13,14 @@ import {
 } from './executor';
 import type { ProductionRepository } from './repository';
 import { publicProductionRun } from './view';
+import { logProductionOutputRejected, type ProductionDiagnosticSink } from './diagnostics';
 
 export interface ProductionSourceCatalog {
   getProject(projectId: string): Promise<unknown>;
   getScriptVersion(projectId: string, scriptVersionId: string): Promise<unknown>;
 }
 export interface ProductionServiceOptions {
+  diagnosticSink?: ProductionDiagnosticSink;
   now?: () => Date;
   pollIntervalMs?: number;
   executors?: ProductionExecutor[];
@@ -49,6 +51,7 @@ function issueRequiresWorkflow(task: ProductionTask, issue: ProductionIssue) {
 }
 
 export class ProductionService {
+  private readonly diagnosticSink?: ProductionDiagnosticSink;
   private readonly now: () => Date;
   private readonly pollIntervalMs: number;
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
@@ -59,6 +62,7 @@ export class ProductionService {
   private tickTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly repository: ProductionRepository, options: ProductionServiceOptions = {}) {
+    this.diagnosticSink = options.diagnosticSink;
     this.now = options.now ?? (() => new Date());
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
@@ -549,10 +553,13 @@ export class ProductionService {
   }
 
   private async failInvalidOutcome(runId: string, taskId: string, attemptId: string, error: unknown) {
-    console.error('[failInvalidOutcome]', taskId, error instanceof Error ? (error.stack || error.message) : JSON.stringify(error));
     const latest = await this.requireRun(runId); const task = latest.tasks.find(item => item.id === taskId);
     const attempt = latest.attempts.find(item => item.id === attemptId);
     if (!task || !attempt || attempt.status === 'succeeded') return;
+    logProductionOutputRejected({
+      projectId: latest.projectId, runId, taskId, attemptId,
+      operationId: this.activeOperation(latest, taskId)?.id,
+    }, this.diagnosticSink);
     const at = this.timestamp(); const code = error instanceof ProductionError ? error.code : 'PRODUCTION_EXECUTOR_OUTPUT_INVALID';
     // Keep a redacted, field-level reason on the attempt so the UI can explain the
     // rejection without re-running the paid step only to see the same error again.
