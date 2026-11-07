@@ -1,10 +1,12 @@
 # Lyra 生产部署架构与分阶段演进路线
 
 > 状态：**已定稿的目标架构**<br>
-> 实现基线：`dev@890cc36`（Early Preview）<br>
-> 更新日期：2026-11-07
+> 实现基线：`dev@90196c1`（Early Preview）<br>
+> 更新日期：2026-11-08
 
 本文定义 Lyra 从当前 Early Preview 迁移到可上线初版、增长期和规模化阶段的生产架构。文中的 Stage 1–3 是已确认的演进目标，不代表当前 `dev` 已完成全部实现。
+
+本文是生产演进总纲；数据事件、评测运行和评测目录的具体兼容规则分别见 [DataEvent 与统一事务 Outbox 契约](data-event-contract.md)、[EvaluationRun 契约](evaluation-run-contract.md) 和 [评测数据治理](evaluation-data-governance.md)。详细契约不得把 Stage 1 目标反写成当前现状。
 
 本方案默认支持共享多租户 SaaS；私有化部署可为每套系统创建单一默认 `workspace`，保留同样的数据边界。
 
