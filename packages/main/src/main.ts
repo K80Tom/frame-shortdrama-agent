@@ -1,4 +1,6 @@
 import { createApp } from './app';
+import { PlatformPreflightService } from './platform/preflight';
+import { createPlatformProbes } from './platform/probes';
 import { readConfig } from './config';
 import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
@@ -231,6 +233,10 @@ async function main() {
     }
   }
   const app = await createApp(config, fetch, {
+    platformPreflight: new PlatformPreflightService(createPlatformProbes({
+      config, database, mediaRoot: productionMediaStore.root, mediaServiceReady: true,
+      productionRuntimeReady: Boolean(productionService), vectorConfigured: Boolean(assetVectorConfig), runner: mediaRunner,
+    }), { frameAssessmentRequired: (process.env.Lyra_FRAME_ASSESSMENT ?? process.env.OHAO_FRAME_ASSESSMENT) !== '0' }),
     breakdownService,
     stageRunner,
     storyboardService,

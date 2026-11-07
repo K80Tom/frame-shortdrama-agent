@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { PlatformPreflightService } from './platform/preflight';
+import { PlatformController, PLATFORM_PREFLIGHT } from './platform/controller';
 import { Body, Catch, Controller, Get, HttpCode, HttpException, Inject, Injectable, Module, Param, Post, Query,
   type ArgumentsHost, type ExceptionFilter, type PipeTransform } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -57,6 +59,7 @@ const STAGE_RUNNER = Symbol('STAGE_RUNNER');
 const STORYBOARD_SERVICE = Symbol('STORYBOARD_SERVICE');
 
 export interface AppDependencies {
+  platformPreflight?: PlatformPreflightService;
   /** Omit this in model-only tests or before PostgreSQL has been migrated. */
   breakdownService?: BreakdownServicePort;
   stageRunner?: ExtractFactsStageRunner;
@@ -407,13 +410,14 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   // In-memory only in explicitly injected/test apps. main.ts supplies the private file-backed service.
   config = config.modelConnections ? config : { ...config, modelConnections: new ModelConnections(config) };
   const breakdownService = dependencies.breakdownService ?? new UnavailableBreakdownService();
-  @Module({ controllers: [ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
+  @Module({ controllers: [PlatformController, ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
+    { provide: PLATFORM_PREFLIGHT, useValue: dependencies.platformPreflight ?? new PlatformPreflightService({}) },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
     { provide: NOVEL_SERVICE, useValue: dependencies.novelService ?? null },
@@ -430,7 +434,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
   adapter.getInstance().addHook('onRequest', async (request, reply) => {
-    if (request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
+    if (request.url.startsWith('/api/platform') || request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
