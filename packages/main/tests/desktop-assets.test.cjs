@@ -67,7 +67,8 @@ async function fixture(t, options = {}) {
     submits.push(structuredClone(input));
     return options.submit ? options.submit(input) : { state: 'submitted', code: 'SUBMITTED', message: '单张已提交' };
   } };
-  const service = new DesktopAssetService(jobs, novels, novelService, assets, adapter, projectRoot);
+  const service = new DesktopAssetService(jobs, novels, novelService, assets, adapter, projectRoot,
+    options.serviceOptions);
   const stored = task => jobs.get(task.id);
   const freshRevision = async () => novels.getRevision((await novels.getSource(source.id)).chapters[0].latestRevisionId);
   const output = async (task, bytes = IMAGE, old = true) => {
@@ -79,6 +80,21 @@ async function fixture(t, options = {}) {
   t.after(async () => { await service.stop(); assert.equal(networkCalls, 0); await rm(projectRoot, { recursive: true, force: true }); });
   return { config, projectRoot, novels, novelService, source, revision, assets, jobs, adapter, service, submits,
     transport, stored, freshRevision, output, setHealth: value => { health = value; } };
+}
+
+function fakeTenantScope() {
+  let active;
+  return {
+    current() { return active; },
+    async runAsSystem(reason, work) {
+      const previous = active; active = {kind: 'system', reason};
+      try { return await work(); } finally { active = previous; }
+    },
+    async runWithTenant(tenant, work) {
+      const previous = active; active = {kind: 'tenant', tenant};
+      try { return await work(); } finally { active = previous; }
+    },
+  };
 }
 
 class ReservationGateRepository extends MemoryDesktopTaskRepository {
@@ -108,6 +124,46 @@ class ReservationGateRepository extends MemoryDesktopTaskRepository {
 test('unknown remains explicitly reconcilable but is not an active generation slot', () => {
   assert.deepEqual(activeStates, ['queued', 'submitting', 'generating', 'importing']);
   assert.deepEqual(reconcilableStates, ['submitting', 'generating', 'importing', 'unknown']);
+});
+
+test('Stage 1 desktop worker freezes workspace ownership and restores tenant scope before provider submission', async t => {
+  const scope = fakeTenantScope();
+  const workspaceId = `ws_${'1'.repeat(32)}`;
+  const tenant = {userId: `usr_${'2'.repeat(32)}`, workspaceId, role: 'owner',
+    requestId: 'request:desktop-tenant-0001'};
+  const resolver = { async resolve(actualWorkspace, operationId) {
+    assert.equal(actualWorkspace, workspaceId);
+    assert.match(operationId, /^desktop_[a-f0-9]{32}$/u);
+    return {...tenant, requestId: `worker:${operationId}`};
+  } };
+  const f = await fixture(t, {serviceOptions: {executionScope: scope, tenantResolver: resolver,
+    requireTenantWorkspace: true}});
+  let submittedScope;
+  f.adapter.submit = async () => {
+    submittedScope = structuredClone(scope.current());
+    return {state: 'submitted', code: 'SUBMITTED', message: '单张已提交'};
+  };
+  const task = await scope.runWithTenant(tenant, () => f.service.create(f.revision.id, request(f.revision)));
+  assert.equal((await f.stored(task)).workspaceId, workspaceId);
+  await f.service.tick();
+  assert.equal(submittedScope.kind, 'tenant');
+  assert.equal(submittedScope.tenant.workspaceId, workspaceId);
+});
+
+test('Stage 1 desktop worker quarantines a pre-tenant task without submitting or importing it as system', async t => {
+  const f = await fixture(t);
+  const task = await f.service.create(f.revision.id, request(f.revision));
+  assert.equal((await f.stored(task)).workspaceId, undefined);
+  const scope = fakeTenantScope();
+  const strict = new DesktopAssetService(f.jobs, f.novels, f.novelService, f.assets, f.adapter,
+    f.projectRoot, {executionScope: scope, requireTenantWorkspace: true,
+      tenantResolver: {async resolve() { throw new Error('legacy task must not resolve'); }}});
+  t.after(() => strict.stop());
+  await strict.tick();
+  const quarantined = await f.stored(task);
+  assert.equal(quarantined.status, 'needsReview');
+  assert.match(quarantined.message, /workspace/iu);
+  assert.equal(f.submits.length, 0);
 });
 
 test('desktop descriptions retain all three confirmed inputs and separate evidence from visual design', async t => {

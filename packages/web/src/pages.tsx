@@ -4,6 +4,7 @@ import { ArrowButton, Card, Modal, Notice, PageHeading, Tag, WhitePreview } from
 import { exportDraft, initialShots, originalScript, plan, sampleImage, type Draft, type Page, type ShotDraft } from './model';
 import { stages } from './stages';
 import { ModelConnectionSummary } from './ModelConnections';
+import SystemStatusPanel from './SystemStatusPanel';
 
 type Common = { go: (page: Page, step?: number) => void; notify: (text: string) => void };
 type Editing = Common & { draft: Draft; setDraft: Dispatch<SetStateAction<Draft>>; save: (next?: Draft) => void };
@@ -90,5 +91,5 @@ export function FlowPage({ step, go }: Common & { step: number }) {
 }
 
 export function SettingsPage(_props: Common) {
-  return <><PageHeading eyebrow="YOUR WORKSPACE" title="为下一次创作，准备就绪。" description="管理模型连接，了解当前工作台的保存方式。" /><div className="settings-grid"><ModelConnectionSummary /><Card className="settings-card"><span className="round-icon"><Save size={23} /></span><h2>数据与草稿</h2><Tag tone="green">按页面保存</Tag><p>小说、真实剧本项目、校对历史与资产引用由本机后端存入数据库；请点击相应页面的保存按钮。</p><p className="settings-small">剧本编辑样例与示例分镜仍是浏览器草稿，换浏览器不会同步；正式数据请备份本机数据库。</p></Card><Card className="settings-card"><span className="round-icon"><WandSparkles size={23} /></span><h2>关于这个版本</h2><Tag tone="orange">本地工作台 0.1</Tag><p>已接入小说与剧本拆解、校对保存、资产引用和分镜设计。模型连接按用途独立管理。</p><p className="settings-small">小说待补资产已接单张生图、导入和关联；「自动成片」可按描述生成独立视频片段，尚未绑定分镜与整集剪辑；角色配音未接入。3D 导演台保持现状。</p></Card></div></>;
+  return <><PageHeading eyebrow="WORKSPACE & SYSTEM" title="当前 workspace 与系统状态。" description="管理模型连接，并核对 API 实际报告的部署状态。" /><SystemStatusPanel /><div className="settings-grid"><ModelConnectionSummary /><Card className="settings-card"><span className="round-icon"><Save size={23} /></span><h2>数据与草稿</h2><Tag tone="green">PostgreSQL 是权威数据源</Tag><p>小说、真实剧本项目、校对历史与资产引用由后端写入 PostgreSQL；浏览器不直连数据库。</p><p className="settings-small">Redis 和 Milvus 都不是真相源，但 session 部署依赖 Redis 做共享快照和限流，故障时请求保护会失败关闭；Milvus 可降级为词法检索。剧本编辑样例仍使用浏览器草稿。</p></Card><Card className="settings-card"><span className="round-icon"><WandSparkles size={23} /></span><h2>Stage 1 边界</h2><Tag tone="orange">只展示已报告能力</Tag><p>每个环境的对象存储只选一个 provider（MinIO、S3、OSS 或 COS），实际选择以后端状态为准。</p><p className="settings-small">未配置、不可用或后端尚未提供的能力会如实标记；不会因为页面有入口就假定它已经可用。</p></Card></div></>;
 }

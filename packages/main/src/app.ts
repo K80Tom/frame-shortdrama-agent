@@ -35,9 +35,14 @@ import type { VideoAutomationService } from './video-automation/service';
 import { PRODUCTION_SERVICE, ProductionController } from './production/controller';
 import { ProductionError } from '@lyra/shared';
 import type { ProductionService } from './production/service';
-import { PRODUCTION_MEDIA_STORE, ProductionMediaController } from './production-media/controller';
+import {
+  PRODUCTION_MEDIA_OBJECT_SERVICE,
+  PRODUCTION_MEDIA_STORE,
+  ProductionMediaController,
+} from './production-media/controller';
 import { ProductionMediaError } from './production-media/contracts';
 import type { ProductionMediaStore } from './production-media/store';
+import type { ProductionMediaObjectService } from './production-media/object-worker';
 import { ASSISTANT_SERVICE, AssistantController } from './assistant/controller';
 import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
@@ -49,12 +54,46 @@ import type { EvaluationService } from './evaluation/service';
 import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
 import { methodReference } from './prompt-packs/runtime';
 import { PromptPackError, type PromptPackService } from './prompt-packs/service';
+import { SYSTEM_STATUS, SystemController } from './system/controller';
+import { SystemStatusService } from './system/status';
+import { randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
+import { AuthController, AUTH_SERVICE, WorkspacesController } from './auth/controller';
+import { AuthError, requestedWorkspace, type AuthenticatedRequest } from './auth/contracts';
+import type { AuthService } from './auth/service';
+import { tenantExecutionScope } from './tenancy/scope';
+import {
+  RateLimiterUnavailableError,
+  rateLimitIdentity,
+  type RequestRateLimiter,
+} from './infrastructure/rate-limit';
 
 const CONFIG = Symbol('APP_CONFIG');
 const TRANSPORT = Symbol('MODEL_TRANSPORT');
 const BREAKDOWN_SERVICE = Symbol('BREAKDOWN_SERVICE');
 const STAGE_RUNNER = Symbol('STAGE_RUNNER');
 const STORYBOARD_SERVICE = Symbol('STORYBOARD_SERVICE');
+
+function requestPath(url: string): string {
+  return url.split('?', 1)[0] ?? url;
+}
+
+function isModelConfigurationMutation(path: string): boolean {
+  return path === '/api/model-profiles'
+    || path === '/api/model-profiles/import-environment'
+    || path.startsWith('/api/model-profiles/')
+    || path.startsWith('/api/model-assignments/')
+    || path.startsWith('/api/model-connections/');
+}
+
+function clientAddress(request: { headers: Record<string, unknown>; ip: string }): string {
+  const forwarded = request.headers['x-forwarded-for'];
+  // The edge overwrites X-Forwarded-For. Taking the last valid address also
+  // resists a legacy proxy that appends to an untrusted client header.
+  const candidate = typeof forwarded === 'string' ? forwarded.split(',').at(-1)?.trim() : undefined;
+  if (candidate && isIP(candidate)) return candidate;
+  return isIP(request.ip) ? request.ip : 'unknown';
+}
 
 export interface AppDependencies {
   /** Omit this in model-only tests or before PostgreSQL has been migrated. */
@@ -67,10 +106,14 @@ export interface AppDependencies {
   videoAutomationService?: VideoAutomationService;
   productionService?: ProductionService;
   productionMediaStore?: ProductionMediaStore;
+  productionMediaObjectService?: ProductionMediaObjectService;
   assistantService?: AssistantService;
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
+  authService?: AuthService;
+  systemStatus?: SystemStatusService;
+  rateLimiter?: RequestRateLimiter;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
 }
@@ -392,7 +435,7 @@ class SafeErrors implements ExceptionFilter {
     }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
-      || error instanceof AssistantError || error instanceof PromptPackError) {
+      || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message } });
     }
     const status = error instanceof HttpException ? error.getStatus() :
@@ -407,13 +450,25 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   // In-memory only in explicitly injected/test apps. main.ts supplies the private file-backed service.
   config = config.modelConnections ? config : { ...config, modelConnections: new ModelConnections(config) };
   const breakdownService = dependencies.breakdownService ?? new UnavailableBreakdownService();
-  @Module({ controllers: [ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
+  const systemStatus = dependencies.systemStatus ?? new SystemStatusService(config.runtimeRole);
+  if (config.authMode === 'session' && !dependencies.authService) {
+    throw new Error('Session authentication requires a migrated AuthService');
+  }
+  @Module({ controllers: [SystemController, AuthController, WorkspacesController,
+    ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
+    { provide: SYSTEM_STATUS, useValue: systemStatus },
+    { provide: AUTH_SERVICE, useValue: dependencies.authService ?? null },
+    { provide: 'AUTH_COOKIE_OPTIONS', useValue: {
+      secure: config.sessionCookieSecure,
+      ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
+      sessionTtlSeconds: config.sessionTtlSeconds,
+    } },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
     { provide: NOVEL_SERVICE, useValue: dependencies.novelService ?? null },
@@ -422,6 +477,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: VIDEO_AUTOMATION_SERVICE, useValue: dependencies.videoAutomationService ?? null },
     { provide: PRODUCTION_SERVICE, useValue: dependencies.productionService ?? null },
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
+    { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
@@ -430,7 +486,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
   adapter.getInstance().addHook('onRequest', async (request, reply) => {
-    if (request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
+    const path = requestPath(request.url);
+    if (request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
@@ -441,22 +498,95 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');
     const origin = request.headers.origin;
     const hostHeader = request.headers.host ?? '';
-    // 本机访问既可能是 127.0.0.1 也可能是 localhost；容器部署时由同机 nginx 反代，
-    // Host 保留浏览器原始 host:port，因此同源 Origin 也应视为合法。
     const localHost = /^127\.0\.0\.1(?::\d+)?$/.test(hostHeader) || /^localhost(?::\d+)?$/.test(hostHeader);
-    const sameOrigin = origin !== undefined && localHost && origin === `http://${hostHeader}`;
-    const allowedBrowser = origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173' || sameOrigin;
+    const publicOrigin = config.publicOrigin;
+    const publicHost = publicOrigin ? new URL(publicOrigin).host : '';
+    const allowedHost = localHost || Boolean(publicHost && hostHeader.toLowerCase() === publicHost.toLowerCase());
+    const localSameOrigin = origin !== undefined && localHost
+      && (origin === `http://${hostHeader}` || origin === `https://${hostHeader}`);
+    const allowedBrowser = origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173'
+      || localSameOrigin || Boolean(origin && publicOrigin && origin === publicOrigin);
     if (allowedBrowser) {
       reply.header('Access-Control-Allow-Origin', origin);
       reply.header('Vary', 'Origin');
-      reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      reply.header('Access-Control-Allow-Headers', 'Content-Type, X-Shortdrama-Call');
+      reply.header('Access-Control-Allow-Credentials', 'true');
+      reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      reply.header('Access-Control-Allow-Headers', 'Content-Type, X-Shortdrama-Call, X-Workspace-Id, X-Request-Id, Authorization, X-CSRF-Token');
     }
-    if (!localHost || (origin && !allowedBrowser) ||
-        (request.method === 'POST' && request.headers['x-shortdrama-call'] !== '1')) {
-      return reply.code(403).send({ error: { code: 'LOCAL_CLIENT_ONLY', message: '仅允许本机客户端访问；POST 需 X-Shortdrama-Call: 1。' } });
+    const mutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method);
+    if (!allowedHost || (origin && !allowedBrowser)
+      || (mutation && request.headers['x-shortdrama-call'] !== '1')) {
+      return reply.code(403).send({ error: { code: 'LOCAL_CLIENT_ONLY',
+        message: '请求 Host/Origin 不受信任，写请求需 X-Shortdrama-Call: 1。' } });
     }
     if (request.method === 'OPTIONS') return reply.code(204).send();
+    if (config.authMode === 'session' && request.url.startsWith('/api/')) {
+      const publicPath = path === '/api/auth/login' || path === '/api/system/status';
+      if (dependencies.rateLimiter && publicPath) {
+        try {
+          const purpose = path === '/api/auth/login' ? 'login' : 'public-status';
+          const decision = await dependencies.rateLimiter.consume(
+            `${purpose}:${rateLimitIdentity(clientAddress(request))}`,
+            path === '/api/auth/login' ? 10 : 120,
+            path === '/api/auth/login' ? 300 : 60,
+          );
+          if (!decision.allowed) {
+            reply.header('Retry-After', String(decision.retryAfterSeconds));
+            return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后重试。' } });
+          }
+        } catch {
+          return reply.code(503).send({ error: { code: 'RATE_LIMIT_UNAVAILABLE',
+            message: '请求保护服务暂时不可用。' } });
+        }
+      }
+      if (!publicPath) {
+        try {
+          const rawRequestId = request.headers['x-request-id'];
+          const requestId = typeof rawRequestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{7,127}$/u.test(rawRequestId)
+            ? rawRequestId : `req_${randomBytes(16).toString('hex')}`;
+          const auth = await dependencies.authService!.authenticate(request.headers.cookie,
+            requestedWorkspace(request.headers['x-workspace-id']), requestId);
+          (request as typeof request & { auth?: AuthenticatedRequest }).auth = auth;
+          reply.header('X-Request-Id', requestId);
+          if (dependencies.rateLimiter) {
+            const decision = await dependencies.rateLimiter.consume(
+              `session:${rateLimitIdentity(`${auth.tenant.workspaceId}:${auth.sessionId}`)}`, 180, 60,
+            );
+            if (!decision.allowed) {
+              reply.header('Retry-After', String(decision.retryAfterSeconds));
+              return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后重试。' } });
+            }
+          }
+          if (mutation) {
+            dependencies.authService!.verifyCsrf(auth, request.headers['x-csrf-token']);
+            if (auth.tenant.role === 'viewer' && path !== '/api/auth/logout') {
+              throw new AuthError(403, 'AUTH_FORBIDDEN', '当前 workspace 角色没有写权限。');
+            }
+            if (isModelConfigurationMutation(path) && !['owner', 'admin'].includes(auth.tenant.role)) {
+              throw new AuthError(403, 'AUTH_FORBIDDEN', '只有 workspace owner 或 admin 可以修改模型连接。');
+            }
+          }
+        } catch (error) {
+          if (error instanceof AuthError) {
+            return reply.code(error.status).send({ error: { code: error.code, message: error.message } });
+          }
+          if (error instanceof RateLimiterUnavailableError) {
+            return reply.code(503).send({ error: { code: 'RATE_LIMIT_UNAVAILABLE',
+              message: '请求保护服务暂时不可用。' } });
+          }
+          return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: '身份校验失败。' } });
+        }
+      }
+    }
+  });
+  // Fastify continues the request pipeline from this callback, so every
+  // repository call made by the Nest handler inherits the authenticated
+  // workspace through AsyncLocalStorage. PostgreSQL RLS consumes the same
+  // transaction-local values during the later contract migration.
+  adapter.getInstance().addHook('preHandler', (request, _reply, done) => {
+    const auth = (request as typeof request & { auth?: AuthenticatedRequest }).auth;
+    if (auth) tenantExecutionScope.runWithTenant(auth.tenant, done);
+    else done();
   });
   if (dependencies.close) {
     adapter.getInstance().addHook('onClose', async () => { await dependencies.close?.(); });

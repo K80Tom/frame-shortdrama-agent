@@ -14,12 +14,15 @@ export interface ProductionMediaStoreOptions {
   now?: () => Date;
 }
 
+export type ProductionMediaStoredHook = (object: Readonly<LocalVideoObject>) => Promise<void>;
+
 /** Content-addressed, server-owned MP4 storage. No URL fetching occurs here. */
 export class ProductionMediaStore {
   readonly root: string;
   readonly limits: ProductionMediaLimits;
   private readonly now: () => Date;
   private initialized: Promise<void> | null = null;
+  private storedHook: ProductionMediaStoredHook | null = null;
 
   constructor(root: string, private readonly prober: VideoProber, options: ProductionMediaStoreOptions = {}) {
     if (typeof root !== 'string' || !root.trim() || root.includes('\0')) {
@@ -39,6 +42,13 @@ export class ProductionMediaStore {
       await this.ensureDirectory(join(this.root, 'tmp'));
       await this.ensureDirectory(join(this.root, 'manifests'));
     })();
+  }
+
+  /** Register once during runtime composition; media is not reported ready until the durable projection is queued. */
+  setStoredHook(hook: ProductionMediaStoredHook): void {
+    if (this.storedHook) throw new ProductionMediaError(500, 'MEDIA_STORED_HOOK_ALREADY_SET',
+      '媒体持久化钩子已经配置。');
+    this.storedHook = hook;
   }
 
   async createWorkDirectory(prefix = 'media-work'): Promise<string> {
@@ -69,7 +79,7 @@ export class ProductionMediaStore {
     const id = `media_${sha256}`;
     const target = this.objectPath(sha256);
     const existing = await this.existingObject(id, target, sourceKind);
-    if (existing) return existing;
+    if (existing) return this.afterStored(existing);
 
     const temp = join(this.root, 'tmp', `${sha256}-${randomUUID()}.mp4`);
     const handle = await open(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
@@ -98,10 +108,15 @@ export class ProductionMediaStore {
       if (!persisted || persisted.bytes !== file.length) {
         throw new ProductionMediaError(409, 'LOCAL_MEDIA_MANIFEST_INVALID', '本地视频清单与实际内容不一致。');
       }
-      return { ...persisted, probe };
+      return this.afterStored({ ...persisted, probe });
     } finally {
       await unlink(temp).catch(() => undefined);
     }
+  }
+
+  private async afterStored(object: LocalVideoObject): Promise<LocalVideoObject> {
+    await this.storedHook?.(structuredClone(object));
+    return object;
   }
 
   async importOwnedVideo(path: string, sourceKind: LocalVideoObject['sourceKind'] = 'ownedFile'): Promise<LocalVideoObject> {

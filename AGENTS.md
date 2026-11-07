@@ -79,7 +79,7 @@ npm --prefix packages/main run test:db # 真实 PostgreSQL 持久化测试（需
 - **PostgreSQL 是结构化业务状态与元数据的唯一事实源。** 用户、workspace、成员、项目、完整对话、任务、权限、费用、对象引用与 Outbox 不得只保存在 Redis、Milvus、本地文件或消息系统；大型媒体的权威字节保存在对象存储。
 - **Redis 是 Stage 1 必需的对话上下文快照、限流、实时推送与短期协调层。** 完整消息和任务最终状态仍落 PostgreSQL；Redis key 携带 `workspace_id`、快照携带会话版本，所有数据必须可重建或安全失效。
 - **Milvus 是 Stage 1 必需但可重建的向量投影。** 资产目录、原文与权限仍以 PostgreSQL/对象存储为准；向量必须携带 `workspace_id` 和来源版本，检索命中后回 PostgreSQL 核验。付费 Embedding 和重建继续遵守显式授权、预算、冻结版本与审计纪律。
-- **图片、音频、视频、原始文件、中间产物和成片进对象存储。** 应用只依赖统一 `ObjectStorage` 端口；私有化/开发可选 MinIO，云环境选 S3、OSS 或 COS 之一。数据库保存 provider/bucket/object key/version/checksum/size 等元数据，不保存临时签名 URL。客户端直传只能使用 `main` 签发的最小权限 URL 写 staging key，由 `main` 验证 size/type/checksum 后才转为正式资产。
+- **图片、音频、视频、原始文件、中间产物和成片的目标事实字节进对象存储。** 应用只依赖统一 `ObjectStorage` 端口；私有化/开发可选 MinIO，云环境选 S3、OSS 或 COS 之一。数据库保存 provider/bucket/object key/version/checksum/size 等元数据，不保存临时签名 URL。客户端直传只能使用 `main` 签发的最小权限 URL 写 staging key，由 `main` 验证 size/type/checksum 后才转为正式资产。迁移期现存 `asset_media.content BYTEA` 只是已记录的 Stage 1 例外；在它完成对象化迁移前，文档与发布说明必须如实披露，不得宣称所有媒体字节已迁移。
 - **API 与 Worker 在 Stage 1 分进程/容器，但保持同仓库和 `@lyra/main` 主权边界。** API 不保存本机独有业务状态；Worker 执行模型、Embedding、媒体和 FFmpeg 任务，并必须实现原子领取、租约、心跳、步骤检查点、幂等与超时恢复。
 - **跨存储同步统一经 PostgreSQL 事务 Outbox。** 复用现有 `data_outbox_events` / `DataOutbox` / `DataDispatcher` / `DataProjector`，不再建第二套 Outbox；禁止请求代码对 PostgreSQL 与 Redis、Milvus 或 Kafka 做不可恢复的直接双写。
 - **租户上下文端到端传递。** Stage 1 的 Repository、任务、新版事件、Redis key、Milvus filter 与对象元数据均携带 `workspace_id`；私有对象只经短期签名 URL 访问，最终资源授权由 PostgreSQL 检查。现有 `DataEventV1` 不原地改摘要语义；租户事件通过版本化契约和可回滚迁移引入。

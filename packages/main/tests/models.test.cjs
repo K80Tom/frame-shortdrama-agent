@@ -6,6 +6,7 @@ const { readConfig } = require('../dist/config');
 const { MODELS } = require('../dist/models/registry');
 const { ModelClient } = require('../dist/models/client');
 const { parseCall } = require('@lyra/shared');
+require('./system-runtime.test.cjs');
 
 const modelEnv = { LLM_BASE_URL: 'https://model.test/openai', LLM_API_KEY: 'test-only-api-key' };
 const config = readConfig(modelEnv);
@@ -30,6 +31,7 @@ test('registry exposes only the MAAS text model without invented context or reas
 test('unconfigured defaults cannot fall back to the removed proxy; remote configuration requires clean HTTPS', () => {
   const defaults = readConfig({});
   assert.equal(defaults.provider, 'maas');
+  assert.equal(defaults.runtimeRole, 'all');
   assert.equal(defaults.baseUrl, '');
   assert.equal(defaults.apiKey, '');
   assert.equal(defaults.defaultModel, modelId);
@@ -43,8 +45,11 @@ test('unconfigured defaults cannot fall back to the removed proxy; remote config
     { LLM_BASE_URL: 'https://model.test/openai?token=secret' }, { LLM_BASE_URL: 'https://model.test/openai#secret' },
     { LLM_DEFAULT_MODEL: 'unknown' }, { LLM_DEFAULT_MODEL: 'gpt-5.6-terra' },
     { LLM_REASONING_EFFORT: 'ultra' }, { LLM_REASONING_EFFORT: 'medium' },
+    { LYRA_RUNTIME_ROLE: 'scheduler' },
     { LLM_API_KEY: 'test-key\r\nInjected: unsafe' },
   ]) assert.throws(() => readConfig(env));
+  assert.equal(readConfig({ LYRA_RUNTIME_ROLE: 'api' }).runtimeRole, 'api');
+  assert.equal(readConfig({ LYRA_RUNTIME_ROLE: 'worker' }).runtimeRole, 'worker');
 });
 
 test('MAAS sends api-key, non-streaming text, bounded max_tokens and no reasoning_effort (mock only)', async () => {
