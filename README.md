@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
 </p>
 
-[产品能力](#产品能力) · [生产流程](#从剧本到成片) · [架构](#monorepo-架构) · [快速开始](#快速开始) · [能力边界](#当前能力边界) · [文档](#文档导航)
+[产品能力](#产品能力) · [生产流程](#从剧本到成片) · [架构](#架构) · [生产演进](docs/production-architecture-roadmap.md) · [开发环境](#开发环境启动) · [能力边界](#当前能力边界) · [文档](#文档导航)
 
 </div>
 
@@ -27,7 +27,7 @@
 
 Lyra 不是单一的“文生视频”按钮。它把小说/剧本拆解、资产准备、分镜设计、空间预演、镜头生成、候选选择、技术复核、有限返修和 FFmpeg 合片组织成一条持久化生产链。每个阶段都有真实状态、冻结输入、预算记录和恢复入口；失败停在具体节点，修复后从受影响的位置继续。
 
-> **当前状态：Early Preview。** 主链路、工作台和本地持久化已经落地，但模型质量、视觉语义和最终成片仍需要真人验收。项目目前面向本地单机开发，不是可直接托管的多租户云服务。
+> **当前状态：Early Preview。** 主链路、工作台和 PostgreSQL 持久化已经落地，但模型质量、视觉语义和最终成片仍需要真人验收。生产初版架构已定稿：API/Worker 分进程、PostgreSQL 业务事实源、Redis 对话上下文快照、Milvus 向量检索、MinIO 或 S3/OSS/COS 对象存储与 workspace 租户隔离。当前 `dev` 尚不具备直接公网多租户生产部署条件；后续实现将按已定稿路线迁移，落地状态与升级条件见[生产部署架构与分阶段演进路线](docs/production-architecture-roadmap.md)。
 
 ## 产品能力
 
@@ -112,7 +112,34 @@ flowchart LR
 
 方法包用于保存可检索的创作方法、许可信息和节点级提示参考。系统按需读取正文，创建生产运行时冻结当时启用的版本，只在匹配的模型节点附加节选，避免方法在运行中漂移。内置方法索引位于 [`packages/agent/prompt-library`](packages/agent/prompt-library/README.md)。
 
-## monorepo 架构
+## 架构
+
+### 生产初版目标
+
+```mermaid
+flowchart TB
+    USER[浏览器] --> EDGE[CDN / HTTPS / 反向代理]
+    EDGE --> API[main-api]
+    API -->|任务 / 元数据| PG[(PostgreSQL<br/>结构化业务事实源)]
+    API --> REDIS[(Redis<br/>上下文快照 / 限流 / SSE)]
+    PG -->|原子领取| WORKER[main-worker]
+    WORKER -->|进度 / 结果 / Outbox| PG
+    WORKER --> REDIS
+    WORKER --> MILVUS[(Milvus<br/>可重建向量投影)]
+    API -->|签名 / 校验| OBJECT[(MinIO / S3 / OSS / COS<br/>对象存储)]
+    WORKER --> OBJECT
+    WORKER --> PROVIDERS[模型 / Embedding 供应商]
+```
+
+- PostgreSQL 保存用户、workspace、项目、完整对话、任务、权限、费用和 Outbox。
+- Redis 是必需的热上下文层，但其快照必须能从 PostgreSQL 重建。
+- Milvus 是必需的语义检索层，但命中后仍回 PostgreSQL 核验租户、权限和当前版本。
+- 图片、音频、视频和成片进对象存储；每个环境选择 MinIO、S3、OSS 或 COS 之一。
+- API 和 Worker 仍属于同一 `@lyra/main` 与同一仓库，只拆运行进程，不为此提前拆微服务。
+
+> 上图是已定稿的 Stage 1 目标拓扑。当前 `dev` 尚未完成 Redis、对象存储、多租户与 API/Worker 分进程的全部迁移；详细现状、一致性、回滚和验收要求见[生产架构路线](docs/production-architecture-roadmap.md)。
+
+### 当前 monorepo 代码边界
 
 ```text
 frame-shortdrama-agent/
@@ -128,7 +155,7 @@ frame-shortdrama-agent/
 └── package.json         # monorepo 开发命令
 ```
 
-### 不可越过的运行边界
+### 当前不可越过的运行边界
 
 ```mermaid
 flowchart TB
@@ -136,7 +163,7 @@ flowchart TB
     MAIN -->|接口注入| AGENT[agent<br/>纯逻辑与智能编排]
     MAIN --> PG[(PostgreSQL<br/>事实源)]
     MAIN --> MEDIA[受控媒体库<br/>FFmpeg / ffprobe]
-    MAIN -.可选检索投影.-> MILVUS[(Milvus)]
+    MAIN -.当前可选检索投影.-> MILVUS[(Milvus)]
     MAIN --> PROVIDERS[模型供应商]
     SHARED[shared<br/>公共契约] --- WEB
     SHARED --- MAIN
@@ -148,20 +175,21 @@ flowchart TB
 3. `web` 与 `cli` 不直连数据库或模型；跨包请求、响应和领域类型统一来自 `@lyra/shared`。
 4. 所有付费动作必须遵循“估价/计划 → 人工确认 → 提交”，不存在绕过确认的一键付费入口。
 
-### 数据与依赖
+### 生产初版依赖与当前状态
 
-| 依赖 | 用途 | 是否必需 |
+| 依赖 | 当前 `dev` | 生产初版 |
 | --- | --- | --- |
-| Node.js `>=22.19` + npm | 构建和运行全部包 | 必需 |
-| PostgreSQL | 项目、小说、资产、运行、助手和治理事实源 | 完整链路必需 |
-| FFmpeg / ffprobe | 媒体验真、抽帧、时长/音轨检查和合片 | 成片链路必需 |
-| Docker Compose | 快速启动本地 PostgreSQL | 推荐 |
-| Milvus + embedding | 可重建的资产相似度检索投影 | 可选 |
-| 拆解 / 生图 / 视频模型连接 | 真实模型任务 | 按使用场景配置 |
+| Node.js `>=22.19` + npm | 构建和运行全部包 | 继续作为应用运行时 |
+| PostgreSQL | 项目、小说、资产、运行、助手和治理事实源 | 继续作为结构化业务状态与元数据的唯一事实源，增加租户模型、可恢复任务和备份 |
+| Redis | 未接入 | 必需；对话上下文快照、限流、SSE 事件广播/临时流和短期协调 |
+| Milvus + embedding | 可选的资产检索投影 | 必需；携带 `workspace_id` 的可重建向量索引 |
+| 对象存储 | 媒体进入受控本地库 | 必需；私有化用 MinIO，云环境选 S3、OSS 或 COS 之一 |
+| FFmpeg / ffprobe | 媒体验真、抽帧、音轨检查和合片 | 继续由媒体 Worker 使用，独立限制 CPU/内存并发 |
+| 模型连接 | 按拆解、生图、视频等用途配置 | 平台密钥进 Secret Manager，BYOK 按 workspace 加密保存 |
 
-## 快速开始
+## 开发环境启动
 
-### 只体验界面
+### 体验界面
 
 ```sh
 git clone https://github.com/K80Tom/frame-shortdrama-agent.git
@@ -170,9 +198,9 @@ npm run setup
 npm run dev:web
 ```
 
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。仅启动前端可以浏览工作台和本地示例，但不能创建真实生产运行。
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。仅启动前端可以浏览工作台和示例，但不能创建真实生产运行。
 
-### 启动完整本地链路
+### 启动当前开发链路
 
 ```sh
 npm run setup          # 安装 shared / agent / main / cli / web 依赖
@@ -187,7 +215,7 @@ npm run dev            # main API：http://127.0.0.1:8788
 npm run dev:web        # Web：http://127.0.0.1:5173
 ```
 
-真实生产还需要安装 FFmpeg / ffprobe，并在“工作台设置 → 模型连接”中分别配置拆解、生图和视频模型。密钥只保存在本机后端；离线测试不会提交真实付费任务。详细配置见 [本地开发](packages/main/docs/本地开发.md) 与 [独立模型配置](packages/main/docs/独立模型配置.md)。
+执行真实生成链路还需要安装 FFmpeg / ffprobe，并在“工作台设置 → 模型连接”中分别配置拆解、生图和视频模型。当前开发配置与生产初版的 Secret Manager/KMS 目标不同；离线测试不会提交真实付费任务。开发配置见 [本地开发](packages/main/docs/本地开发.md) 与 [独立模型配置](packages/main/docs/独立模型配置.md)；生产部署见[架构演进路线](docs/production-architecture-roadmap.md)。
 
 ### 常用验证命令
 
@@ -259,7 +287,7 @@ npm run cli -- run cancel
 - **技术复核不等于视觉语义审核。** 系统可以校验容器、哈希、画幅、时长、音轨和分辨率，但不能自动证明人物、动作、台词、表演、剧情或镜头连续性正确。
 - **3D 当前主要是 `prompt-only`。** 机位、焦距、运镜和站位会转为文字构图约束；尚未把 3D 渲染图或供应商原生相机参数直接提交给视频模型。
 - **声音依赖视频供应商原生音轨。** 独立配音、口型同步、音效、配乐、混音、字幕生成与烧录尚未形成完整子图。
-- **部署仍以本地单机为主。** 当前没有分布式调度、对象存储、CDN 和多租户权限系统；Milvus 只是可重建检索投影，不是事实源。
+- **生产初版迁移尚未完成。** API/Worker 分进程、Redis 对话快照、对象存储、Milvus 租户化投影和完整 workspace 授权已纳入 Stage 1，但只有在对应代码、迁移、测试和部署清单完成后才视为已实现。
 - **真实模型质量必须人工验证。** 模型未配置时系统不会伪造结果；只有用户明确授权预算并检查产物后，才能判断供应商能力。
 
 ## 协作与发布
@@ -274,6 +302,7 @@ npm run cli -- run cancel
 | 主题 | 文档 |
 | --- | --- |
 | 后端功能、启动与路线 | [packages/main/README.md](packages/main/README.md) |
+| 生产初版、增长期与规模化架构 | [生产部署架构与分阶段演进路线](docs/production-architecture-roadmap.md) |
 | 自动制片十阶段实现 | [Lyra 全流程自动制片实现](packages/main/docs/Lyra全流程自动制片实现-v0.1.md) |
 | 技术架构与数据结构 | [技术架构](packages/main/docs/技术架构.md) · [数据结构](packages/main/docs/数据结构-v0.1.md) |
 | 本地开发与模型配置 | [本地开发](packages/main/docs/本地开发.md) · [独立模型配置](packages/main/docs/独立模型配置.md) |
