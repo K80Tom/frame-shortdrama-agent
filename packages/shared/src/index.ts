@@ -18,3 +18,5 @@ export * from './novel-domain';
 export * from './novel-checkpoint';
 export * from './novel-registry';
 export * from './novel-adaptation';
+
+export * from './evaluation-statistics';
