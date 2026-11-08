@@ -1,26 +1,26 @@
 # Lyra 生产部署架构与分阶段演进路线
 
-> 状态：**已定稿的目标架构**<br>
-> 实现基线：`dev@90196c1`（Early Preview）<br>
+> 状态：**已定稿的目标架构；Stage 1 集成基线开发中**<br>
+> 当前实现：迁移 025–031、API/Worker 分进程、session/workspace、Redis 快照/限流、持久 jobs/Outbox、生产媒体对象投影与向量投影底座；仅限单受信 workspace 试运行<br>
 > 更新日期：2026-11-08
 
-本文定义 Lyra 从当前 Early Preview 迁移到可上线初版、增长期和规模化阶段的生产架构。文中的 Stage 1–3 是已确认的演进目标，不代表当前 `dev` 已完成全部实现。
+本文定义 Lyra 从历史 Early Preview 迁移到可上线初版、增长期和规模化阶段的生产架构。当前分支已落地 Stage 1 集成基线的一部分，但文中的 Stage 1 完成定义、Stage 2 和 Stage 3 仍是演进目标，不代表已经通过目标环境生产验收。
 
 本文是生产演进总纲；数据事件、评测运行和评测目录的具体兼容规则分别见 [DataEvent 与统一事务 Outbox 契约](data-event-contract.md)、[EvaluationRun 契约](evaluation-run-contract.md) 和 [评测数据治理](evaluation-data-governance.md)。详细契约不得把 Stage 1 目标反写成当前现状。
 
-本方案默认支持共享多租户 SaaS；私有化部署可为每套系统创建单一默认 `workspace`，保留同样的数据边界。
+目标方案支持共享多租户 SaaS；私有化部署可为每套系统创建单一默认 `workspace`，保留同样的数据边界。当前实现仍定位为单受信 workspace 试运行，不得仅凭 schema、RLS 或健康探针宣称共享多租户 SaaS 已完成。
 
 ## 1. 当前基线与阶段目标
 
-| 能力 | Stage 0：当前 Early Preview | Stage 1：可上线初版 | Stage 2：增长期 | Stage 3：规模化 |
+| 能力 | 当前分支：Stage 1 集成基线 | Stage 1 达到目标环境验收还需 | Stage 2：增长期 | Stage 3：规模化 |
 | --- | --- | --- | --- | --- |
-| API / Worker | 同一 `main` 进程启动 HTTP 与后台调度 | 同仓库、同镜像、独立进程 | API 和分类 Worker 水平扩容 | K8s 多可用区调度 |
-| PostgreSQL | 结构化业务事实源 | 多租户事实源、任务队列、Outbox、备份与 PITR | 主备、连接池和条件式读副本 | 表分区；分片最后考虑 |
-| Redis | 未接入 | 必需：对话上下文快照、限流和实时推送 | 托管主从，缓存与协调负载隔离 | Redis Cluster 由容量和吞吐触发 |
-| Milvus | 可选、显式重建的资产检索投影 | 必需：带租户过滤的可重建向量索引 | 托管/集群、版本化 Collection 与 Alias 切换 | 多可用区、影子查询与跨区恢复 |
-| 媒体存储 | 受控本地媒体库 | 必需：MinIO 或 S3/OSS/COS 私有对象存储 | 私有媒体 CDN、版本控制和生命周期 | 跨区域复制和灾备 |
-| 事件 | 统一事务 Outbox 底座已存在 | 独立 Dispatcher 、重试和幂等消费 | 通知、计费、索引等多消费者 | Outbox Relay 发布到 Kafka |
-| 编排 | Docker Compose 本机/单机运行 | Docker Compose、虚拟机或托管容器 | 多实例、负载均衡和指标扩容 | Kubernetes，由多机调度需求触发 |
+| API / Worker | 同仓库/同镜像按 `api|worker` 独立进程；Dispatcher、通用 Job Worker、对象/向量 Worker 已常驻 | 将 Production/Asset/Video 旧调度完成迁移，并做租约接管/不重复付费演练 | API 和分类 Worker 水平扩容 | K8s 多可用区调度 |
+| PostgreSQL | 迁移 025–031、workspace/session、jobs/Outbox、`NOT NULL + FORCE RLS`；迁移管理员与 `NOBYPASSRLS` 应用角色分离 | 目标环境跨租户/404 验收，自动备份、PITR 与真实恢复演练 | 主备、连接池和条件式读副本 | 表分区；分片最后考虑 |
+| Redis | 已用于可重建对话快照和登录/API 分布式限流；限流失败关闭 | 命中/限流压测、边缘 WAF 配置；SSE fan-out 尚未接入 | 托管主从，缓存与协调负载隔离 | Redis Cluster 由容量和吞吐触发 |
+| Milvus | v2 租户过滤、持久 index job、fencing/checkpoint/reconciler 已接入；默认关闭时走词法检索 | 显式授权后验证 Collection、全量回填、召回质量和 Alias 切换 | 托管/集群、版本化 Collection 与 Alias 切换 | 多可用区、影子查询与跨区恢复 |
+| 媒体存储 | MinIO/S3/OSS/COS 端口、`object_records`、job/Outbox、常驻投影 Worker、生产媒体对象读取和 `/access` 签名入口已接入；导入资产图片仍在 PostgreSQL `asset_media.content` | 资产图片迁移、历史投影、签名公网 HTTPS endpoint/授权边界、云 provider、版本/生命周期与孤儿 GC 验收 | 私有媒体 CDN、版本控制和生命周期 | 跨区域复制和灾备 |
+| 事件 | DataEvent V2、租户化 Outbox、Dispatcher、checkpoint Projector 和幂等消费已接入；V1 仅作保留 workspace 兼容 | 目标环境验证积压、重试、重启与 V1/V2 兼容边界 | 通知、计费、索引等多消费者 | Outbox Relay 发布到 Kafka |
+| 编排 | 单机 Compose 已包含独立 API/Worker、PostgreSQL、Redis、MinIO 和 Milvus | HTTPS/WAF、Secret Manager/KMS、对象公网 endpoint、监控告警与恢复演练 | 多实例、负载均衡和指标扩容 | Kubernetes，由多机调度需求触发 |
 
 ## 2. 不随阶段变化的架构原则
 
@@ -34,12 +34,14 @@
 8. **付费与秘密边界不因部署改变。** 付费 Embedding/生成任务先经人工授权和预算检查；平台密钥进 Secret Manager，BYOK 按 `workspace_id` 加密保存，明文只在 Worker 内存中短暂存在。
 9. **租户边界必须端到端传递。** Repository、Redis key、Milvus scalar filter、对象元数据、任务和事件均携带 `workspace_id`，但权限最终仍由 PostgreSQL 校验。
 
+> 第 2 条是目标不变式，不是对当前迁移进度的过度声明。Stage 1 当前已将生产视频/成片投影到对象存储；历史导入资产图片仍保存在 `asset_media.content BYTEA`，完成对象化迁移前不得声称所有媒体字节已离开 PostgreSQL。
+
 ## 3. 数据职责
 
 | 系统 | 保存内容 | 不得承担的职责 | 恢复方式 |
 | --- | --- | --- | --- |
 | PostgreSQL | 身份、workspace、成员、项目、对话消息、生产运行、任务、费用、对象引用、密钥密文、Outbox | 大型媒体二进制 | 自动备份、PITR、恢复演练 |
-| Redis | 对话上下文快照、最近消息窗口、token 计数、SSE 临时流、限流和短期锁 | 完整消息、任务最终状态、费用账本 | 从 PostgreSQL 按版本重建；可用 AOF 加速热恢复 |
+| Redis | 对话上下文快照、最近消息窗口、token 计数、限流和短期锁；SSE 临时流是后续目标 | 完整消息、任务最终状态、费用账本 | 从 PostgreSQL 按版本重建；可用 AOF 加速热恢复 |
 | Milvus | `workspace_id`、`project_id`、`asset_id`、`chunk_id`、来源版本、Embedding 模型和 vector | 原文、业务状态、权限最终结论 | 从 PostgreSQL/对象存储显式、授权后重建 |
 | 对象存储 | 原始文件、图片、音频、视频、中间产物和成片 | 用户权限、任务状态、表关系 | 版本控制、跨区复制、checksum 对账 |
 | Kafka（Stage 3） | 可回放的业务事件 | 业务事实源、大型文件、任务最终状态 | 从 Outbox 重放，消费者按 `event_id` 幂等 |
@@ -63,7 +65,7 @@ flowchart TB
     USER -.main 签发的短期字节通道.-> OBJ
 ```
 
-目标运行角色是 `main-api` 和 `main-worker`；实际 npm 命令在实现时确定，本文不声称当前已存在这些命令。
+当前 `@lyra/main` 已通过 `LYRA_RUNTIME_ROLE=api|worker|all` 支持独立 API/Worker 进程，`deploy/compose.yaml` 使用同一镜像分别启动 `main-api` 与 `main-worker`；`all` 只保留为开发兼容模式。
 
 - 公网只暴露 CDN/反向代理和 API。
 - Worker、PostgreSQL、Redis、Milvus 和对象存储管理面仅走私网。
@@ -112,7 +114,7 @@ ctx:{workspace_id}:{session_id}
 最终助手消息落 PostgreSQL，更新 Redis 快照
 ```
 
-生成中文本可通过 Redis Stream/PubSub 推送给 API，但完成、失败和费用结果必须落 PostgreSQL。Redis 故障时可重建上下文或暂时降级，不能丢失完整对话。
+当前已接入 Redis 对话快照和登录/API 分布式限流；限流依赖故障时失败关闭。Redis Stream/PubSub 的 SSE fan-out 尚未接入，它可作为增长期的推送通道，但完成、失败和费用结果必须落 PostgreSQL，不能以 Redis 临时流代替业务事实。
 
 ### 4.5 Milvus 向量索引
 
@@ -138,6 +140,8 @@ kind, text_hash, embedding_model, embedding_dimension, vector
 
 普通资产写入只标记投影陈旧，不自动产生付费 Embedding。付费 Embedding 不得因读请求或普通部署自动触发。索引任务必须复用现有付费授权和预算纪律，并保留显式重建入口。
 
+当前持久化 reconciliation/index job、租约、fencing、checkpoint 与 reconciler 已接线；只有 `ASSET_VECTOR_ENABLED=1` 且 Embedding 配置完整时才运行，可能产生费用。默认关闭时仍走词法检索，也不代表目标环境 Collection、全量回填或 Alias 切换已验收。
+
 ### 4.6 对象存储
 
 统一端口至少支持 `put/get/head/delete/presignUpload/presignDownload`。数据库只保存：
@@ -147,17 +151,17 @@ provider, bucket, object_key, version_id, checksum,
 size, content_type, workspace_id, status
 ```
 
-上传流程：
+当前生产媒体主链：
 
 ```text
-创建 uploading 元数据
-  → 发放短期签名上传 URL
-  → 客户端直传
-  → 服务端 head/校验 size、类型与 checksum
-  → PostgreSQL 标记 ready 并写 Outbox
+供应商媒体安全下载 + ffprobe/SHA-256 验真
+  → storage hook 在 PostgreSQL 创建 object_records + 持久 job/Outbox
+  → 租户化对象 Worker 幂等上传
+  → head/get 校验 size、类型与 checksum
+  → PostgreSQL 标记 ready，session 租户 API 从对象存储读取
 ```
 
-对象保持私有，下载使用短期签名 URL。Worker 仅在临时目录中执行 FFmpeg，上传并落库后清理临时文件。失败上传和数据库提交失败产生的孤儿对象由定时 GC 清理。
+对象保持私有。`/api/production-media/:id/access` 已提供租户授权后的短期签名入口，但容器内部 endpoint 不等于浏览器可达的公网 HTTPS endpoint；目标云环境仍需验证签名可达性、授权边界和 provider 行为。客户端分片直传和孤儿对象定时 GC 是后续能力，不把当前的 `presign` 端口误写成已完成的全部上传/清理闭环。
 
 ### 4.7 可恢复任务与 Outbox
 
@@ -289,17 +293,17 @@ PostgreSQL 先做索引、慢查询、连接池、读副本和时间分区；只
 - PostgreSQL、对象存储与事件恢复达到明确的 RTO/RPO；Redis 可重建，Milvus 可回填并恢复服务。
 - 新拆分服务的权限、数据主权、事件版本和回滚路径通过非作者审查与生产演练。
 
-## 7. 从当前 `dev` 升级的顺序
+## 7. Stage 1 升级顺序与当前进度
 
-1. **冻结长期端口。** 定义 `TenantContext`、`ObjectStorage`、`ConversationContextStore`、`VectorStore`、`TaskQueue` 和 `EventPublisher`，领域逻辑只依赖端口。
-2. **增加租户模型。** 新建 users/workspaces/members；资源表先加可空 `workspace_id`，为历史数据创建默认 workspace，回填、校验后再改 `NOT NULL` 和复合索引。
-3. **版本化租户事件契约。** 现有 `DataEventV1` 不含 `workspaceId`，不原地改它的摘要和不可变语义。新建 `DataEventV2`，将顶层 `workspaceId` 纳入 digest；Outbox 先增加可空契约版本/租户字段，将历史 V1 映射到默认 workspace 而不改写旧 payload/digest。Dispatcher 和消费者先双读 V1/V2，验证后再停止新 V1 写入。该公共契约变更单独走高风险评审。
-4. **迁移对象存储。** 在 `ProductionMediaStore` 后增加对象存储适配器；采用新旧双读/必要时双写、批量复制、SHA-256 核对、切换和观察期，不直接删除旧文件。
-5. **接入 Redis 上下文快照。** 完整消息仍落 PostgreSQL；以会话版本检测陈旧快照，支持清空 Redis 后重建。
-6. **升级 Milvus 投影。** 新建带 `workspace_id` 和来源版本的 v2 Collection；将本地 manifest 改为 PostgreSQL 重建作业/游标；显式授权回填，校验召回后用 Alias 切换，保留 v1 观察。
-7. **分离 API 与 Worker。** 复用现有生产状态、CAS、外部操作对账和 Outbox；用持久 fencing 标记/feature flag 保证旧内嵌调度与新 Worker 只有一方能领取付费任务，新任务切换后排空旧调度器再关闭。
-8. **迁移模型连接。** 将本地 JSON 迁到加密数据库/KMS，保留连接版本与运行冻结语义，核对数量和可解密性。
-9. **补齐边缘安全和运维闭环。** 登录/授权、HTTPS、限流、健康探针、脱敏日志、指标告警、PostgreSQL/对象存储备份与恢复演练完成后，才达到 Stage 1。
+1. **冻结长期端口（已落地基线）。** `TenantContext`、`ObjectStorage`、`ConversationContextStore`、`VectorStore`、`TaskQueue` 和 `EventPublisher` 已有实现边界；新能力继续只依赖端口。
+2. **增加租户模型（代码契约已落地）。** 迁移 025 完成 expand，030 完成 `workspace_id NOT NULL + FORCE RLS` contract；仍需目标环境跨租户回归和连接角色验收。
+3. **版本化租户事件契约（已落地兼容基线）。** DataEvent V2、租户化 Outbox、Dispatcher 和 Projector 已接线；历史 V1 仍固定映射保留 workspace，新事件使用 V2。
+4. **迁移对象存储（主链已落地，环境迁移未验收）。** 适配器、`object_records`、job/Outbox、投影 Worker、租户化读取与签名入口已接入；仍需历史复制/SHA-256 对账、公网 endpoint、云 provider 和 GC 验收。
+5. **接入 Redis（快照/限流已落地）。** 完整消息仍落 PostgreSQL，快照按会话版本回源；SSE fan-out 留待增长期接入。
+6. **升级 Milvus 投影（持久任务已落地）。** v2 租户端口、PostgreSQL job/checkpoint/fencing/reconciler 已接线；仍需显式授权后完成 Collection、全量回填、召回校验和 Alias 切换。
+7. **分离 API 与 Worker（运行时已分离，业务调度部分迁移）。** Compose 已使用独立进程，持久 Worker 已接线；Production/Asset/Video 旧调度尚未全部迁入通用 jobs，不允许无 fencing 双启。
+8. **迁移模型连接（未完成）。** 将共享明文 JSON 迁到加密数据库/Secret Manager/KMS，保留连接版本与运行冻结语义。
+9. **补齐边缘安全和运维闭环（部分完成）。** 会话登录/workspace 授权、CSRF、Redis 限流和健康探针已接入；HTTPS/WAF、Secret Manager/KMS、完整监控告警、PITR 与 PostgreSQL/对象存储真实恢复演练完成后，才达到 Stage 1 生产验收。
 
 数据库迁移继续使用独立显式 migrate 入口，不允许 API/Worker 启动时隐式修改 schema。
 

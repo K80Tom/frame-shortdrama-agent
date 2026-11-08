@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { AppConfig } from '../config';
@@ -122,6 +122,7 @@ export class ModelConnections {
   private readonly budget = { active: 0 };
   private readonly snapshots = new Map<ModelRole, AppConfig>();
   private needsInitialization = false;
+  private fileIdentity = 'missing';
   constructor(private readonly base: AppConfig, private readonly file?: string) {
     const blank = (): Connection => ({ endpoint: '', model: '', authType: 'bearer', apiKey: '',
       maxOutputTokens: base.maxOutputTokens, timeoutMs: base.timeoutMs, revision: 'environment-v1' });
@@ -135,22 +136,66 @@ export class ModelConnections {
         throw new ModelError(503, 'MODEL_CONNECTION_STORE_UNAVAILABLE', '无法读取本机模型配置；未降级或覆盖。');
       }
       try {
-        if (Buffer.byteLength(raw) > 1024 * 1024) throw invalid('配置文件过大。');
-        const saved = object(JSON.parse(raw));
-        if (saved.schemaVersion === 1) {
-          strict(saved, ['schemaVersion', 'connections']);
-          const book = object(saved.connections);
-          if (Object.keys(book).length !== MODEL_ROLES.length) throw invalid('配置用途不完整。');
-          this.state = this.fromLegacy(Object.fromEntries(MODEL_ROLES.map(role => [role, validate(book[role], role)])) as Record<ModelRole, Connection>);
-          this.needsInitialization = true;
-        } else this.state = this.readLibrary(saved);
+        const loaded = this.decodeStored(raw);
+        this.state = loaded.state;
+        this.needsInitialization = loaded.needsInitialization;
+        this.fileIdentity = this.currentFileIdentity();
       } catch { throw new ModelError(503, 'MODEL_CONNECTION_STORE_INVALID', '本机模型配置损坏或版本不支持；未覆盖，需维护者检查。'); }
     }
   }
-  async initialize() {
+  async initialize(options: { readOnly?: boolean } = {}) {
+    // In the split deployment only main-api owns the JSON store. A Worker may
+    // start from environment defaults while the API creates/migrates the file,
+    // but must never race it by overwriting the shared volume.
+    if (options.readOnly) return;
     if (this.file && this.needsInitialization) await this.serial(async () => {
       if (this.needsInitialization) await this.commit(this.state);
     });
+  }
+  private decodeStored(raw: string): { state: ConnectionLibrary; needsInitialization: boolean } {
+    if (Buffer.byteLength(raw) > 1024 * 1024) throw invalid('配置文件过大。');
+    const saved = object(JSON.parse(raw));
+    if (saved.schemaVersion !== 1) return { state: this.readLibrary(saved), needsInitialization: false };
+    strict(saved, ['schemaVersion', 'connections']);
+    const book = object(saved.connections);
+    if (Object.keys(book).length !== MODEL_ROLES.length) throw invalid('配置用途不完整。');
+    return { state: this.fromLegacy(Object.fromEntries(MODEL_ROLES.map(role =>
+      [role, validate(book[role], role)])) as Record<ModelRole, Connection>), needsInitialization: true };
+  }
+  private currentFileIdentity(): string {
+    if (!this.file) return 'memory';
+    try {
+      const value = statSync(this.file);
+      return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+      throw new ModelError(503, 'MODEL_CONNECTION_STORE_UNAVAILABLE', '无法检查本机模型配置；未继续使用旧凭据。');
+    }
+  }
+  private refreshFromFileIfChanged(): void {
+    if (!this.file) return;
+    const identity = this.currentFileIdentity();
+    if (identity === this.fileIdentity) return;
+    if (identity === 'missing') {
+      throw new ModelError(503, 'MODEL_CONNECTION_STORE_UNAVAILABLE', '本机模型配置已不可用；未继续使用旧凭据。');
+    }
+    let raw: string;
+    try { raw = readFileSync(this.file, 'utf8'); }
+    catch { throw new ModelError(503, 'MODEL_CONNECTION_STORE_UNAVAILABLE', '无法读取本机模型配置；未继续使用旧凭据。'); }
+    try {
+      const loaded = this.decodeStored(raw);
+      this.state = loaded.state;
+      this.needsInitialization = loaded.needsInitialization;
+      this.snapshots.clear();
+      // Keep the identity observed before the read. If an atomic writer replaces
+      // the file before or during this read, the next resolve sees a different
+      // identity and refreshes again instead of pairing stale bytes with the
+      // identity of a newer file.
+      this.fileIdentity = identity;
+    } catch (error) {
+      if (error instanceof ModelError && error.code === 'MODEL_CONNECTION_STORE_UNAVAILABLE') throw error;
+      throw new ModelError(503, 'MODEL_CONNECTION_STORE_INVALID', '本机模型配置损坏或版本不支持；未继续使用旧凭据。');
+    }
   }
   private blank(): Connection {
     return { endpoint: '', model: '', authType: 'bearer', apiKey: '', maxOutputTokens: this.base.maxOutputTokens,
@@ -225,6 +270,7 @@ export class ModelConnections {
   list() { return { connections: MODEL_ROLES.map(role => this.public(role)), profiles: this.state.profiles.map(p => this.publicProfile(p)),
     legacyImportAvailable: Boolean(this.base.baseUrl && this.base.apiKey), legacyModel: this.base.defaultModel, secretsReturned: false }; }
   resolve(role: ModelRole): AppConfig {
+    this.refreshFromFileIfChanged();
     const cached = this.snapshots.get(role);
     if (cached) return cached;
     const item = this.selected(role) ?? this.blank();
@@ -341,6 +387,7 @@ export class ModelConnections {
   private async commit(state: ConnectionLibrary) {
     if (this.file) await this.persist(state);
     this.state = state; this.needsInitialization = false; this.snapshots.clear();
+    if (this.file) this.fileIdentity = this.currentFileIdentity();
   }
   private async persist(state: ConnectionLibrary) {
     const file = this.file!;
