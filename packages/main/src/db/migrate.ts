@@ -21,6 +21,135 @@ export function normalizeMigrationSql(sql: string): string {
   return sql.replace(/\r\n/g, "\n");
 }
 
+interface TopLevelStatement {
+  start: number;
+  end: number;
+  code: string;
+}
+
+const DOLLAR_QUOTE = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/u;
+const TRANSACTION_CONTROL = /^(?:BEGIN(?:\s|$)|START\s+TRANSACTION(?:\s|$)|COMMIT(?:\s|$)|END(?:\s|$)|ROLLBACK(?:\s|$)|ABORT(?:\s|$)|SAVEPOINT(?:\s|$)|RELEASE(?:\s|$)|PREPARE\s+TRANSACTION(?:\s|$)|SET\s+(?:LOCAL\s+)?TRANSACTION(?:\s|$)|SET\s+SESSION\s+CHARACTERISTICS\s+AS\s+TRANSACTION(?:\s|$))/iu;
+
+/**
+ * Split only PostgreSQL top-level statements. Semicolons and transaction words
+ * inside strings, comments, quoted identifiers or dollar-quoted PL/pgSQL bodies
+ * are deliberately invisible to this scanner.
+ */
+function topLevelStatements(sql: string): TopLevelStatement[] {
+  const statements: TopLevelStatement[] = [];
+  let start = 0;
+  let code = "";
+  let index = 0;
+  let blockCommentDepth = 0;
+  let state: "code" | "single" | "double" | "line-comment" | "block-comment" | "dollar" = "code";
+  let dollarDelimiter = "";
+
+  const finish = (end: number) => {
+    if (code.trim()) statements.push({ start, end, code: code.replace(/\s+/gu, " ").trim() });
+    start = end;
+    code = "";
+  };
+
+  while (index < sql.length) {
+    const char = sql[index]!;
+    const next = sql[index + 1];
+    if (state === "line-comment") {
+      if (char === "\n") { state = "code"; code += " "; }
+      index += 1;
+      continue;
+    }
+    if (state === "block-comment") {
+      if (char === "/" && next === "*") { blockCommentDepth += 1; index += 2; continue; }
+      if (char === "*" && next === "/") {
+        blockCommentDepth -= 1;
+        index += 2;
+        if (blockCommentDepth === 0) { state = "code"; code += " "; }
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (state === "single") {
+      if (char === "'" && next === "'") { index += 2; continue; }
+      if (char === "'") state = "code";
+      index += 1;
+      continue;
+    }
+    if (state === "double") {
+      if (char === '"' && next === '"') { index += 2; continue; }
+      if (char === '"') state = "code";
+      index += 1;
+      continue;
+    }
+    if (state === "dollar") {
+      if (sql.startsWith(dollarDelimiter, index)) {
+        index += dollarDelimiter.length;
+        state = "code";
+      } else index += 1;
+      continue;
+    }
+
+    if (char === "-" && next === "-") { state = "line-comment"; index += 2; continue; }
+    if (char === "/" && next === "*") {
+      state = "block-comment";
+      blockCommentDepth = 1;
+      index += 2;
+      continue;
+    }
+    if (char === "'") { state = "single"; code += " literal "; index += 1; continue; }
+    if (char === '"') { state = "double"; code += " identifier "; index += 1; continue; }
+    if (char === "$") {
+      const delimiter = DOLLAR_QUOTE.exec(sql.slice(index))?.[0];
+      if (delimiter) {
+        state = "dollar";
+        dollarDelimiter = delimiter;
+        code += " dollar_body ";
+        index += delimiter.length;
+        continue;
+      }
+    }
+    if (char === ";") { finish(index + 1); index += 1; continue; }
+    code += char;
+    index += 1;
+  }
+
+  if (state === "single" || state === "double" || state === "dollar" || state === "block-comment") {
+    throw new Error("Migration SQL contains an unterminated quoted value or comment");
+  }
+  finish(sql.length);
+  return statements;
+}
+
+/**
+ * Migration checksums remain defined on the exact normalized file bytes.  For
+ * execution only, remove one audited outer BEGIN/COMMIT pair because the
+ * runner already owns the transaction containing the advisory xact lock, DDL,
+ * and schema_migrations insert. Any other top-level transaction control is a
+ * hard error instead of silently committing the runner transaction early.
+ */
+export function migrationSqlForExecution(fileName: string, sql: string): string {
+  const statements = topLevelStatements(sql);
+  if (statements.length === 0) throw new Error(`Migration ${fileName} is empty`);
+  const first = statements[0]!;
+  const last = statements.at(-1)!;
+  const wrapped = first.code.toUpperCase() === "BEGIN" && last.code.toUpperCase() === "COMMIT";
+  const transactionStatements = statements.filter((statement) => TRANSACTION_CONTROL.test(statement.code));
+
+  if (wrapped) {
+    if (statements.length < 3 || transactionStatements.length !== 2
+      || transactionStatements[0] !== first || transactionStatements[1] !== last) {
+      throw new Error(`Migration ${fileName} contains unsupported transaction control`);
+    }
+    const executionSql = sql.slice(first.end, last.start);
+    if (!executionSql.trim()) throw new Error(`Migration ${fileName} has an empty transaction wrapper`);
+    return executionSql;
+  }
+  if (transactionStatements.length > 0) {
+    throw new Error(`Migration ${fileName} contains unsupported transaction control`);
+  }
+  return sql;
+}
+
 /**
  * 003 was originally applied with two final LF bytes; its checked-in copy has
  * one. These exact, audited files differ only by that trailing blank line.
@@ -92,7 +221,7 @@ export async function runMigrations(options: { directory?: string } = {}): Promi
           }
           continue;
         }
-        await client.query(migration.sql);
+        await client.query(migrationSqlForExecution(migration.fileName, migration.sql));
         await client.query(
           "INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)",
           [migration.version, migration.checksum],

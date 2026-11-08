@@ -39,8 +39,14 @@ npm test
 
 ## 剩余范围
 
-尚未接入 Web 创建 Run 界面，未将报告写入冻结运行，也不声称完整 #74 完成。后续 UI 应复用 shared DTO/API，不另造检查结论。
+Web 创建 Run 界面已接入同一 shared 子入口/API，提供自动过期刷新、手动重查、必需/可选与潜在付费提示。它是当前进程的诊断提示，不是提交门禁或付费授权，也未将报告写入冻结运行；完整 #74 仍非完成。
 启动期间遇到致命数据库连接或媒体初始化错误仍沿用启动失败策略，尚不提供“失败后仍在线”的诊断服务器。
 当前 dev 尚无 #109 状态台账，合并后应链接本记录。向量远端健康和真实供应商验证需要单独设计，不能触发付费调用。
 
 本地执行（2026-11-06，Windows / Node 24.15）：全项目构建通过；定向测试含真实 CLI 为 9/9，前端 105/105 通过。后端全量 580 项：576 通过、3 平台相关跳过、1 dev 既有 Windows 字体失败（#111 尚未合并），不宣称本地全量全绿。paid 字段表示该能力将来可能收费（含可选 embedding），不是本次检查发生了费用。
+
+
+2026-11-08 更新：同步 dev Stage 1 后保留 session/workspace/CSRF 与系统状态控制器；迁移检查覆盖 025–031，production-runtime 额外检查现有 systemStatus.readiness，不用旧单机服务存在冒充 Stage 1 就绪。
+API/Worker 分进程的实际 Worker 二进制能力仍需独立探测，本地 ffmpeg 或向量配置诊断不是 Stage 1 生产验收；系统状态的必需 Redis/Milvus/对象存储结论不能被可选词法提示替代。
+真实 Chrome 测试发现 shared 总入口带入 Node crypto，已改用无 Node 依赖的 platform-preflight 子入口，浏览器重测 ready/degraded/blocked/无效响应、刷新、零 POST、零页面异常通过。
+复验命令：先完整构建；设置 LYRA_BROWSER_EXECUTABLE 为可用 Chrome/Edge 路径（或安装 Playwright Chromium）；运行 node packages/web/scripts/test-platform-preflight-browser.mjs。默认 Web 套件增加 SSR/浏览器安全导入回归。

@@ -2,12 +2,18 @@ import { randomBytes } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import {
   DataEventContractError,
-  dataEventDigest,
-  parseDataEventV1,
   type DataEventV1,
 } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
-import { DataEventError, assertSameEvent } from './event';
+import { LEGACY_WORKSPACE_ID } from '../tenancy/context';
+import { DataEventError } from './event';
+import {
+  assertSameTenantDataEvent,
+  isDataEventV2,
+  parseTenantDataEvent,
+  tenantDataEventDigest,
+  type TenantDataEvent,
+} from './tenant-event';
 
 export type DataOutboxStatus = 'pending' | 'published' | 'failed' | 'dead_letter';
 
@@ -22,7 +28,8 @@ export interface OutboxAppendOptions {
 
 export interface StoredDataEvent {
   outboxId: string;
-  event: DataEventV1;
+  workspaceId: string;
+  event: TenantDataEvent;
   eventDigest: string;
   status: DataOutboxStatus;
   attempts: number;
@@ -35,7 +42,7 @@ export interface StoredDataEvent {
 }
 
 interface OutboxRow extends QueryResultRow {
-  outbox_id: string; event_id: string; event_type: string; schema_version: string;
+  outbox_id: string; workspace_id: string; event_id: string; event_type: string; schema_version: string;
   aggregate_type: DataEventV1['aggregateType']; aggregate_id: string; aggregate_version: number;
   occurred_at: unknown; recorded_at: unknown; correlation_id: string; causation_id: string | null;
   idempotency_key: string; authoritative_ref_json: DataEventV1['authoritativeRef'];
@@ -44,7 +51,7 @@ interface OutboxRow extends QueryResultRow {
   legacy_source: string | null; legacy_event_id: string | null; created_at: unknown;
 }
 
-const OUTBOX_COLUMNS = `outbox_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+const OUTBOX_COLUMNS = `outbox_id, workspace_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   aggregate_version, occurred_at, recorded_at, correlation_id, causation_id, idempotency_key,
   authoritative_ref_json, payload_json, event_digest, status, attempts, available_at,
   published_at, last_error, legacy_source, legacy_event_id, created_at`;
@@ -80,23 +87,26 @@ function contractFailure(error: unknown): never {
 }
 
 function eventOf(row: OutboxRow): StoredDataEvent {
+  const body = {
+    eventId: row.event_id,
+    eventType: row.event_type,
+    schemaVersion: row.schema_version,
+    aggregateType: row.aggregate_type,
+    aggregateId: row.aggregate_id,
+    aggregateVersion: row.aggregate_version,
+    occurredAt: iso(row.occurred_at),
+    recordedAt: iso(row.recorded_at),
+    correlationId: row.correlation_id,
+    causationId: row.causation_id,
+    idempotencyKey: row.idempotency_key,
+    authoritativeRef: row.authoritative_ref_json,
+    payload: row.payload_json,
+  };
   return {
     outboxId: row.outbox_id,
-    event: parseDataEventV1({
-      eventId: row.event_id,
-      eventType: row.event_type,
-      schemaVersion: row.schema_version,
-      aggregateType: row.aggregate_type,
-      aggregateId: row.aggregate_id,
-      aggregateVersion: row.aggregate_version,
-      occurredAt: iso(row.occurred_at),
-      recordedAt: iso(row.recorded_at),
-      correlationId: row.correlation_id,
-      causationId: row.causation_id,
-      idempotencyKey: row.idempotency_key,
-      authoritativeRef: row.authoritative_ref_json,
-      payload: row.payload_json,
-    }),
+    workspaceId: row.workspace_id,
+    event: parseTenantDataEvent(row.schema_version === 'lyra.data.event/v2'
+      ? { ...body, workspaceId: row.workspace_id } : body),
     eventDigest: row.event_digest,
     status: row.status,
     attempts: row.attempts,
@@ -116,7 +126,7 @@ function eventOf(row: OutboxRow): StoredDataEvent {
 export class OutboxTransaction {
   constructor(readonly client: PoolClient) {}
 
-  async append(event: DataEventV1, options: OutboxAppendOptions = {}): Promise<StoredDataEvent> {
+  async append(event: TenantDataEvent, options: OutboxAppendOptions = {}): Promise<StoredDataEvent> {
     return appendDataEvent(this.client, event, options);
   }
 }
@@ -130,22 +140,23 @@ export class DataOutbox {
 }
 
 /** 由业务 Repository 在已有事务内调用。 */
-export async function appendDataEvent(client: PoolClient, event: DataEventV1,
+export async function appendDataEvent(client: PoolClient, event: TenantDataEvent,
   options: OutboxAppendOptions = {}): Promise<StoredDataEvent> {
   try {
-    const parsed = parseDataEventV1(event);
-    const digest = dataEventDigest(parsed);
+    const parsed = parseTenantDataEvent(event);
+    const workspaceId = isDataEventV2(parsed) ? parsed.workspaceId : LEGACY_WORKSPACE_ID;
+    const digest = tenantDataEventDigest(parsed);
     const status = options.status ?? (options.publishedAt ? 'published' : 'pending');
     const outboxId = `obox_${randomBytes(16).toString('hex')}`;
     const availableAt = options.availableAt ?? parsed.recordedAt;
     const createdAt = parsed.recordedAt;
     const result = await client.query<OutboxRow>(`
       INSERT INTO data_outbox_events (${OUTBOX_COLUMNS})
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb,
-              $15, $16, 0, $17, $18, $19, $20, $21, $22)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb,
+              $16, $17, 0, $18, $19, $20, $21, $22, $23)
       ON CONFLICT (event_id) DO NOTHING
       RETURNING ${OUTBOX_COLUMNS}
-    `, [outboxId, parsed.eventId, parsed.eventType, parsed.schemaVersion, parsed.aggregateType,
+    `, [outboxId, workspaceId, parsed.eventId, parsed.eventType, parsed.schemaVersion, parsed.aggregateType,
       parsed.aggregateId, parsed.aggregateVersion, parsed.occurredAt, parsed.recordedAt,
       parsed.correlationId, parsed.causationId, parsed.idempotencyKey, json(parsed.authoritativeRef),
       json(parsed.payload), digest, status, availableAt, options.publishedAt ?? null,
@@ -158,7 +169,7 @@ export async function appendDataEvent(client: PoolClient, event: DataEventV1,
     if (!existing.rows[0]) throw new DataEventError(409, 'DATA_OUTBOX_DUPLICATE_EVENT', '事件写入未返回结果。');
     const stored = eventOf(existing.rows[0]);
     if (stored.eventDigest !== digest) {
-      assertSameEvent(stored.event, parsed);
+      assertSameTenantDataEvent(stored.event, parsed);
     }
     return stored;
   } catch (error) {

@@ -9,7 +9,12 @@ export interface AssetVectorRecord {
   textHash: string;
   embeddingModel: string;
 }
-export interface AssetVectorHit { assetId: string; score: number; }
+export interface AssetVectorHit {
+  assetId: string;
+  score: number;
+  /** v2 projections expose the fact-source version; legacy v1 hits omit it. */
+  sourceVersion?: string;
+}
 
 interface MilvusClientLike {
   hasCollection(input: { collection_name: string } | string): Promise<boolean | { value: boolean }> | boolean | { value: boolean };

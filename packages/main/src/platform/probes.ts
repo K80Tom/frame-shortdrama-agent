@@ -29,7 +29,7 @@ export function createPlatformProbes(deps: {
   return {
     database: async () => { if (!deps.database) return false; await deps.database.verifyConnection(); return true; },
     migrations: () => deps.database?.hasMigrations([
-      ...BREAKDOWN_PERSISTENCE_MIGRATIONS, '009', '010', '014', '015', '016', '017', '024',
+      ...BREAKDOWN_PERSISTENCE_MIGRATIONS, '009', '010', '014', '015', '016', '017', '024', '025', '026', '027', '028', '029', '030', '031',
     ]) ?? false,
     'media-directory': async () => {
       if (!deps.mediaRoot) return false;

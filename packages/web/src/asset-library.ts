@@ -1,5 +1,6 @@
 import type { NovelAssetBinding, NovelContent, NovelItem } from '@lyra/shared';
 import type { AssetRecord } from '@lyra/shared';
+import { workspaceFetch } from './deployment';
 
 export type AssetKind = 'character' | 'location' | 'prop';
 export type { AssetRecord };
@@ -30,7 +31,7 @@ export function fileBase64(file: File): Promise<string> {
 }
 
 export async function assetApi<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? {} : {
+  const response = await workspaceFetch(path, body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
