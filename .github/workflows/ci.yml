@@ -7,6 +7,7 @@ on:
       - "packages/**"
       - "package*.json"
       - "docs/**"
+      - "deploy/**"
       - "*.md"
       - ".github/**"
   push:
@@ -15,6 +16,7 @@ on:
       - "packages/**"
       - "package*.json"
       - "docs/**"
+      - "deploy/**"
       - "*.md"
       - ".github/**"
 
@@ -65,10 +67,12 @@ jobs:
             packages/shared/package-lock.json
             packages/agent/package-lock.json
             packages/main/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install backend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/agent ci && npm --prefix packages/main ci
-      - name: Build shared and agent
-        run: npm --prefix packages/shared run build && npm --prefix packages/agent run build
+        run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
+      - name: Build agent
+        run: npm --prefix packages/agent run build
       - name: Run backend tests
         run: npm --prefix packages/main test
 
@@ -93,6 +97,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://shortdrama:shortdrama123@127.0.0.1:5432/shortdrama_agent
+      DATABASE_ADMIN_URL: postgresql://shortdrama:shortdrama123@127.0.0.1:5432/shortdrama_agent
+      DATABASE_APP_URL: postgresql://lyra_ci_app:stage1ciapp123@127.0.0.1:5432/shortdrama_agent
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -103,14 +109,51 @@ jobs:
             packages/shared/package-lock.json
             packages/agent/package-lock.json
             packages/main/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install backend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/agent ci && npm --prefix packages/main ci
-      - name: Build shared and agent
-        run: npm --prefix packages/shared run build && npm --prefix packages/agent run build
+        run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
+      - name: Build agent
+        run: npm --prefix packages/agent run build
+      - name: Reject unsafe application-role targets
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: shortdrama_agent
+          PGUSER: shortdrama
+          PGPASSWORD: shortdrama123
+          POSTGRES_APP_USER: postgres
+          POSTGRES_APP_PASSWORD: stage1ciapp123
+        run: |
+          if psql --file deploy/postgres-init-app-role.sql; then
+            echo "::error::Role bootstrap accepted a reserved PostgreSQL role name."
+            exit 1
+          fi
+          test "$(psql --tuples-only --no-align --command "SELECT rolsuper FROM pg_roles WHERE rolname = 'shortdrama'")" = "t"
+      - name: Create non-privileged application role
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: shortdrama_agent
+          PGUSER: shortdrama
+          PGPASSWORD: shortdrama123
+          POSTGRES_APP_USER: lyra_ci_app
+          POSTGRES_APP_PASSWORD: stage1ciapp123
+        run: psql --file deploy/postgres-init-app-role.sql
       - name: Apply database migrations
         run: npm --prefix packages/main run db:migrate
+      - name: Verify Stage 1 migration baseline
+        run: |
+          applied="$(psql "$DATABASE_ADMIN_URL" --tuples-only --no-align --command \
+            "SELECT string_agg(version, ',' ORDER BY version) FROM schema_migrations WHERE version IN ('030', '031')")"
+          test "$applied" = "030,031" || {
+            echo "::error::Stage 1 runtime requires migrations 030 and 031; found: ${applied:-none}"
+            exit 1
+          }
       - name: Run database integration and offline production matrix
         run: npm --prefix packages/main run test:db
+      - name: Verify RLS with the non-privileged application role
+        run: DATABASE_URL="$DATABASE_APP_URL" npm --prefix packages/main run test:rls
 
   frontend:
     name: Frontend tests and build
@@ -126,11 +169,77 @@ jobs:
           cache-dependency-path: |
             packages/shared/package-lock.json
             packages/web/package-lock.json
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
       - name: Install frontend dependencies
-        run: npm --prefix packages/shared ci && npm --prefix packages/web ci
-      - name: Build shared contract
-        run: npm --prefix packages/shared run build
+        run: npm --prefix packages/web ci --install-links
       - name: Run frontend tests
         run: npm --prefix packages/web test
       - name: Build frontend
         run: npm --prefix packages/web run build
+
+  deployment:
+    name: Stage 1 deployment config
+    needs: [branch-guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      POSTGRES_PASSWORD: stage1postgres123
+      POSTGRES_APP_USER: lyra_app
+      POSTGRES_APP_PASSWORD: stage1app123
+      REDIS_PASSWORD: stage1redis123
+      MINIO_ROOT_USER: lyraroot
+      MINIO_ROOT_PASSWORD: stage1minioroot123
+      LYRA_OBJECT_ACCESS_KEY: lyraapp
+      LYRA_OBJECT_SECRET_KEY: stage1object123
+      LYRA_PUBLIC_ORIGIN: https://lyra.example.test
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate Compose topology
+        run: docker compose -f deploy/compose.yaml config --quiet
+      - name: Verify database role separation
+        run: |
+          docker compose -f deploy/compose.yaml config --format json > /tmp/lyra-compose.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/lyra-compose.json', encoding='utf-8') as source:
+              services = json.load(source)['services']
+          api_url = services['main-api']['environment']['DATABASE_URL']
+          worker_url = services['main-worker']['environment']['DATABASE_URL']
+          migrate_url = services['migrate']['environment']['DATABASE_URL']
+          api_environment = services['main-api']['environment']
+          worker_environment = services['main-worker']['environment']
+          assert api_url == worker_url
+          assert 'lyra_app:stage1app123@postgres:5432/' in api_url
+          assert 'shortdrama:stage1postgres123@postgres:5432/' in migrate_url
+          assert api_url != migrate_url
+          assert 'POSTGRES_PASSWORD' not in api_environment
+          assert 'POSTGRES_PASSWORD' not in worker_environment
+          assert 'MINIO_ROOT_PASSWORD' not in api_environment
+          assert 'MINIO_ROOT_PASSWORD' not in worker_environment
+          assert all('stage1postgres123' not in str(value) for value in api_environment.values())
+          assert all('stage1postgres123' not in str(value) for value in worker_environment.values())
+          assert all('stage1minioroot123' not in str(value) for value in api_environment.values())
+          assert all('stage1minioroot123' not in str(value) for value in worker_environment.values())
+          assert 'postgres-app-role' in services['migrate']['depends_on']
+          PY
+      - name: Validate object-storage policy
+        run: node -e "JSON.parse(require('node:fs').readFileSync('deploy/minio-media-policy.json','utf8'))"
+
+  container-images:
+    name: Container image (${{ matrix.image }})
+    needs: [branch-guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: main
+            dockerfile: deploy/Dockerfile.main
+          - image: web
+            dockerfile: deploy/Dockerfile.web
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build runtime image without pushing
+        run: docker build --file "${{ matrix.dockerfile }}" --tag "lyra-ci-${{ matrix.image }}:${{ github.sha }}" .

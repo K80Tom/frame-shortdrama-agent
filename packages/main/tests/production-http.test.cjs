@@ -89,3 +89,68 @@ test('production media route streams only bytes returned by the verified local s
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
   assert.equal(response.rawPayload.toString(), 'verified-local-mp4');
 });
+
+test('session media routes require the workspace object service and never fall back to global local bytes', async t => {
+  const workspaceId = `ws_${'c'.repeat(32)}`;
+  const id = `media_${'d'.repeat(64)}`;
+  const authService = {
+    async authenticate() {
+      return {
+        sessionId: `ses_${'e'.repeat(32)}`,
+        csrfToken: 'f'.repeat(43),
+        tenant: {
+          userId: `usr_${'1'.repeat(32)}`,
+          workspaceId,
+          role: 'owner',
+          requestId: 'request-media-object-0001',
+        },
+        view: { authenticated: true, user: { id: `usr_${'1'.repeat(32)}`, displayName: 'Owner' },
+          workspaces: [{ id: workspaceId, slug: 'studio', name: 'Studio', role: 'owner' }],
+          currentWorkspaceId: workspaceId },
+      };
+    },
+    verifyCsrf() {},
+    async revoke() {},
+  };
+  let localReads = 0;
+  const local = { async content() { localReads++; return {
+    object: { id, mimeType: 'video/mp4' }, bytes: Buffer.from('must-not-leak'),
+  }; } };
+  const config = readConfig({ LYRA_AUTH_MODE: 'session' });
+  const unavailable = await createApp(config, fetch, { authService, productionMediaStore: local });
+  t.after(() => unavailable.close());
+  const rejected = await unavailable.inject({ method: 'GET', url: `/api/production-media/${id}`,
+    headers: { host: HEADERS.host, cookie: 'session=test' } });
+  assert.equal(rejected.statusCode, 503);
+  assert.equal(rejected.json().error.code, 'OBJECT_MEDIA_UNAVAILABLE');
+  assert.equal(localReads, 0);
+
+  const calls = [];
+  const objects = {
+    async content(scope, mediaId) {
+      calls.push(['content', scope.workspaceId, mediaId]);
+      return { record: { contentType: 'video/mp4' }, bytes: Buffer.from('workspace-object') };
+    },
+    async access(scope, mediaId) {
+      calls.push(['access', scope.workspaceId, mediaId]);
+      return { method: 'GET', url: 'https://objects.example.test/signed',
+        expiresAt: '2026-11-08T00:05:00.000Z' };
+    },
+  };
+  const app = await createApp(config, fetch, { authService, productionMediaStore: local,
+    productionMediaObjectService: objects });
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: `/api/production-media/${id}`,
+    headers: { host: HEADERS.host, cookie: 'session=test' } });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.rawPayload.toString(), 'workspace-object');
+  const signed = await app.inject({ method: 'GET', url: `/api/production-media/${id}/access`,
+    headers: { host: HEADERS.host, cookie: 'session=test' } });
+  assert.equal(signed.statusCode, 200);
+  assert.equal(signed.json().url, 'https://objects.example.test/signed');
+  assert.deepEqual(calls, [
+    ['content', workspaceId, id],
+    ['access', workspaceId, id],
+  ]);
+  assert.equal(localReads, 0);
+});

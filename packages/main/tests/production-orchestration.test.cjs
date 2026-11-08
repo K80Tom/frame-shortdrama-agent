@@ -31,7 +31,7 @@ async function make(options = {}) {
   let time = 0;
   const service = new ProductionService(repo, { pollIntervalMs: 60_000,
     now: () => new Date(Date.UTC(2026, 9, 23, 12, 0, time++)), executors: options.executors ?? [],
-    diagnosticSink: options.diagnosticSink });
+    diagnosticSink: options.diagnosticSink, runInTenantScope: options.runInTenantScope });
   return { repo, service };
 }
 async function ticks(service, count = 30) { for (let index = 0; index < count; index++) await service.tick(); }
@@ -84,6 +84,16 @@ test('the built-in preflight is real while an unavailable capability stops hones
   assert.equal(run.status, 'waitingHuman');
   assert.equal(run.summary.tasks.completed, 1);
   assert.equal(run.inbox[0].code, 'CAPABILITY_UNAVAILABLE');
+});
+
+test('background ticks enter the persisted run tenant scope before executing stages', async () => {
+  const scoped = [];
+  const { service } = await make({ runInTenantScope: async (runId, work) => {
+    scoped.push(runId); return work();
+  } });
+  const created = await service.create(input({ clientRequestId: 'tenant-scoped-worker-tick' }));
+  await service.tick(created.id);
+  assert.deepEqual(scoped, [created.id]);
 });
 
 test('executors can expand stable per-shot tasks and a verified local delivery completes the run', async () => {

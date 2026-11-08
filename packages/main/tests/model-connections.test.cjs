@@ -62,6 +62,24 @@ test('private atomic storage survives restart, keeps blank keys, explicitly clea
   assert.equal((await readFile(file, 'utf8')).includes('legacy-test-only'), false);
 });
 
+test('read-only Worker follows API atomic updates without racing first-file initialization', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'model-connections-worker-sync-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'private', 'connections.json');
+  const worker = new ModelConnections(base, file);
+  await worker.initialize({ readOnly: true });
+  await assert.rejects(readFile(file, 'utf8'), error => error.code === 'ENOENT');
+
+  const api = new ModelConnections(base, file);
+  await api.initialize();
+  assert.equal(worker.resolve('general').apiKey, 'legacy-test-only');
+  await update(api, 'general', { model: 'worker-synced-model', apiKey: 'worker-synced-key' });
+  const refreshed = worker.resolve('general');
+  assert.equal(refreshed.defaultModel, 'worker-synced-model');
+  assert.equal(refreshed.apiKey, 'worker-synced-key');
+  assert.equal(refreshed.connectionRevision, api.public('general').revision);
+});
+
 test('same-version concurrent edits conflict, invalid input never changes stored revision or leaks secrets', async () => {
   const store = new ModelConnections(base);
   const payload = { expectedRevision: store.public('general').revision, ...fields() };

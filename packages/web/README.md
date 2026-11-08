@@ -1,6 +1,14 @@
 # Lyra · STORY STUDIO
 
-Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 2026-10-22 至 2026-10-23 参考 Liblib 的信息组织方式完成重构：中性黑灰底色、荧绿强调、紧凑卡片和分组侧栏，并统一使用 **Lyra / STORY STUDIO** 品牌。
+Lyra 是面向中文短剧的可部署创作与自动制片工作台。界面在 2026-10-22 至 2026-10-23 参考 Liblib 的信息组织方式完成重构：中性黑灰底色、荧绿强调、紧凑卡片和分组侧栏，并统一使用 **Lyra / STORY STUDIO** 品牌。Stage 1 通过同源 HTTPS 入口连接 `main-api`，浏览器不直连数据库、模型、Redis、Milvus 或对象存储管理面。
+
+## Stage 1 会话与部署交互
+
+- 首屏先请求 `GET /api/auth/session`；只有明确返回 `AUTH_NOT_CONFIGURED` 才进入可见的 Legacy 兼容模式，401 会显示真实登录页，网络或格式错误不会绕过登录。
+- 会话凭据使用 HttpOnly `lyra_session` Cookie；可读 `lyra_csrf` Cookie 只用于向同源 POST 添加 `X-CSRF-Token`，不是登录凭据。
+- 后端会话返回当前用户可访问的 workspace。切换后所有同源 `/api/**` 请求携带 `X-Workspace-Id`；绝不向跨域 URL 转发 workspace 或 CSRF 上下文。若存在未保存内容，切换前必须再次确认。
+- 设置页的系统状态面板分开展示 API、Worker、PostgreSQL、Redis、Milvus 和对象存储。“Healthy”只表示对应探针成功，不代表队列已清空、回填/历史投影已完成、签名 URL 已公网可达或故障演练已通过；Worker 项来自 PostgreSQL 心跳，不是 Worker 暴露的 HTTP 端点。
+- 退出成功会清理会话与本地 workspace 选择；退出请求失败时保留当前会话并显式报错，不在前端伪造已退出。
 
 项目采用 React、TypeScript 和 Vite，使用 hash 路由。既有 `frame:*` 浏览器存储键与内部数据协议继续兼容。
 
@@ -17,7 +25,7 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
   → 技术抽卡与镜头技术复核
   → 携带失败项进行有限局部返修
   → FFmpeg 按分镜顺序合片
-  → 成片复核与本地 MP4 交付
+  → 成片复核与私有对象存储 MP4 交付
 ```
 
 总控界面提供十阶段进度轨道、镜头级任务矩阵、问题收件箱、任务详情、候选采用、整组重做、检查点确认、预算摘要、事件时间线、暂停/继续、局部重试、运行历史和最终交付入口。运行数据保存在 PostgreSQL；刷新页面或重启服务后可继续读取真实状态。
@@ -68,11 +76,11 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 - 资产视觉简报、逐次授权的单图候选、候选留存、人工接受/拒绝和本地资产导入。
 - 浏览器分镜练习：TXT 导入、原文/对白对照、镜头编辑、本地草稿和 JSON 导出。
 - 3D 导演台：人物体型与姿势、关节微调、几何物体、群众阵列、GLB 导入、机位/焦段、光照、画幅、构图线、场景保存，以及 PNG、机位宫格、深度图和 WebM 运镜导出。
-- 模型连接按用途独立保存于本机后端；密钥不进入浏览器存储或仓库。
+- 模型连接按用途保存于后端私有共享配置；当前 Stage 1 仍是共享卷中的明文 JSON，密钥不进入浏览器存储或仓库，生产验收前仍需迁入 Secret Manager/KMS。
 
 ## 自动制作的真实边界
 
-整集视频请求会带入镜头已绑定的有序参考图片，并请求视频供应商的原生音频。视频完成后必须先安全下载到本地私有媒体库，经过哈希与 `ffprobe` 校验，才能进入候选抽卡、复核、FFmpeg 合片和交付。
+整集视频请求会带入镜头已绑定的有序参考图片，并请求视频供应商的原生音频。视频完成后必须先安全下载到 Worker 的受控私有暂存区，经过哈希与 `ffprobe` 校验，再通过持久任务投影到对象存储，才能进入候选抽卡、复核、FFmpeg 合片和交付。
 
 当前“镜头技术复核”验证容器与哈希，检查画幅、时长和音轨，并读取分辨率参与候选评分。它不表示人物长相、动作、剧情、对白、连续性或审美已通过视觉语义审核，成片仍需要人工观看。
 
@@ -80,60 +88,43 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 
 当前时间线保留视频供应商随镜头生成的原生音轨，还没有独立配音、口型同步、音效、配乐、混音和字幕子流程。技术抽卡与返修不会把这些未实现能力描述成已经完成。
 
-完整流程代码和离线验证已经打通，但没有为了验收自动触发真实付费全链路。真实运行需要本机配置相应用途的模型连接，并由用户在创建该次运行时明确勾选授权和设置预算上限。
+完整流程代码和离线验证已经打通，但没有为了验收自动触发真实付费全链路。真实运行需要在部署环境的后端私有配置中提供相应用途的模型连接，并由用户在创建该次运行时明确勾选授权和设置预算上限。
 
-## 本地运行
+## 部署与开发预览
 
-只体验不依赖后端的页面：
+Stage 1 单受信 workspace 试运行由根目录 [`deploy/compose.yaml`](../../deploy/compose.yaml) 构建并由 Web 容器同源反向代理。详细的 HTTPS Origin、管理员 bootstrap、健康检查、备份恢复和待执行验收目标见 [Stage 1 部署手册](../../deploy/README.md)。
 
-```sh
-cd packages/web
-npm ci
-npm run dev
-```
-
-打开 <http://127.0.0.1:5173/>。仅监听本机，尚未部署为公网网站。
-
-使用真实项目、资产和整集自动制作时，先在主工程目录启动 PostgreSQL、应用迁移并运行后端：
-
-```sh
-cd packages/main
-npm ci
-npm run db:setup
-npm run db:up
-npm run db:migrate
-npm run dev
-```
-
-另开终端启动前端：
+仅在贡献代码时使用 Vite 开发服务：
 
 ```sh
 npm --prefix packages/web ci
 npm --prefix packages/web run dev
+npm --prefix packages/web test
+npm --prefix packages/web run build
 ```
 
-整集生产需要迁移 `015_production_orchestration.sql` 与 `016_agent_adoptions.sql`。FFmpeg/ffprobe、数据库或对应模型连接不可用时，受影响节点会明确停止，不会伪造成功产物。
+开发兼容模式不是生产部署方案。FFmpeg/ffprobe、数据库、对象存储或对应模型连接不可用时，受影响节点必须明确停止，不会伪造成功产物。
 
-## 2026-10-23 验证记录
+## 2026-11-08 验证记录
 
-- 后端离线测试：**392 项通过**。
-- 前端测试：**86 项通过**。
-- PostgreSQL 集成测试：**2 项通过**，覆盖拆解持久化以及生产聚合的 CAS/outbox 原子写入。
-- 前端 TypeScript/Vite 构建通过；3D 懒加载包仍有既有的大包体积提示。
-- 已检查首页、项目、资产、插件和自动制作页面的桌面布局与响应式布局，并验证前后端 API 代理可用。
-- 上述自动化验证未创建真实付费任务，也不能替代配置模型后的人工成片验收。
+- 前端 117 项自动化测试和 TypeScript/Vite 生产构建通过，新增覆盖会话恢复、登录/退出、CSRF/workspace 请求头、Legacy 兼容和六项系统状态。
+- 自动化验证没有使用真实模型、API Key 或付费媒体调用，不能替代部署环境的 HTTPS/Cookie、租户越权、备份恢复和人工成片验收。
 
 ## 数据与存储
 
 - 示例分镜草稿保存于当前浏览器的 `frame:ui-draft:v1`；它不是生产计划数据库。
 - 3D 白模使用 IndexedDB `frame-director-v1` 保存，清理网站数据会删除本机场景，应通过 JSON 导出备份。
-- 项目、小说、资产、模型任务和整集生产运行由本机后端与 PostgreSQL 持久化。
+- 项目、小说、资产、完整对话、模型任务和整集生产运行由 `main` 与 PostgreSQL 持久化；Redis 只保存可重建快照。
+- Stage 1 已为生产视频/成片接入 local/MinIO/S3/OSS/COS 对象存储端口、租户化 key、`object_records`、持久任务、Outbox、常驻投影 Worker、租户化对象读取和 `/api/production-media/:id/access` 签名入口；API/Worker 共享私有卷只保留本地暂存/过渡/恢复副本。导入资产图片仍保存于 PostgreSQL `asset_media.content`，后续需完成对象化迁移，并验证云环境中浏览器可达的公网 HTTPS 签名 endpoint、授权边界和孤儿对象 GC。
 - 模型密钥仅由后端保存；前端不使用 `VITE_` 变量携带密钥。
 - 外部素材链接仅允许受控 HTTPS 登记；登记本身不证明授权、可达性或长期有效性。
 
 ## 主要文件
 
 - `src/App.tsx` / `src/navigation.ts`：整体布局、侧栏、路由、命令菜单和离页保护。
+- `src/AuthBoundary.tsx` / `src/auth.ts`：会话恢复、登录/退出、Legacy 边界与会话用户状态。
+- `src/WorkspaceSwitcher.tsx` / `src/deployment.ts`：workspace 切换、全局租户/CSRF 请求头与部署状态契约。
+- `src/SystemStatusPanel.tsx`：API、Worker、PostgreSQL、Redis、Milvus 和对象存储状态。
 - `src/WorkspaceHome.tsx` / `src/home.css`：首页与最近项目。
 - `src/ProjectsPage.tsx` / `src/projects.css`：项目目录、搜索、筛选和视图切换。
 - `src/AssetWorkspace.tsx` / `src/AssetLibrary.tsx`：个人资产库、示例参考、素材登记与详情。

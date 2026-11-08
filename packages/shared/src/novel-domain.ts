@@ -3,6 +3,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import Ajv from 'ajv';
 import { validateAssetRecord, type AssetRecord } from './assets';
 import { AnalysisSchema, EntityTypeSchema, OccurrenceSchema, type EntityType, type Occurrence, type NovelAnalysis } from './novel-analysis';
+import { brandSharedError, hasSharedErrorBrand } from './error-brand';
 
 const Id = Type.String({ minLength: 1, maxLength: 100 });
 const Nonempty = (maxLength: number) => Type.String({ minLength: 1, maxLength, pattern: '\\S' });
@@ -71,7 +72,15 @@ export interface NovelParagraph { id: string; start: number; end: number; text: 
 
 export class NovelError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string,
-    public readonly details: Record<string, unknown> = {}) { super(message); this.name = 'NovelError'; }
+    public readonly details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'NovelError';
+    brandSharedError(this, 'NovelError');
+  }
+
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return hasSharedErrorBrand(value, 'NovelError');
+  }
 }
 
 const ajv = new Ajv({ allErrors: false });

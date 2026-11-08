@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowRight, ArrowUpRight, BookOpen, Bot, Box, ChevronRight, Command, FileText, Film, Menu, Plus, Search, Settings2, Workflow, X } from 'lucide-react';
 import { Brand, Modal, Toast } from './components';
@@ -19,11 +19,16 @@ import PromptPacksPage from './PromptPacksPage';
 import { applyHashNavigation } from './navigation-guard';
 import { AmbientFX } from './ambient';
 import AssistantPanel from './assistant/AssistantPanel';
+import { WorkspaceSwitcher, activateWorkspace } from './WorkspaceSwitcher';
+import type { WorkspaceSummary } from './deployment';
+import { sessionWorkspaceDirectory } from './auth';
+import { SessionControl, useAuth } from './AuthBoundary';
 import './assistant/assistant.css';
 
 const DirectorWorkspace = lazy(() => import('./director/DirectorWorkspace'));
 
 export default function App() {
+  const auth = useAuth();
   const [{ draft: loaded, error: storageError }] = useState(readDraft);
   const [draft, setDraft] = useState(loaded);
   const [route, setRoute] = useState(() => routeFromHash(location.hash));
@@ -50,6 +55,19 @@ export default function App() {
     if (timer.current) clearTimeout(timer.current);
     setToast(text); timer.current = setTimeout(() => setToast(''), 4500);
   }, []);
+  const switchWorkspace = useCallback((workspace: WorkspaceSummary) => {
+    const hasUnsavedWork = hasUnsavedProduction.current || hasUnsavedNovel.current || hasUnsavedAssets.current
+      || hasUnsavedModelConnections.current || hasUnsavedAutomation.current;
+    if (hasUnsavedWork && !window.confirm('切换 workspace 会重新载入工作台，当前未保存的内容会丢失。确定切换？')) return false;
+    try {
+      activateWorkspace(workspace);
+      window.location.reload();
+      return true;
+    } catch {
+      notify('无法保存 workspace 选择，请检查浏览器存储后重试。');
+      return false;
+    }
+  }, [notify]);
   useEffect(() => {
     if (storageError) notify('本地草稿无法读取，现显示参考样例；原保存内容尚未改动。');
     return () => { if (timer.current) clearTimeout(timer.current); };
@@ -105,6 +123,7 @@ export default function App() {
     catch { notify('未能保存，浏览器存储可能不可用或已满。请导出草稿留存。'); }
   }
   const props = { draft, setDraft, save, go, notify };
+  const sessionDirectory = useMemo(() => auth.session ? sessionWorkspaceDirectory(auth.session) : undefined, [auth.session]);
   const current = commands.find(item => item.id === route.page)!;
   const activeProjectId = route.page === 'production' && route.resourceId && route.resourceId !== 'new' ? route.resourceId : undefined;
   const assistantContext = {
@@ -119,9 +138,9 @@ export default function App() {
       <nav className="main-nav workspace-nav" aria-label="工作空间">{workspaceNavigation.map(item => <a href={`#/${item.id}`} key={item.id} aria-current={route.page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.7} /><span>{item.label}</span>{route.page === item.id && <span className="nav-active-dot" />}</a>)}</nav>
       <span className="nav-section-label">创作工具</span><nav className="main-nav" aria-label="创作工具">{creationNavigation.map(item => <a href={`#/${item.id}`} key={item.id} aria-current={route.page === item.id ? 'page' : undefined}><item.icon size={18} strokeWidth={1.6} /><span>{item.label}</span>{item.id === 'director' && <span className="nav-mini">3D</span>}</a>)}</nav>
       <span className="nav-section-label">探索</span><nav className="main-nav"><a href="#/flow/1" aria-current={route.page === 'flow' ? 'page' : undefined}><Workflow size={18} strokeWidth={1.6} /><span>创作指南</span><span className="nav-mini">9 步</span></a></nav>
-      <div className="sidebar-bottom"><button className="sidebar-feature" onClick={() => go('director')}><span className="sidebar-feature-art" aria-hidden="true"><Box size={44} strokeWidth={.8} /><span /></span><span><strong>先试一个好机位</strong><small>探索 3D 白模预演 <ArrowUpRight size={12} /></small></span></button><button className={`profile-button ${route.page === 'settings' ? 'active' : ''}`} onClick={() => go('settings')} aria-label="打开工作台设置"><span className="profile-avatar">L</span><span><strong>个人工作空间</strong><small>本地创作 · Early Preview</small></span><Settings2 size={16} /></button></div>
+      <div className="sidebar-bottom"><button className="sidebar-feature" onClick={() => go('director')}><span className="sidebar-feature-art" aria-hidden="true"><Box size={44} strokeWidth={.8} /><span /></span><span><strong>先试一个好机位</strong><small>探索 3D 白模预演 <ArrowUpRight size={12} /></small></span></button><button className={`profile-button ${route.page === 'settings' ? 'active' : ''}`} onClick={() => go('settings')} aria-label="打开工作台设置"><span className="profile-avatar">L</span><span><strong>工作台设置</strong><small>系统状态 · 模型连接</small></span><Settings2 size={16} /></button></div>
     </aside>
-    <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-only" onClick={() => setMobileNav(value => !value)} aria-label="打开导航菜单" aria-expanded={mobileNav}><Menu size={20} /></button><span className="breadcrumb">工作空间 <ChevronRight size={12} /><strong>{current.label}</strong></span></div><div className="topbar-right"><button aria-label="快速查找" className="search-trigger" onClick={() => { setQuery(''); setSearchOpen(true); }}><Search size={15} /><span>搜索工作空间</span><kbd>⌘ K</kbd></button><span className="local-state"><i />个人空间</span><button className="topbar-create" onClick={() => setNewOpen(true)}><Plus size={15} /><span>新建项目</span></button></div></header>
+    <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-only" onClick={() => setMobileNav(value => !value)} aria-label="打开导航菜单" aria-expanded={mobileNav}><Menu size={20} /></button><span className="breadcrumb">工作空间 <ChevronRight size={12} /><strong>{current.label}</strong></span></div><div className="topbar-right"><button aria-label="快速查找" className="search-trigger" onClick={() => { setQuery(''); setSearchOpen(true); }}><Search size={15} /><span>搜索工作空间</span><kbd>⌘ K</kbd></button><WorkspaceSwitcher directory={sessionDirectory} onSelect={switchWorkspace} /><SessionControl /><button className="topbar-create" onClick={() => setNewOpen(true)}><Plus size={15} /><span>新建项目</span></button></div></header>
       <main id="main-content" tabIndex={-1} className={`main-content page-${route.page}`}><AnimatePresence mode="wait" initial={false}><motion.div key={`${route.page}/${route.resourceId ?? ''}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.18 }}>
         {route.page === 'studio' && <WorkspaceHome {...props} onNew={() => setNewOpen(true)} onOpenProject={openProject} onOpenNovel={openNovel} onOpenReferences={() => { location.hash = '#/assets/references'; }} />}
         {route.page === 'projects' && <ProjectsPage {...props} onNew={() => setNewOpen(true)} onOpenProject={openProject} onOpenNovel={openNovel} />}
@@ -141,7 +160,7 @@ export default function App() {
         {route.page === 'settings' && (route.resourceId === 'models' ? <ModelConnections onUnsavedChange={reportModelConnectionsUnsaved} /> : <SettingsPage {...props} />)}
       </motion.div></AnimatePresence></main>
     </div>
-    <Modal open={newOpen} onClose={() => setNewOpen(false)} title="从一个故事开始"><p className="muted">选择你的起点，进入对应的创作工作区。</p><div className="start-options"><button onClick={startNovel}><BookOpen size={24} /><div><strong>从小说开始</strong><p>导入原文，逐章提取与校对人物、场景和对白</p></div><ArrowRight size={18} /></button><button onClick={startProject}><Film size={24} /><div><strong>从剧本开始</strong><p>创建项目，保存剧本、拆解事实与设计分镜</p></div><ArrowRight size={18} /></button><button onClick={() => { setNewOpen(false); go('script'); }}><FileText size={24} /><div><strong>先体验一个样例</strong><p>打开「赴约」练习，自由编辑文字分镜</p></div><ArrowRight size={18} /></button></div><p className="modal-footnote">小说与剧本项目需要本地后端；调用模型前会另行确认。样例可直接体验。</p></Modal>
+    <Modal open={newOpen} onClose={() => setNewOpen(false)} title="从一个故事开始"><p className="muted">选择你的起点，进入对应的创作工作区。</p><div className="start-options"><button onClick={startNovel}><BookOpen size={24} /><div><strong>从小说开始</strong><p>导入原文，逐章提取与校对人物、场景和对白</p></div><ArrowRight size={18} /></button><button onClick={startProject}><Film size={24} /><div><strong>从剧本开始</strong><p>创建项目，保存剧本、拆解事实与设计分镜</p></div><ArrowRight size={18} /></button><button onClick={() => { setNewOpen(false); go('script'); }}><FileText size={24} /><div><strong>先体验一个样例</strong><p>打开「赴约」练习，自由编辑文字分镜</p></div><ArrowRight size={18} /></button></div><p className="modal-footnote">小说与剧本项目需要已部署的后端；调用模型前会另行确认。样例可直接体验。</p></Modal>
     <Modal open={searchOpen} onClose={() => setSearchOpen(false)} title="快速查找" className="command-modal"><div className="command-input"><Search size={19} /><input autoFocus aria-label="查找工作区" placeholder="试试：分镜、剧本、流程…" value={query} onChange={e => setQuery(e.target.value)} /></div><div className="command-results">{commands.filter(item => `${item.label} ${item.en}`.toLowerCase().includes(query.toLowerCase())).map(item => <button key={item.id} onClick={() => { setSearchOpen(false); go(item.id); }}><item.icon size={18} /><span>{item.label}</span><ArrowUpRight size={15} /></button>)}{!commands.some(item => `${item.label} ${item.en}`.toLowerCase().includes(query.toLowerCase())) && <p className="muted">没有匹配的工作区，换个词试试。</p>}</div><div className="command-footer"><Command size={12} /><span>K 打开 / Esc 关闭</span></div></Modal>
     <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} context={assistantContext} notify={notify} />
     {!assistantOpen && <button className="assistant-fab" onClick={() => setAssistantOpen(true)} title="打开 AI 工作区（⌘J / Ctrl+J）"><Bot size={17} /><span>AI 工作区</span></button>}

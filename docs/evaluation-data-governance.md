@@ -1,12 +1,12 @@
 # 评测数据治理：题库、量表与版本边界
 
-状态：与 GitHub issue #40 同步落地。本文件说明 Lyra 评测目录（Evaluation Catalog）的数据保留、脱敏、授权与版本不可变边界。
+状态：**目录治理基础已落地；Stage 1 租户与对象存储治理待实现**。本文件说明 Lyra 评测目录（Evaluation Catalog）的数据保留、脱敏、授权与版本不可变边界。
 
-评测目录的权威来源登记见 `docs/data-governance/authority-matrix.md` 第 2.9 节；机器可读版本见 `contracts/data-governance/catalog-v1.json` 的 `evaluation` 域。
+评测目录的权威来源登记见 [authority-matrix.md](../packages/main/docs/data-governance/authority-matrix.md) 第 2.9 节；机器可读版本见 [catalog-v1.json](../packages/main/contracts/data-governance/catalog-v1.json) 的 `evaluation` 域。
 
-本期范围只有**题库、量表和版本管理**：
+Issue #40 当时的交付范围只有**题库、量表和版本管理**：
 
-- 不做 EvaluationRun、评分器、Promptfoo/Langfuse 接入、Web 页面或 CLI。
+- 当时不做 EvaluationRun、评分器、Promptfoo/Langfuse 接入、Web 页面或 CLI；随后 #41 已落地独立的 [EvaluationRun 基础契约与实现](evaluation-run-contract.md)，但仍没有正式评分器或 UI。
 - `packages/shared` 只定义契约、纯校验、规范化与摘要；`packages/main` 负责持久化、生命周期、JSONL 与 HTTP API。
 - 所有测试离线运行，不调用真实模型或媒体供应商。
 
@@ -109,16 +109,16 @@ interface EvaluationAuthorization {
 5. 导出再导入后 `contentDigest` 与规范化内容一致；`digest` 包含 revision 号，按同一身份和 revision 比较。
 6. 镜头审核 case 引用的量表 revision 必须存在、已冻结、类型为 `shot_review`，且引用摘要与量表 revision 摘要一致。
 
-## 6. 人工修改不会自动成为标准答案
+## 6. 运行结果与人工修改不会自动成为标准答案
 
-本期没有评测运行和评分器，因此也不存在“人工改完结果自动回写题库”的路径。人工判断要成为标准答案，只能通过受控的目录变更：
+EvaluationRun 与评测目录是独立边界，当前实现不会把运行结果或人工修正回写冻结题库。人工判断要成为标准答案，只能通过受控的目录变更：
 
 - 新建或派生 revision；
 - 显式编辑 `expectation`；
 - 重新计算摘要；
 - 冻结后由新评测引用。
 
-任何未来的运行页面或评分器都不得直接修改已冻结 revision，也不得把人工临时修正静默写回 `expectation`。如需吸收人工结论，应生成新的 dataset revision，并在 PR/评审中说明依据。
+任何运行页面或评分器都不得直接修改已冻结 revision，也不得把人工临时修正静默写回 `expectation`。如需吸收人工结论，应生成新的 dataset revision，并在 PR/评审中说明依据。
 
 ## 7. 后续数据中台授权登记的接入位置
 
@@ -129,11 +129,20 @@ interface EvaluationAuthorization {
 3. **映射**：数据中台的授权状态映射到 `granted` / `pending` / `denied`；未授权或已撤回的登记不得导入。
 4. **时效**：中台到期时间映射到 `expiresAt`；到期后由绑定校验拒绝新引用，历史账本保留。
 5. **限制**：中台的限制条款写入 `restrictions`；`restricted` 等级必须非空。
-6. **审计**：未来评测运行登记 `usageKind='evaluation_run'` 与 `usageRef`，通过 `evaluation_revision_usage` 关联到具体 revision。
+6. **审计**：当前 EvaluationRun 尚未自动登记 usage；Stage 1 创建运行时必须登记 `usageKind='evaluation_run'` 与 `usageRef`，通过 `evaluation_revision_usage` 关联到具体 revision，并与运行创建保持可恢复的一致性。
 
 数据中台接入不得改变本期的不可变语义；如需批量回填历史授权，应作为独立迁移与人工审批事项处理。
 
-## 8. 离线夹具与验证命令
+## 8. Stage 1 多租户与对象存储治理
+
+1. **目录作用域显式化。** 平台公共目录与 workspace 私有目录必须有明确作用域；公共不等于匿名可写，私有目录不能被其他 workspace 搜索、绑定或导出。
+2. **租户过滤在 Repository 落实。** Dataset、Rubric、Revision、Usage、授权与对象元数据都携带 `workspace_id` 或明确的平台作用域；Repository 接收 `TenantContext`，禁止只按资源 ID 裸查。对象 key 或 Milvus filter 不能代替 PostgreSQL 授权。
+3. **PostgreSQL 保存事实与元数据。** 授权、版本、生命周期、usage 和对象引用以 PostgreSQL 为准；Redis/Milvus 只保存可重建的缓存或检索投影。
+4. **大型字节进入对象存储。** 大型 JSONL、媒体和评测证据使用统一 `ObjectStorage`，目录只保存 provider、bucket、object key、version、checksum、size、content type 等不可变引用。数据库和事件不得保存临时签名 URL。
+5. **签名 URL 不是授权。** 上传/下载前先由 PostgreSQL 校验 workspace 权限，再签发短期、单对象、单操作 URL；上传完成后由 `main` 验证大小、类型和 checksum 才能标记 ready。
+6. **旧摘要保持可验证。** 现有 v1 行、JSON 与摘要不原地改写；后续迁移向 022 创建的表新增可空租户/作用域字段，再按“历史数据映射 platform/default workspace → 核对 → 收紧约束”的顺序引入租户边界。
+
+## 9. 离线夹具与验证命令
 
 夹具位于 `packages/main/fixtures/evaluation/`：
 

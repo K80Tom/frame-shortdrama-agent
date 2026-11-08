@@ -109,7 +109,8 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p bundle/lyra-docker
-          cp deploy/compose.yaml deploy/nginx.conf deploy/.env.example deploy/README.md \
+          cp deploy/compose.yaml deploy/nginx.conf deploy/.env.example deploy/README.md deploy/minio-media-policy.json \
+             deploy/postgres-init-app-role.sql \
              deploy/Dockerfile.main deploy/Dockerfile.web bundle/lyra-docker/
           tar -czf "${BUNDLE_NAME}-${VERSION}.tar.gz" -C bundle lyra-docker
 
@@ -120,7 +121,7 @@ jobs:
           files: ${{ env.BUNDLE_NAME }}-*.tar.gz
           draft: false
           body: |
-            一键部署包（Docker Compose）
+            Stage 1 集成基线部署包（Docker Compose，单受信 workspace 试运行）
 
             需要 Docker Desktop 或 Docker Engine 24+（含 compose 插件）。
 
@@ -128,12 +129,15 @@ jobs:
             ```sh
             tar -xzf ${{ env.BUNDLE_NAME }}-${{ steps.version.outputs.version }}.tar.gz
             cd lyra-docker              # 解压后目录
-            cp .env.example .env        # 至少填 POSTGRES_PASSWORD；模型 key 可在页面里配
+            cp .env.example .env        # 分别填写 PostgreSQL 管理/应用、Redis、MinIO 密码
             docker compose up -d
             ```
 
-            浏览器打开 http://127.0.0.1:8788（或 http://localhost:8788）即可。
+            按包内 `README.md` 通过 `node dist/auth/bootstrap-admin.js` 执行一次性管理员 bootstrap，再用浏览器打开
+            http://localhost:8788（必须与 `.env` 中的 `LYRA_PUBLIC_ORIGIN` 完全一致；正式环境使用 HTTPS）登录。
 
             - 镜像：`ghcr.io/k80tom/frame-shortdrama-agent-main:${{ steps.version.outputs.version }}`、`-web` 同版本（同时提供 linux/amd64 与 linux/arm64）。
-            - 数据库、模型连接与媒体产物分别落在 `lyra_pgdata`、`lyra_lyra_data` 两个卷；`docker compose down` 不会删除数据。
+            - 当前 Stage 1 最低 schema 基线为迁移 `031`；`030` 完成租户表 `NOT NULL + FORCE RLS` contract，API/Worker 不会以过旧 schema 启动。
+            - PostgreSQL、Redis、MinIO、Milvus 与应用私有数据使用独立卷；`docker compose down` 不会删除数据。
             - 本包不包含任何密钥；所有模型凭据由使用者自行填写。
+            - 依赖探针通过不代表媒体对象投影、Milvus 回填、备份恢复或公网多租户安全验收已经完成；上线边界以包内 `README.md` 为准。

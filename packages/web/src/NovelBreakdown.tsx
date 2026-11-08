@@ -13,6 +13,7 @@ import type { EntityMergeCandidate, EntityRegistryEntry, NovelAdaptationPreview,
 import { screenplayProductionHash } from './navigation';
 import { useDesktopAssetTasks } from './DesktopAssetGeneration';
 import { desktopCompletionNeedsRefresh, desktopReloadAllowed, desktopTaskActive, desktopTaskLabels } from './desktop-asset-generation';
+import { workspaceFetch } from './deployment';
 
 type LibraryItem = { id: string; title: string; createdAt: string; chapterCount: number };
 type DraftSession = { base: NovelRevision; items: NovelItem[] };
@@ -25,7 +26,7 @@ const entityTypeLabels = { person: '个体人物', group: '群体', creature: '�
 const revisionLabels = { model: '模型提取 · 待人工核对', user: '人工校对 / 资产引用', program: '引号待核对初稿 · 不是 AI 拆解' };
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? {} : {
+  const response = await workspaceFetch(path, body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
