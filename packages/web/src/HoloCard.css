@@ -26,6 +26,19 @@
   outline-offset: 6px;
 }
 
+.holo-card[data-content] {
+  display: block;
+  aspect-ratio: auto;
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
+.holo-card[data-content] .holo-card__rotor,
+.holo-card[data-content] .holo-card__face--front {
+  position: relative;
+  inset: auto;
+}
+
 .holo-card__shadow {
   position: absolute;
   inset: 10% 7% -4%;
@@ -73,9 +86,15 @@
 
 .holo-card__face canvas {
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
 .holo-card[data-ready] .holo-card__face canvas {
   opacity: 1;
+}
+
+.holo-card__content {
+  position: relative;
+  z-index: 2;
 }

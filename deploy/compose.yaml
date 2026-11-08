@@ -239,6 +239,11 @@ services:
   web:
     image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-web:${LYRA_TAG:-latest}
     restart: unless-stopped
+    environment:
+      # Public presentation assets only. The entrypoint validates HTTPS URLs
+      # before generating runtime-config.js; changing them needs no image rebuild.
+      LYRA_BACKDROP_VIDEO_URL: ${LYRA_BACKDROP_VIDEO_URL:-}
+      LYRA_BACKDROP_POSTER_URL: ${LYRA_BACKDROP_POSTER_URL:-}
     ports:
       - "${LYRA_PORT:-8788}:80"
     depends_on:

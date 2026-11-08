@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { AlertCircle, ArrowRight, Clapperboard, Layers3, LoaderCircle, LockKeyhole, LogOut, RefreshCw, ShieldCheck, Sparkles, UserPlus } from 'lucide-react';
-import { AmbientFX } from './ambient';
+import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { BackdropMode } from './ambient';
 import {
   AuthApiError, fetchAuthConfig, fetchAuthSession, loginWithPassword, logoutAuthSession,
   registerWorkspace, validateLoginInput, validateWorkspaceRegistration,
   type AuthConfig, type AuthSession, type WorkspaceRegistrationInput,
 } from './auth';
 import { clearActiveWorkspaceId, writeActiveWorkspaceId } from './deployment';
+import { BrandMark } from './components';
+import HoloCard from './HoloCard';
 import './auth.css';
 
 type AuthContextValue = {
@@ -31,19 +33,29 @@ function message(error: unknown, fallback: string): string {
 }
 
 function AuthMark() {
-  return <div className="auth-brand" aria-label="Lyra Story Studio"><span aria-hidden="true">✦</span><strong>LYRA<small>STORY STUDIO</small></strong></div>;
+  return <div className="auth-brand brand" aria-label="Lyra Story Studio"><BrandMark /></div>;
 }
 
-function AuthFrame({ children }: { children: ReactNode }) {
-  return <main className="auth-shell"><AmbientFX /><section className="auth-project-card">
-    <aside className="auth-story-cover" aria-label="Lyra 创作工作台">
-      <AuthMark />
-      <div className="auth-cover-copy"><span>YOUR STORY STARTS HERE</span><h2>把灵感，变成一条看得见的制作路径。</h2><p>在独立 workspace 中组织原文、剧本、分镜与成片。</p></div>
-      <div className="auth-cover-art" aria-hidden="true"><span /><i /><i /><i /><div><Clapperboard size={18} /><Layers3 size={16} /><Sparkles size={15} /></div></div>
-      <div className="auth-cover-tags" aria-label="工作台能力"><span>独立租户</span><span>版本留痕</span><span>人工确认</span></div>
-    </aside>
-    <section className="auth-entry-panel">{children}<footer>Session 由服务端 HttpOnly Cookie 保护；密码不会保存在浏览器草稿中。</footer></section>
-  </section></main>;
+function AuthLanding({ onEnter }: { onEnter: () => void }) {
+  return <main className="auth-landing" data-backdrop-variant="landing"><BackdropMode variant="landing" />
+    <header><AuthMark /></header>
+    <section className="auth-landing-copy">
+      <h1 className="auth-visually-hidden">Lyra Story Studio</h1>
+      <button type="button" onClick={onEnter}><span>登录</span><ArrowRight size={15} /></button>
+    </section>
+  </main>;
+}
+
+function AuthFrame({ children, onClose, wide = false }: { children: ReactNode; onClose?: () => void; wide?: boolean }) {
+  return <main className="auth-shell" data-backdrop-variant="auth"><BackdropMode variant="auth" /><HoloCard
+    className={`auth-project-card auth-dialog${wide ? ' auth-dialog-wide' : ''}`}
+    image="/assets/duel.png" alt="" preset="gold" foilColor="#e8c878" intensity={0.72}
+    edgeSparkle={0.82} frame={7} glare={0.32} tiltMax={4.5} hoverScale={1.008}
+    radius={20} width={wide ? 560 : 390} idle={false} shadow
+  >
+    <header><AuthMark />{onClose && <button type="button" onClick={onClose} aria-label="返回欢迎页" title="返回欢迎页"><X size={17} /></button>}</header>
+    <section className="auth-entry-panel">{children}</section>
+  </HoloCard></main>;
 }
 
 export function LoginView({ busy, error, registrationEnabled = false, registerBusy = false, registerError = '', initialMode = 'login', onLogin, onRegister }: {
@@ -55,6 +67,7 @@ export function LoginView({ busy, error, registrationEnabled = false, registerBu
   const canRegister = registrationEnabled && Boolean(onRegister);
   const [mode, setMode] = useState<'login' | 'register'>(initialMode === 'register' && canRegister ? 'register' : 'login');
   const effectiveMode = canRegister ? mode : 'login';
+  const [entryOpen, setEntryOpen] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [registration, setRegistration] = useState({ displayName: '', email: '', password: '', confirmPassword: '', workspaceName: '' });
@@ -77,9 +90,13 @@ export function LoginView({ busy, error, registrationEnabled = false, registerBu
   }
   const pending = effectiveMode === 'login' ? busy : registerBusy;
   const visibleError = localError || (effectiveMode === 'login' ? error : registerError);
-  return <AuthFrame>
-    <div className="auth-entry-head"><span>SECURE CREATOR ACCESS</span><h1>{effectiveMode === 'login' ? '回到你的创作工作台' : '创建一间属于你的工作室'}</h1><p>{effectiveMode === 'login' ? '登录后只能访问你已获授权的 workspace。' : '你将成为新 workspace 的 owner，项目与资产与其他工作室隔离。'}</p></div>
-    {canRegister && <nav className="auth-mode-switch" aria-label="账号入口"><button type="button" aria-current={effectiveMode === 'login' ? 'page' : undefined} onClick={() => switchMode('login')} disabled={pending}>登录</button><button type="button" aria-current={effectiveMode === 'register' ? 'page' : undefined} onClick={() => switchMode('register')} disabled={pending}>创建工作室</button></nav>}
+  if (!entryOpen) return <AuthLanding onEnter={() => setEntryOpen(true)} />;
+  return <AuthFrame wide={effectiveMode === 'register'} onClose={pending ? undefined : () => { setEntryOpen(false); setLocalError(''); }}>
+    <nav className="auth-mode-switch" aria-label="账号入口"><button type="button" aria-current={effectiveMode === 'login' ? 'page' : undefined} onClick={() => switchMode('login')} disabled={pending}>登录</button><button type="button" aria-current={effectiveMode === 'register' ? 'page' : undefined} aria-disabled={!canRegister} onClick={() => {
+      if (canRegister) switchMode('register');
+      else setLocalError('当前部署尚未开启自助注册；管理员可将 LYRA_REGISTRATION_MODE 设为 workspace。');
+    }} disabled={pending}>创建工作室{!canRegister && <small>未开启</small>}</button></nav>
+    <div className="auth-entry-head"><span>SECURE CREATOR ACCESS</span><h1>{effectiveMode === 'login' ? '登录工作台' : '创建工作室'}</h1><p>{effectiveMode === 'login' ? '使用你的账号继续创作。' : '创建独立 workspace，并成为它的 owner。'}</p></div>
     {effectiveMode === 'login' ? <form className="auth-form" onSubmit={event => { void submitLogin(event); }} aria-busy={busy}>
       <label htmlFor="auth-email">邮箱<input id="auth-email" type="email" autoComplete="email" inputMode="email" maxLength={254} required value={email} disabled={busy} onChange={event => { setEmail(event.target.value); setLocalError(''); }} placeholder="you@example.com" /></label>
       <label htmlFor="auth-password">密码<input id="auth-password" type="password" autoComplete="current-password" maxLength={1024} required value={password} disabled={busy} onChange={event => { setPassword(event.target.value); setLocalError(''); }} placeholder="输入密码" /></label>

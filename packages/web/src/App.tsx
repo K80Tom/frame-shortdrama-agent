@@ -16,7 +16,7 @@ import ProductionAutomationPage from './ProductionAutomationPage';
 import EvolutionPage from './EvolutionPage';
 import PromptPacksPage from './PromptPacksPage';
 import { applyHashNavigation } from './navigation-guard';
-import { AmbientFX } from './ambient';
+import { BackdropMode, backdropVariantForRoute } from './ambient';
 import AssistantPanel from './assistant/AssistantPanel';
 import { WorkspaceSwitcher, activateWorkspace } from './WorkspaceSwitcher';
 import type { WorkspaceSummary } from './deployment';
@@ -127,6 +127,7 @@ export default function App() {
   const props = { draft, setDraft, save, go, notify };
   const sessionDirectory = useMemo(() => auth.session ? sessionWorkspaceDirectory(auth.session) : undefined, [auth.session]);
   const current = commands.find(item => item.id === route.page) ?? commands[0]!;
+  const backdropVariant = backdropVariantForRoute(route);
   const activeProjectId = route.projectId && route.projectId !== 'new'
     ? route.projectId
     : route.page === 'production' && route.resourceId && route.resourceId !== 'new' ? route.resourceId : undefined;
@@ -145,8 +146,8 @@ export default function App() {
     {route.projectSection === 'review' && <ProjectReview projectId={route.projectId} draft={draft} />}
     {route.projectSection === 'history' && <ProjectHistory projectId={route.projectId} draft={draft} />}
   </ProjectWorkspace> : null;
-  return <div className="app-shell">
-    <AmbientFX />
+  return <div className="app-shell" data-backdrop-variant={backdropVariant}>
+    <BackdropMode variant={backdropVariant} />
     <a className="skip-link" href="#main-content" onClick={e => { e.preventDefault(); document.getElementById('main-content')?.focus(); document.getElementById('main-content')?.scrollIntoView(); }}>跳到主要内容</a>
     {mobileNav && <button className="nav-backdrop" onClick={() => setMobileNav(false)} aria-label="关闭导航菜单" />}
     <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`} aria-label="主导航"><div className="sidebar-brand"><Brand /><button className="icon-button mobile-only" onClick={() => setMobileNav(false)} aria-label="收起导航"><X size={19} /></button></div>
