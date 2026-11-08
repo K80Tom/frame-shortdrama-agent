@@ -235,16 +235,22 @@ function isNonLocalIntranetAddress(address: string, family: number): boolean {
     const parts = address.split('.').map(Number);
     if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
     const [a, b] = parts as [number, number, number, number];
-    return !(a === 0 || a === 127 || (a === 169 && b === 254));
+    return !(a === 0 || a === 127 || a >= 224 || (a === 169 && b === 254));
   }
   if (family !== 6) return false;
   const value = ipv6ToBigInt(address);
   if (value === null) return false;
+  // IPv4-mapped IPv6 must obey the same local-target rules as plain IPv4.
+  if (matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96)) {
+    const bytes = [24n, 16n, 8n, 0n].map(shift => Number((value >> shift) & 255n));
+    return isNonLocalIntranetAddress(bytes.join('.'), 4);
+  }
+  // Deprecated IPv4-compatible and multicast addresses are not CDN unicast targets.
+  if (matchesPrefix(value, 0n, 96) || matchesPrefix(value, ipv6ToBigInt('ff00::')!, 8)) return false;
   const unspecified = value === 0n;
   const loopback = value === 1n;
-  const ipv4MappedLoopback = matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96) && (value & 0xff000000n) === (0x7fn << 24n);
   const linkLocal = matchesPrefix(value, ipv6ToBigInt('fe80::')!, 10);
-  return !unspecified && !loopback && !ipv4MappedLoopback && !linkLocal;
+  return !unspecified && !loopback && !linkLocal;
 }
 
 export function isPublicInternetAddress(address: string): boolean {
@@ -269,9 +275,11 @@ export function isPublicInternetAddress(address: string): boolean {
   const value = ipv6ToBigInt(address);
   if (value === null || !matchesPrefix(value, ipv6ToBigInt('2000::')!, 3)) return false;
   return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 32)
+    && !matchesPrefix(value, ipv6ToBigInt('2001:2::')!, 48)
     && !matchesPrefix(value, ipv6ToBigInt('2001:10::')!, 28)
     && !matchesPrefix(value, ipv6ToBigInt('2001:20::')!, 28)
     && !matchesPrefix(value, ipv6ToBigInt('2001:db8::')!, 32)
+    && !matchesPrefix(value, ipv6ToBigInt('3fff::')!, 20)
     && !matchesPrefix(value, ipv6ToBigInt('2002::')!, 16);
 }
 
