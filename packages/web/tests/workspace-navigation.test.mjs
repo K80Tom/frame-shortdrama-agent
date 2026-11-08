@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { routeFromHash, screenplayProductionHash } = await server.ssrLoadModule('/src/navigation.ts');
+const { commands, creationNavigation, projectWorkspaceHash, routeFromHash, screenplayProductionHash, workspaceNavigation } = await server.ssrLoadModule('/src/navigation.ts');
 const { applyHashNavigation } = await server.ssrLoadModule('/src/navigation-guard.ts');
 
 test('workspace routes preserve legacy flow links and safely decode project identities', () => {
@@ -19,10 +19,34 @@ test('workspace routes preserve legacy flow links and safely decode project iden
   assert.deepEqual(routeFromHash('#/novel/story%2F%E4%B8%80'), { page: 'novel', step: 1, resourceId: 'story/一' });
   assert.deepEqual(routeFromHash('#/novel/%broken'), { page: 'novel', step: 1 });
   assert.equal(routeFromHash('#/projects').page, 'projects');
-  assert.equal(routeFromHash('#/plugins').page, 'plugins');
+  assert.equal(routeFromHash('#/plugins').page, 'studio');
   assert.deepEqual(routeFromHash('#/assets/references'), { page: 'assets', step: 1, resourceId: 'references' });
   assert.deepEqual(routeFromHash('#/assets'), { page: 'assets', step: 1 });
   assert.equal(routeFromHash('#/unknown').page, 'studio');
+});
+
+test('project workspace links preserve the project identity and map sections onto existing editors', () => {
+  const mappings = {
+    overview: 'projects', source: 'production', screenplay: 'production', storyboard: 'storyboard',
+    director: 'director', production: 'automation', review: 'projects', history: 'projects',
+  };
+  for (const [projectSection, page] of Object.entries(mappings)) {
+    const hash = projectWorkspaceHash('story/\u4e00', projectSection);
+    assert.deepEqual(routeFromHash(hash), { page, step: 1, projectId: 'story/\u4e00', projectSection });
+  }
+  assert.deepEqual(routeFromHash('#/projects/project_test/director/'), {
+    page: 'director', step: 1, projectId: 'project_test', projectSection: 'director',
+  });
+  assert.deepEqual(routeFromHash('#/projects/%broken/overview'), { page: 'projects', step: 1 });
+  assert.deepEqual(routeFromHash('#/projects/project_test/unknown'), { page: 'projects', step: 1 });
+});
+
+test('global navigation contains only workspace-level destinations while commands preserve creation tools', () => {
+  assert.deepEqual(workspaceNavigation.map(item => item.id), ['studio', 'projects', 'assets', 'methods', 'evolution']);
+  assert.deepEqual(creationNavigation.map(item => item.id), ['automation', 'novel', 'production', 'storyboard', 'director']);
+  for (const id of ['methods', 'evolution', 'automation', 'novel', 'production', 'storyboard', 'director']) {
+    assert.ok(commands.some(item => item.id === id));
+  }
 });
 
 test('switching to another item in the same editor cannot discard a dirty draft without confirmation', () => {
@@ -53,4 +77,20 @@ test('a clean item switch is committed and an identical editor location does not
   assert.equal(applyHashNavigation(current, next, options), next);
   assert.equal(committed, next.route);
   assert.equal(applyHashNavigation(current, current, { ...options, hasUnsavedNovel: true }), current);
+});
+
+test('switching project workspace section or project protects a dirty mapped editor', () => {
+  const current = { route: routeFromHash('#/projects/project_one/screenplay'), hash: '#/projects/project_one/screenplay' };
+  for (const hash of ['#/projects/project_one/source', '#/projects/project_two/screenplay']) {
+    const next = { route: routeFromHash(hash), hash };
+    const restored = [];
+    const result = applyHashNavigation(current, next, {
+      hasUnsavedProduction: true,
+      confirmLeave: () => false,
+      restoreHash: value => restored.push(value),
+      commitRoute: () => assert.fail('cancelled project navigation must preserve the mounted editor'),
+    });
+    assert.equal(result, current);
+    assert.deepEqual(restored, [current.hash]);
+  }
 });
