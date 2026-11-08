@@ -872,3 +872,49 @@ test('object storage runtime maps Stage 1 environment into a lazy MinIO SDK clie
     OBJECT_STORAGE_ENDPOINT: 'http://insecure.test', OBJECT_STORAGE_BUCKET: 'bucket' }),
   /HTTP 仅允许 MinIO/);
 });
+
+
+for (const late of ['resolve', 'reject']) test('DNS deadline blocks late ' + late + ' without fetch or retry', async t => {
+  const f = await fixture(t);
+  let complete, fail, lookups = 0, fetches = 0;
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve: () => {
+    lookups++; return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+  } }, { fetch: async () => { fetches++; throw new Error('must not fetch'); } }, { dnsTimeoutMs: 10 });
+  await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_TIMEOUT');
+    assert.equal(error.status, 504);
+    assert.equal(error.message.includes('cdn.provider.example'), false);
+    return true;
+  });
+  if (late === 'resolve') complete([{ address: '93.184.216.34', family: 4 }]);
+  else fail(new Error('private resolver payload with token'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 0);
+});
+
+test('DNS immediate failure stays sanitized and fast DNS/literal success still ingests once', async t => {
+  const f = await fixture(t);
+  const bad = new ProductionMediaIngestor(f.store, { resolve: async () => { throw new Error('private token'); } },
+    { fetch: async () => { throw new Error('must not fetch'); } }, { dnsTimeoutMs: 20 });
+  await assert.rejects(bad.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_FAILED');
+    assert.equal(error.message.includes('private token'), false); return true;
+  });
+  let lookups = 0, fetches = 0;
+  const good = new ProductionMediaIngestor(f.store, { resolve: async () => { lookups++; return [{ address: '93.184.216.34', family: 4 }]; } },
+    { fetch: async () => { fetches++; return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') }; } },
+    { dnsTimeoutMs: 100 });
+  await good.ingestProviderUrl('https://cdn.provider.example/video.mp4');
+  await good.ingestProviderUrl('https://93.184.216.34/video.mp4');
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 2);
+});
+
+test('DNS deadline rejects invalid and overflowing timer settings', async t => {
+  const f = await fixture(t);
+  for (const dnsTimeoutMs of [0, -1, 1.5, NaN, Infinity, 30001, 2147483648]) {
+    assert.throws(() => new ProductionMediaIngestor(f.store, undefined, undefined, { dnsTimeoutMs }),
+      rejectsCode('REMOTE_MEDIA_INGEST_CONFIG_INVALID'));
+  }
+});
