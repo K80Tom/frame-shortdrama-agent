@@ -1,8 +1,11 @@
 # EvaluationRun 契约设计（#41 第一阶段）
 
-状态：**Proposed**，等待契约评审。本文只冻结契约与持久化边界，不代表执行器、HTTP 或评分算法已实现。
+状态：**基础实现已落地；Stage 1 生产化待实现**。契约、迁移 023、内存/PostgreSQL Repository、Service、Runner、确定性本地桩、Replay、中断恢复和应用 Controller 门面均已有代码和测试。
+
+当前 Controller 尚未接入主应用的对外 HTTP 路由，也没有真实付费评测、正式评分算法、通过判定或 UI；不得把应用层门面描述成已上线接口。
+
 契约版本：`lyra-evaluation-run/1`；快照版本：`lyra-evaluation-snapshot/1`。
-共享实现：`packages/shared/src/evaluation-run.ts`；对应测试：`packages/main/tests/evaluation-run-contract.test.cjs`。
+共享实现：`packages/shared/src/evaluation-run.ts`；数据库迁移：`packages/main/migrations/023_evaluation_run.sql`；实现目录：`packages/main/src/evaluation-run/`；测试入口：`packages/main/tests/evaluation-run*.test.cjs`。
 
 ## 1. FrozenEvaluationSnapshot 示例
 
@@ -92,9 +95,7 @@
 
 每个 sample 独立保存输出摘要、耗时、成本和错误；本地确定性 Executor 的 `costMicros` 必须为 `0`，不得伪造付费账单。
 
-## 4. 持久化设计（待迁移编号分配）
-
-迁移编号由协调人按实际合入顺序统一分配，本设计不占用编号。
+## 4. 已落地持久化（迁移 023）
 
 表：
 
@@ -105,21 +106,37 @@
 
 约束与 Trigger：
 
-- 创建时在同一事务写 run、case attempt、sample attempt、事件。
+- 创建运行时在同一事务写 `evaluation_runs` 与首条 `prepared` 事件；case attempt 与 sample attempt 在 Runner 执行过程中逐步追加，不在创建时预写。
 - `evaluation_runs.idempotency_key` 唯一；相同键 + 相同 `request_digest` 返回原运行，相同键 + 不同 `request_digest` 报 `EVALUATION_RUN_IDEMPOTENCY_CONFLICT`。
 - 更新 run 用 `WHERE run_id=$1 AND run_version=$2` CAS；冲突报 `EVALUATION_RUN_VERSION_CONFLICT`。
-- Trigger 禁止 UPDATE/DELETE 终态 run；禁止 UPDATE 已终态 case/sample attempt；历史 attempt 行不能覆盖，只能新增后续 `attemptNumber`。
+- Trigger 禁止删除任何 run、禁止更新终态 run；禁止删除 case attempt、禁止改写已终态 case attempt，并让 sample attempt 与运行事件保持 append-only；历史 attempt 行不能覆盖，只能新增后续 `attemptNumber`。
 - `evaluation_runs` 不建立到 `production_runs` 的外键，也不写生产表。需要生产引用时只存不可变 ID + digest，并通过只读 reader 读取。
 - Repository 返回防御性拷贝；Service 是唯一写入口。
 
-## 5. 错误码
+## 5. 当前执行与恢复语义
+
+- `EvaluationRunRunner` 按冻结快照执行稳定分片，限制并发和超时，支持取消，并逐 sample 持久化摘要、耗时、成本与错误。
+- `recover()` 会把进程中断遗留的 `pending` / `running` case attempt 标记为 `interrupted`，历史 sample 不覆盖；后续运行创建新的 attempt。
+- Replay 复用原冻结快照但创建新 `runId`、新幂等键和 `replayedFromRunId`，不修改旧运行。
+- 当前执行器是确定性本地桩，`costMicros = 0`；它验证生命周期和恢复契约，不代表真实模型效果或真实账单。
+
+## 6. 错误码
 
 校验层：`EVALUATION_RUN_INPUT_INVALID`、`EVALUATION_RUN_SNAPSHOT_DIGEST_MISMATCH`、`EVALUATION_RUN_SENSITIVE_FIELD`。
-持久化/服务层：`EVALUATION_RUN_IDEMPOTENCY_CONFLICT`、`EVALUATION_RUN_VERSION_CONFLICT`、`EVALUATION_RUN_NOT_FOUND`、`EVALUATION_RUN_TERMINAL_IMMUTABLE`、`EVALUATION_RUN_TRANSITION_INVALID`、`EVALUATION_RUN_CASE_ATTEMPT_IMMUTABLE`、`EVALUATION_RUN_SAMPLE_ATTEMPT_IMMUTABLE`、`EVALUATION_RUN_REPLAY_INVALID`。
-执行层：`EVALUATION_RUN_TIMEOUT`、`EVALUATION_RUN_CANCELLED`、`EVALUATION_RUN_EXECUTOR_FAILED`、`EVALUATION_RUN_PRODUCTION_READER_FORBIDDEN`。
+持久化/服务层：`EVALUATION_RUN_IDEMPOTENCY_CONFLICT`、`EVALUATION_RUN_VERSION_CONFLICT`、`EVALUATION_RUN_NOT_FOUND`、`EVALUATION_RUN_TERMINAL_IMMUTABLE`、`EVALUATION_RUN_TRANSITION_INVALID`、`EVALUATION_RUN_CASE_ATTEMPT_CONFLICT`、`EVALUATION_RUN_CASE_ATTEMPT_IMMUTABLE`、`EVALUATION_RUN_CASE_ATTEMPT_NOT_FOUND`、`EVALUATION_RUN_SAMPLE_ATTEMPT_CONFLICT`、`EVALUATION_RUN_SAMPLE_ATTEMPT_IMMUTABLE`、`EVALUATION_RUN_REPLAY_INVALID`、`EVALUATION_HISTORY_APPEND_ONLY`、`EVALUATION_PERSISTENCE_UNAVAILABLE`。
+执行层：`EVALUATION_RUN_TIMEOUT`、`EVALUATION_RUN_CANCELLED`、`EVALUATION_RUN_EXECUTION_FAILED`、`EVALUATION_RUN_INTERRUPTED`、`EVALUATION_RUN_CASE_INVALID`。
 
-## 6. 边界
+## 7. 当前边界
 
-- 不调用真实模型、不跑真实付费评测、不做评分算法和 UI。
+- 不调用真实模型、不跑真实付费评测、不做正式评分算法、通过判定和 UI。
+- 应用 Controller 门面尚未注册为主服务 HTTP 路由，当前运行也未拆分到独立 Worker。
 - 不创建生产任务、不改生产状态；Executor 只能注入 `EvaluationProductionRunReader { get(id): Promise<unknown | null> }`。
-- #41 不依赖 #49；评测事件先用本表 `evaluation_run_events` append-only。两个 Issue 完成后再评估薄适配器。
+- `evaluation_run_events` 只保存运行领域历史；目前尚未接入统一事务 Outbox。
+
+## 8. Stage 1 生产化兼容规则
+
+1. **租户版本化。** 现有 `lyra-evaluation-snapshot/1` 不含 workspace。不得原地修改 v1 摘要；应新增 snapshot v2 或等价租户 envelope，将 `workspaceId` 纳入新摘要与请求幂等，历史 v1 映射到明确的默认 workspace 且不改旧 JSON/digest。
+2. **API / Worker 分工。** API 只做认证授权、创建/查询/取消；持久任务由 Worker 原子领取、续租、执行和恢复。进程内 Runner 保留为实现核心，但不能作为唯一生产调度状态。
+3. **大型输出外置。** 大型输出、证据和媒体字节进入统一对象存储；PostgreSQL 只保存经过租户授权的 provider/bucket/object key/version/checksum/size 等不可变引用和摘要，不保存签名 URL。
+4. **模型密钥隔离。** 冻结快照继续只保存模型连接 ID、revision 与 digest，不保存 API Key。Worker 通过 `@lyra/main` 的受控边界按版本取用密钥，明文不写事件、日志或快照。
+5. **统一跨存储事件。** `evaluation_run_events` 继续承担领域历史；需要更新 Redis、Milvus、通知或分析时，在业务事务内追加现有 `data_outbox_events`，不新建第二套 Outbox。Kafka 仍是 Stage 3 条件触发项。

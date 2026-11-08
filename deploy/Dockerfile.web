@@ -13,14 +13,14 @@ ENV NPM_CONFIG_FUND=false \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY packages/shared ./packages/shared
-RUN npm --prefix packages/shared install --install-links --no-audit --no-fund \
+RUN npm --prefix packages/shared ci --install-links --no-audit --no-fund \
  && npm --prefix packages/shared run build
 
 # web 的示例数据引用 packages/main/examples（仅 JSON 演示素材，不含密钥）
 COPY packages/main/examples ./packages/main/examples
 
 COPY packages/web ./packages/web
-RUN npm --prefix packages/web install --install-links --no-audit --no-fund \
+RUN npm --prefix packages/web ci --install-links --no-audit --no-fund \
  && npm --prefix packages/web run build
 
 FROM ${NGINX_IMAGE} AS runtime

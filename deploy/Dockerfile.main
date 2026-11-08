@@ -13,15 +13,15 @@ ENV NPM_CONFIG_FUND=false \
 # file: 依赖（@lyra/shared、@lyra/agent）按顺序安装并构建。
 # --install-links 把 file: 依赖复制成实体目录，避免跨阶软链断裂。
 COPY packages/shared ./packages/shared
-RUN npm --prefix packages/shared install --install-links --no-audit --no-fund \
+RUN npm --prefix packages/shared ci --install-links --no-audit --no-fund \
  && npm --prefix packages/shared run build
 
 COPY packages/agent ./packages/agent
-RUN npm --prefix packages/agent install --install-links --no-audit --no-fund \
+RUN npm --prefix packages/agent ci --install-links --no-audit --no-fund \
  && npm --prefix packages/agent run build
 
 COPY packages/main ./packages/main
-RUN npm --prefix packages/main install --install-links --no-audit --no-fund \
+RUN npm --prefix packages/main ci --install-links --no-audit --no-fund \
  && npm --prefix packages/main run build
 
 ARG NODE_IMAGE
