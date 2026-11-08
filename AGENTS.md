@@ -15,9 +15,9 @@ packages/
 
 ## 2. 跨包硬约束（必须遵守）
 
-1. **只有 `main`** 能持有模型密钥、连接 PostgreSQL、执行付费提交与媒体写入。
+1. **只有 `main`** 能持有模型密钥、连接 PostgreSQL、执行付费提交，以及授权、验真并最终确认媒体写入。
 2. **`agent` 不 import 数据库驱动、不读取密钥环境变量、不监听端口**；需要数据时通过 `shared`/本包定义的接口获取，由 `main` 注入实现（本地为进程内调用，未来可换 HTTP 实现）。
-3. **`web` 与 `cli` 只是客户端**：运行时只调用 `main` 的 HTTP API，不直连模型或数据库。共享类型统一来自 `@lyra/shared`，不要从 `main` 内部实现文件反向 import。
+3. **`web` 与 `cli` 只是客户端**：控制面只调用 `main` 的 HTTP API，不直连模型或数据库。Stage 1 允许客户端使用 `main` 签发的短期、单对象、单操作签名 URL 与对象存储传输字节，但客户端不持有存储凭据，对象验真和 `ready` 状态仍由 `main` 提交。共享类型统一来自 `@lyra/shared`，不要从 `main` 内部实现文件反向 import。
 4. **付费纪律**：任何付费动作都必须"估价/计划 → 人工确认 → 提交"。`cli` 的 `run create` 只生成计划，`run submit` 才提交；AI 工作区只允许生成估价确认卡，建卡不扣费。
 5. 公共契约（请求/响应、错误、事件、领域类型）放在 `shared`；新增跨包类型优先进 `shared`，不要在包间互相引用内部实现。
 
@@ -73,7 +73,19 @@ npm --prefix packages/main run test:db # 真实 PostgreSQL 持久化测试（需
 - `reference/` 只读：引用旧平台规则时在 `packages/` 内用本地等价物实现，不恢复旧平台的数据库、对象存储、密钥或部署体系。
 - `树干转场复刻/` 等素材目录不属于代码迁移对象，不要改动。
 
-## 6. 已知边界与后续方向
+## 6. 生产架构长期约束
+
+- 生产架构与分阶段演进以 [docs/production-architecture-roadmap.md](docs/production-architecture-roadmap.md) 为准。文档中 Stage 1–3 是已定稿目标；实现、README 和部署文档必须区分“当前已实现”与“目标架构”，不得把尚未落地的容器、命令、数据表或高可用能力写成现状。
+- **PostgreSQL 是结构化业务状态与元数据的唯一事实源。** 用户、workspace、成员、项目、完整对话、任务、权限、费用、对象引用与 Outbox 不得只保存在 Redis、Milvus、本地文件或消息系统；大型媒体的权威字节保存在对象存储。
+- **Redis 是 Stage 1 必需的对话上下文快照、限流、实时推送与短期协调层。** 完整消息和任务最终状态仍落 PostgreSQL；Redis key 携带 `workspace_id`、快照携带会话版本，所有数据必须可重建或安全失效。
+- **Milvus 是 Stage 1 必需但可重建的向量投影。** 资产目录、原文与权限仍以 PostgreSQL/对象存储为准；向量必须携带 `workspace_id` 和来源版本，检索命中后回 PostgreSQL 核验。付费 Embedding 和重建继续遵守显式授权、预算、冻结版本与审计纪律。
+- **图片、音频、视频、原始文件、中间产物和成片的目标事实字节进对象存储。** 应用只依赖统一 `ObjectStorage` 端口；私有化/开发可选 MinIO，云环境选 S3、OSS 或 COS 之一。数据库保存 provider/bucket/object key/version/checksum/size 等元数据，不保存临时签名 URL。客户端直传只能使用 `main` 签发的最小权限 URL 写 staging key，由 `main` 验证 size/type/checksum 后才转为正式资产。迁移期现存 `asset_media.content BYTEA` 只是已记录的 Stage 1 例外；在它完成对象化迁移前，文档与发布说明必须如实披露，不得宣称所有媒体字节已迁移。
+- **API 与 Worker 在 Stage 1 分进程/容器，但保持同仓库和 `@lyra/main` 主权边界。** API 不保存本机独有业务状态；Worker 执行模型、Embedding、媒体和 FFmpeg 任务，并必须实现原子领取、租约、心跳、步骤检查点、幂等与超时恢复。
+- **跨存储同步统一经 PostgreSQL 事务 Outbox。** 复用现有 `data_outbox_events` / `DataOutbox` / `DataDispatcher` / `DataProjector`，不再建第二套 Outbox；禁止请求代码对 PostgreSQL 与 Redis、Milvus 或 Kafka 做不可恢复的直接双写。
+- **租户上下文端到端传递。** Stage 1 的 Repository、任务、新版事件、Redis key、Milvus filter 与对象元数据均携带 `workspace_id`；私有对象只经短期签名 URL 访问，最终资源授权由 PostgreSQL 检查。现有 `DataEventV1` 不原地改摘要语义；租户事件通过版本化契约和可回滚迁移引入。
+- Kubernetes、Kafka、数据库分片和跨地域双活不属于 Stage 1。它们只在路线文档定义的多机调度、独立消费者、吞吐、SLO 或灾备条件被实测触发后引入。
+
+## 7. 已知边界与后续方向
 
 - 剧本/小说拆解的领域实现目前仍在 `main`（`src/breakdown`、`src/novel`）；后续把 repository 留在 `main`、纯领域逻辑下沉到 `agent`，与 assistant 保持同一边界。
 - 技术复核不等于视觉语义审核；3D 为 prompt-only；声音依赖供应商原生音轨。

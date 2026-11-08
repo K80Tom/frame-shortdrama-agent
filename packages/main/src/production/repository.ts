@@ -68,7 +68,7 @@ export class MemoryProductionRepository implements ProductionRepository {
   }
 }
 
-interface RunRow { run_json: unknown }
+interface RunRow { run_json: unknown; workspace_id?: string }
 function databaseFailure(error: unknown): never {
   if (error instanceof ProductionError) throw error;
   if (error instanceof DataEventError) throw error;
@@ -82,6 +82,16 @@ export class PostgresProductionRepository implements ProductionRepository {
   private readonly outbox: DataOutbox;
   constructor(private readonly database: PostgresDatabase) {
     this.outbox = new DataOutbox(database);
+  }
+  /** System scheduler uses this only to enter the run's real tenant scope before execution. */
+  async workspaceId(id: string): Promise<string | null> {
+    if (!/^production_[a-f0-9]{32}$/u.test(id)) return null;
+    try {
+      const row = (await this.database.query<RunRow>(
+        'SELECT workspace_id, run_json FROM production_runs WHERE id=$1', [id],
+      )).rows[0];
+      return typeof row?.workspace_id === 'string' ? row.workspace_id : null;
+    } catch (error) { return databaseFailure(error); }
   }
   async list() {
     try {
