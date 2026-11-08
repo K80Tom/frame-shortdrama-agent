@@ -189,16 +189,16 @@ async function main() {
     });
     try {
       await database.verifyConnection();
-      stage1RuntimeMigrated = await database.hasMigrations(['031']);
+      stage1RuntimeMigrated = await database.hasMigrations(['031', '032']);
       if (stage1Process && !stage1RuntimeMigrated) {
-        throw new Error('Stage 1 API/Worker/session runtime requires migration 031');
+        throw new Error('Stage 1 API/Worker/session runtime requires migrations 031 and 032');
       }
       if (config.authMode === 'session') {
         if (conversationContext.mode !== 'redis') {
           throw new Error('Session authentication requires Redis for shared snapshots and rate limits');
         }
-        if (!await database.hasMigrations(['025', '028', '030', '031'])) {
-          throw new Error('Session authentication requires migrations 025, 028, 030 and 031');
+        if (!await database.hasMigrations(['025', '028', '030', '031', '032'])) {
+          throw new Error('Session authentication requires migrations 025, 028, 030, 031 and 032');
         }
         await database.verifyTenantRole();
         authService = new AuthService(new PostgresAuthRepository(database), {
@@ -281,7 +281,7 @@ async function main() {
         && assetService && videoAutomationService) {
         const breakdown = breakdownService;
         const productionRepository = new PostgresProductionRepository(database);
-        if (await database.hasMigrations(['019'])) {
+        if (await database.hasMigrations(['019', '032'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
         }
         productionService = new ProductionService(productionRepository, {
