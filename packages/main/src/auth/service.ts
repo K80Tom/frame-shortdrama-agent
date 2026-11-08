@@ -7,8 +7,10 @@ import {
   type AuthSessionView,
   type AuthenticatedRequest,
   type LoginInput,
+  type WorkspaceRegistrationInput,
 } from './contracts';
-import type { AuthRepository, CredentialRecord } from './repository';
+import { RegistrationNotReadyError, type AuthRepository, type CredentialRecord } from './repository';
+import type { RegistrationMode } from '../config';
 
 const TOKEN = /^[A-Za-z0-9_-]{43}$/u;
 const DUMMY_SALT = '00000000000000000000000000000000';
@@ -22,6 +24,7 @@ export interface IssuedSession {
 }
 export interface AuthServiceOptions {
   sessionTtlSeconds: number;
+  registrationMode?: RegistrationMode;
   now?: () => Date;
 }
 function digest(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex'); }
@@ -54,6 +57,11 @@ export function readCookie(header: string | undefined, name: string): string | n
 function sessionView(userId: string, displayName: string, workspaces: Awaited<ReturnType<AuthRepository['listWorkspaces']>>,
   currentWorkspaceId: string): AuthSessionView {
   return { authenticated: true, user: { id: userId, displayName }, workspaces, currentWorkspaceId };
+}
+
+function postgresErrorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code : undefined;
 }
 
 export class AuthService {
@@ -98,6 +106,63 @@ export class AuthService {
       csrfToken,
       expiresAt,
       view: sessionView(credential.userId, credential.displayName, workspaces, workspaces[0].id),
+    };
+  }
+
+  registrationConfig(): { registrationMode: RegistrationMode } {
+    return { registrationMode: this.options.registrationMode ?? 'disabled' };
+  }
+
+  async register(input: WorkspaceRegistrationInput): Promise<IssuedSession> {
+    if ((this.options.registrationMode ?? 'disabled') !== 'workspace') {
+      throw new AuthError(403, 'AUTH_REGISTRATION_DISABLED', '当前部署未开启自助注册。');
+    }
+    const now = this.now();
+    const expiresAt = new Date(now.getTime() + this.options.sessionTtlSeconds * 1_000).toISOString();
+    const userId = `usr_${randomBytes(16).toString('hex')}`;
+    const workspaceId = `ws_${randomBytes(16).toString('hex')}`;
+    const workspaceSlug = `studio-${randomBytes(12).toString('hex')}`;
+    const passwordSalt = randomBytes(16).toString('hex');
+    const sessionToken = randomBytes(32).toString('base64url');
+    const csrfToken = randomBytes(32).toString('base64url');
+    const sessionId = `ses_${randomBytes(16).toString('hex')}`;
+    const workspace = { id: workspaceId, slug: workspaceSlug, name: input.workspaceName, role: 'owner' as const };
+    try {
+      await this.repository.createRegistration({
+        userId,
+        workspaceId,
+        email: input.email,
+        displayName: input.displayName,
+        workspaceName: input.workspaceName,
+        workspaceSlug,
+        passwordSalt,
+        passwordHash: await passwordHash(input.password, passwordSalt),
+        session: {
+          id: sessionId,
+          tokenHash: digest(sessionToken),
+          csrfHash: digest(csrfToken),
+          userId,
+          currentWorkspaceId: workspaceId,
+          createdAt: now.toISOString(),
+          expiresAt,
+        },
+      });
+    } catch (error) {
+      if (error instanceof RegistrationNotReadyError) {
+        throw new AuthError(503, 'AUTH_REGISTRATION_NOT_READY',
+          '部署管理员尚未完成控制 workspace 初始化。');
+      }
+      if (postgresErrorCode(error) === '23505') {
+        throw new AuthError(409, 'AUTH_REGISTRATION_CONFLICT',
+          '无法创建账号或 workspace，请检查信息后重试。');
+      }
+      throw error;
+    }
+    return {
+      sessionToken,
+      csrfToken,
+      expiresAt,
+      view: sessionView(userId, input.displayName, [workspace], workspaceId),
     };
   }
 

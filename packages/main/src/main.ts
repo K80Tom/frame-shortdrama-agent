@@ -203,6 +203,7 @@ async function main() {
         await database.verifyTenantRole();
         authService = new AuthService(new PostgresAuthRepository(database), {
           sessionTtlSeconds: config.sessionTtlSeconds,
+          registrationMode: config.registrationMode,
         });
       }
       if (stage1RuntimeMigrated) {
@@ -455,6 +456,8 @@ async function main() {
     promptPacksService,
     authService,
     rateLimiter: conversationContext.rateLimiter,
+    registrationRateLimiter: conversationContext.mode === 'redis'
+      ? conversationContext.rateLimiter : undefined,
     systemStatus,
     close: shutdown,
   };
