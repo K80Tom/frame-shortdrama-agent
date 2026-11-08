@@ -321,7 +321,8 @@ export default function HoloCard({
   idle = true,
   shadow = true,
   className = '',
-  style = undefined
+  style = undefined,
+  children = /** @type {import('react').ReactNode} */ (null)
 }) {
   const rootRef = useRef(null);
   const rotorRef = useRef(null);
@@ -336,6 +337,7 @@ export default function HoloCard({
   const [ready, setReady] = useState(false);
   const [flipped, setFlipped] = useState(false);
   const flippable = Boolean(backImage);
+  const hasContent = children !== null && children !== undefined;
 
   settingsRef.current = {
     preset: Math.max(0, PRESETS.indexOf(preset)),
@@ -638,14 +640,15 @@ export default function HoloCard({
     <div
       ref={rootRef}
       className={`holo-card${className ? ` ${className}` : ''}`}
-      role={flippable ? 'button' : 'img'}
+      role={hasContent ? undefined : flippable ? 'button' : 'img'}
       tabIndex={flippable ? 0 : undefined}
-      aria-label={alt || undefined}
+      aria-label={hasContent ? undefined : alt || undefined}
       aria-pressed={flippable ? flipped : undefined}
       data-preset={preset}
       data-idle={idle ? 'true' : 'false'}
       data-ready={ready ? '' : undefined}
       data-flippable={flippable ? '' : undefined}
+      data-content={hasContent ? '' : undefined}
       onPointerEnter={track}
       onPointerMove={track}
       onPointerDown={track}
@@ -669,6 +672,7 @@ export default function HoloCard({
         <div className="holo-card__face holo-card__face--front">
           {image ? <img src={image} alt="" draggable={false} /> : null}
           <canvas ref={canvasRef} />
+          {hasContent ? <div className="holo-card__content">{children}</div> : null}
         </div>
         {flippable ? (
           <div className="holo-card__face holo-card__face--back">

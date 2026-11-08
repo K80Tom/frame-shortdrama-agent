@@ -183,21 +183,18 @@ test('every mutating API request adds workspace and CSRF context without overrid
 
 test('login and session controls expose honest loading, error, logout, and legacy states', () => {
   const errorHtml = renderToStaticMarkup(createElement(LoginView, { busy: false, error: '账号或密码错误', async onLogin() {} }));
-  assert.match(errorHtml, /auth-project-card/);
-  assert.match(errorHtml, /YOUR STORY STARTS HERE/);
-  assert.match(errorHtml, /type="email"/);
-  assert.match(errorHtml, /type="password"/);
+  assert.match(errorHtml, /data-backdrop-variant="landing"/);
+  assert.match(errorHtml, />登录</);
+  assert.doesNotMatch(errorHtml, /auth-project-card/);
+  assert.doesNotMatch(errorHtml, /type="email"|type="password"/);
   assert.doesNotMatch(errorHtml, /admin@lyra\.local/, 'the repository must not imply a shared default account');
-  assert.match(errorHtml, /账号或密码错误/);
-  assert.match(errorHtml, /HttpOnly Cookie/);
-  assert.doesNotMatch(errorHtml, /创建工作室<\/button>/, 'registration stays hidden when the backend does not enable it');
-  const busyHtml = renderToStaticMarkup(createElement(LoginView, { busy: true, error: '', async onLogin() {} }));
-  assert.match(busyHtml, /正在验证/);
-  assert.match(busyHtml, /disabled=""/);
+  assert.doesNotMatch(errorHtml, /账号或密码错误/, 'credentials and errors appear only after the user opens authentication');
 
   const registerHtml = renderToStaticMarkup(createElement(LoginView, { busy: false, error: '', registrationEnabled: true,
     initialMode: 'register', registerBusy: false, registerError: '', async onLogin() {}, async onRegister() {} }));
   assert.match(registerHtml, /aria-label="账号入口"/);
+  assert.match(registerHtml, /data-backdrop-variant="auth"/);
+  assert.match(registerHtml, />登录<\/button>/);
   assert.match(registerHtml, /aria-current="page"[^>]*>创建工作室/);
   assert.match(registerHtml, /id="auth-display-name"/);
   assert.match(registerHtml, /id="auth-workspace-name"/);

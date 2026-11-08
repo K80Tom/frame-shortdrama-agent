@@ -47,9 +47,15 @@ LYRA_PUBLIC_ORIGIN=https://lyra.example.com
 LYRA_SESSION_TTL_SECONDS=604800
 # LYRA_COOKIE_DOMAIN=lyra.example.com
 MILVUS_COLLECTION_V2=lyra_asset_vectors_v2
+
+# 可选：登录页与工作台共用的公开背景素材，只接受 HTTPS URL
+LYRA_BACKDROP_VIDEO_URL=https://cdn.example.com/lyra/backdrop.mp4
+LYRA_BACKDROP_POSTER_URL=https://cdn.example.com/lyra/backdrop.webp
 ```
 
 Compose 固定启用 session 认证，并在容器内配置 MinIO 与 Milvus 地址；不要试图通过 `.env` 降级为匿名 Legacy 模式。Cookie 会话在公网环境只允许 HTTPS。`LYRA_PUBLIC_ORIGIN` 必须是用户浏览器看到的完整同源 Origin，不包含路径、查询、凭据或尾斜杠。不要把 `.env` 提交到 Git，不要在工单或聊天中粘贴它。
+
+`LYRA_BACKDROP_VIDEO_URL` / `LYRA_BACKDROP_POSTER_URL` 是浏览器可直接访问的公开视觉素材地址，不是密钥，也不能包含签名凭据或短期 token。Web 容器在启动时把它们写入 `runtime-config.js`，因此同一镜像可以用于不同环境；部署时不要改成仅供 Vite 开发使用的 `VITE_*` 变量。修改这两个值后无需重建镜像，只需执行 `docker compose up -d --force-recreate web`。留空时工作台使用内置 CSS 背景降级；移动端、节省流量和“减少动态效果”模式也会自动停止视频。
 
 PostgreSQL 凭据职责固定如下：
 

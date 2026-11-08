@@ -225,6 +225,33 @@ jobs:
           PY
       - name: Validate object-storage policy
         run: node -e "JSON.parse(require('node:fs').readFileSync('deploy/minio-media-policy.json','utf8'))"
+      - name: Validate Web runtime background config
+        run: |
+          set -eu
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          target="$test_dir/runtime-config.js"
+          video='https://cdn.example.test/lyra/backdrop.mp4?version=1'
+          poster='https://cdn.example.test/lyra/backdrop.webp'
+
+          LYRA_RUNTIME_CONFIG_PATH="$target" \
+            LYRA_BACKDROP_VIDEO_URL="$video" \
+            LYRA_BACKDROP_POSTER_URL="$poster" \
+            sh deploy/web-runtime-config.sh
+          grep -Fq "backdropVideoUrl: '$video'" "$target"
+          grep -Fq "backdropPosterUrl: '$poster'" "$target"
+
+          if LYRA_RUNTIME_CONFIG_PATH="$target" \
+            LYRA_BACKDROP_VIDEO_URL='https://cdn.example.test/bad"quote.mp4' \
+            sh deploy/web-runtime-config.sh; then
+            echo 'unsafe runtime URL was accepted' >&2
+            exit 1
+          fi
+          grep -Fq "backdropVideoUrl: '$video'" "$target"
+
+          LYRA_RUNTIME_CONFIG_PATH="$target" sh deploy/web-runtime-config.sh
+          grep -Fq "backdropVideoUrl: ''" "$target"
+          grep -Fq "backdropPosterUrl: ''" "$target"
 
   container-images:
     name: Container image (${{ matrix.image }})
