@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom';
 import { ArrowUpRight, Check, Info, X } from 'lucide-react';
 import SpotlightCard from './vendor/SpotlightCard';
 
+export function BrandWordmark() {
+  return <strong className="brand-lockup">
+    <span className="brand-wordmark" data-wordmark="Lyra">Lyra</span>
+    <span className="brand-subtitle">STORY STUDIO</span>
+  </strong>;
+}
+
 export function Brand() {
   const anchorRef = useRef<HTMLAnchorElement>(null);
   const [originOpen, setOriginOpen] = useState(false);
@@ -62,7 +69,7 @@ export function Brand() {
           </g>
         </svg>
       </span>
-      <strong>Lyra<span>STORY STUDIO</span></strong>
+      <BrandWordmark />
     </a>
     {createPortal(
       <span

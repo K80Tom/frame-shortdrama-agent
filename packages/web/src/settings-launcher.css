@@ -1,0 +1,161 @@
+/* Adapted from Uiverse.io by marcelodolza. Scoped to the workspace settings launcher. */
+.settings-launcher {
+  --settings-primary: #c69636;
+  --settings-primary-bright: #edc86f;
+  --settings-neutral-1: #fbf8f0;
+  --settings-neutral-2: #e8e0d1;
+  --settings-radius: 15px;
+  position: relative;
+  width: 100%;
+  min-height: 60px;
+  margin-top: 10px;
+  padding: 10px 13px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--settings-radius);
+  background: transparent;
+  color: #2d2922;
+  box-shadow: 0 .5px .5px 1px rgb(255 255 255 / 20%), 0 10px 22px rgb(0 0 0 / 24%), 0 4px 5px rgb(0 0 0 / 8%);
+  text-align: left;
+  isolation: isolate;
+  transition: transform 280ms cubic-bezier(.22, 1, .36, 1), box-shadow 280ms ease;
+}
+
+.settings-launcher::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  background: linear-gradient(var(--settings-neutral-1), var(--settings-neutral-2)) padding-box,
+    linear-gradient(to bottom, rgb(255 255 255 / 58%), rgb(69 51 22 / 48%)) border-box;
+  transition: transform 350ms cubic-bezier(.22, 1, .36, 1), box-shadow 350ms ease;
+}
+
+.settings-launcher::before {
+  content: "";
+  position: absolute;
+  inset: 7px 6px 6px;
+  z-index: -1;
+  border-radius: 12px;
+  background: linear-gradient(to top, var(--settings-neutral-1), var(--settings-neutral-2));
+  filter: blur(.35px);
+}
+
+.settings-launcher:hover {
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 0 1px 2px rgb(255 255 255 / 22%), 0 15px 30px rgb(0 0 0 / 32%), 0 8px 7px -4px rgb(0 0 0 / 18%);
+}
+.settings-launcher:hover::after {
+  transform: scale(1.025, 1.06);
+  box-shadow: inset 0 -1px 3px rgb(255 255 255 / 90%);
+}
+.settings-launcher:active { transform: translateY(0) scale(.985); }
+.settings-launcher:focus-visible { outline: 2px solid var(--settings-primary-bright); outline-offset: 3px; }
+
+.settings-launcher-outline {
+  position: absolute;
+  inset: -3px;
+  z-index: -3;
+  overflow: hidden;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.settings-launcher-outline::before {
+  content: "";
+  position: absolute;
+  inset: -110%;
+  background: conic-gradient(from 180deg, transparent 58%, #fff4ca 74%, var(--settings-primary) 82%, transparent 100%);
+  animation: settings-outline-spin 2.4s linear infinite;
+  animation-play-state: paused;
+}
+.settings-launcher:hover .settings-launcher-outline,
+.settings-launcher:focus-visible .settings-launcher-outline { opacity: 1; }
+.settings-launcher:hover .settings-launcher-outline::before,
+.settings-launcher:focus-visible .settings-launcher-outline::before { animation-play-state: running; }
+
+.settings-launcher-state {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 10px;
+}
+.settings-launcher-icon {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(132 91 20 / 15%);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fffdf8, #e8dcc6);
+  color: #a97920;
+  box-shadow: inset 0 1px 0 #fff, 0 3px 8px rgb(79 52 12 / 16%);
+  transition: transform 420ms cubic-bezier(.22, 1, .36, 1), color 200ms ease, box-shadow 200ms ease;
+}
+.settings-launcher:hover .settings-launcher-icon {
+  transform: rotate(90deg) scale(1.08);
+  color: #c28e28;
+  box-shadow: inset 0 1px 0 #fff, 0 6px 13px rgb(91 59 10 / 24%);
+}
+.settings-launcher:active .settings-launcher-icon { transform: rotate(135deg) scale(.96); }
+
+.settings-launcher-copy { min-width: 0; }
+.settings-launcher-copy strong { display: flex; color: #343029; font-size: 11px; font-weight: 680; letter-spacing: .025em; }
+.settings-launcher-copy strong > span {
+  display: block;
+  animation: settings-letter-land 600ms cubic-bezier(.22, 1, .36, 1) both;
+  animation-delay: calc(var(--letter-index) * 34ms);
+}
+.settings-launcher:hover .settings-launcher-copy strong > span {
+  animation: settings-letter-wave 480ms ease both;
+  animation-delay: calc(var(--letter-index) * 28ms);
+}
+.settings-launcher-copy small { display: block; margin-top: 5px; color: #7d7467; font-size: 8px; white-space: nowrap; }
+.settings-launcher-active-dot { width: 6px; height: 6px; border-radius: 50%; background: #b6a78e; box-shadow: 0 0 0 3px rgb(182 167 142 / 12%); }
+.settings-launcher.is-active .settings-launcher-active-dot { background: var(--settings-primary); box-shadow: 0 0 0 4px rgb(198 150 54 / 16%); }
+.settings-launcher.is-active .settings-launcher-icon { color: #9b6d17; }
+
+.settings-launcher-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes settings-outline-spin { to { transform: rotate(360deg); } }
+@keyframes settings-letter-land {
+  from { opacity: 0; transform: translateY(-9px) rotate(-16deg); filter: blur(3px); color: var(--settings-primary); }
+  to { opacity: 1; transform: translateY(0) rotate(0); filter: blur(0); }
+}
+@keyframes settings-letter-wave {
+  0%,100% { transform: translateY(0); color: #343029; }
+  45% { transform: translateY(-4px); color: var(--settings-primary); }
+}
+
+@media (max-height: 850px) and (min-width: 721px) {
+  .settings-launcher { min-height: 54px; margin-top: 6px; padding: 7px 10px; }
+  .settings-launcher-state { grid-template-columns: 31px minmax(0, 1fr) 7px; gap: 8px; }
+  .settings-launcher-icon { width: 31px; height: 31px; }
+  .settings-launcher-copy small { margin-top: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-launcher,
+  .settings-launcher::after,
+  .settings-launcher-outline,
+  .settings-launcher-icon,
+  .settings-launcher-copy strong > span { animation: none; transition: none; }
+  .settings-launcher:hover,
+  .settings-launcher:active,
+  .settings-launcher:hover::after,
+  .settings-launcher:hover .settings-launcher-icon { transform: none; }
+}
