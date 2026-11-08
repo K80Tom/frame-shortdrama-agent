@@ -29,6 +29,23 @@ export interface CreateSessionRecord {
   createdAt: string;
   expiresAt: string;
 }
+export interface CreateRegistrationRecord {
+  userId: string;
+  workspaceId: string;
+  email: string;
+  displayName: string;
+  workspaceName: string;
+  workspaceSlug: string;
+  passwordSalt: string;
+  passwordHash: string;
+  session: CreateSessionRecord;
+}
+export class RegistrationNotReadyError extends Error {
+  constructor() {
+    super('The control workspace must be bootstrapped before self-service registration');
+    this.name = 'RegistrationNotReadyError';
+  }
+}
 interface CredentialRow extends QueryResultRow {
   user_id: string;
   display_name: string;
@@ -63,6 +80,7 @@ export interface AuthRepository {
   findSession(tokenHash: string, now: string): Promise<SessionRecord | null>;
   touchSession(sessionId: string, currentWorkspaceId: string, now: string): Promise<void>;
   revokeSession(sessionId: string, now: string): Promise<void>;
+  createRegistration(input: CreateRegistrationRecord): Promise<void>;
 }
 
 /** Authentication tables are read before a tenant context exists; membership is the authority for entering one. */
@@ -157,6 +175,48 @@ export class PostgresAuthRepository implements AuthRepository {
       SET revoked_at = COALESCE(revoked_at, $2::timestamptz), last_seen_at = $2::timestamptz
       WHERE id = $1
     `, [sessionId, now]);
+  }
+
+  async createRegistration(input: CreateRegistrationRecord): Promise<void> {
+    await this.database.runAsSystem('auth.registration', () => this.database.transaction(async client => {
+      const now = input.session.createdAt;
+      const control = await client.query<{ id: string }>(`
+        SELECT id
+        FROM workspaces
+        WHERE id = $1 AND status = 'active'
+        FOR SHARE
+      `, [LEGACY_WORKSPACE_ID]);
+      if (control.rowCount !== 1) throw new RegistrationNotReadyError();
+      await client.query(`
+        INSERT INTO users (id, subject, display_name, kind, status, created_at, updated_at)
+        VALUES ($1, $2, $3, 'human', 'active', $4::timestamptz, $4::timestamptz)
+      `, [input.userId, `email-sha256:${createHash('sha256').update(input.email).digest('hex')}`,
+        input.displayName, now]);
+      await client.query(`
+        INSERT INTO workspaces
+          (id, slug, name, status, created_by_user_id, created_at, updated_at)
+        VALUES ($1, $2, $3, 'active', $4, $5::timestamptz, $5::timestamptz)
+      `, [input.workspaceId, input.workspaceSlug, input.workspaceName, input.userId, now]);
+      await client.query(`
+        INSERT INTO workspace_members
+          (workspace_id, user_id, role, status, created_at, updated_at)
+        VALUES ($1, $2, 'owner', 'active', $3::timestamptz, $3::timestamptz)
+      `, [input.workspaceId, input.userId, now]);
+      await client.query(`
+        INSERT INTO user_credentials
+          (user_id, email, password_salt, password_hash, password_algorithm, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'scrypt-v1', $5::timestamptz, $5::timestamptz)
+      `, [input.userId, input.email, input.passwordSalt, input.passwordHash, now]);
+      await client.query('DELETE FROM auth_sessions WHERE expires_at <= $1::timestamptz OR revoked_at IS NOT NULL',
+        [now]);
+      await client.query(`
+        INSERT INTO auth_sessions
+          (id, token_hash, csrf_hash, user_id, current_workspace_id,
+           created_at, expires_at, last_seen_at, revoked_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $6::timestamptz, NULL)
+      `, [input.session.id, input.session.tokenHash, input.session.csrfHash, input.userId,
+        input.workspaceId, now, input.session.expiresAt]);
+    }));
   }
 }
 

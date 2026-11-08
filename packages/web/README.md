@@ -5,10 +5,12 @@ Lyra 是面向中文短剧的可部署创作与自动制片工作台。界面在
 ## Stage 1 会话与部署交互
 
 - 首屏先请求 `GET /api/auth/session`；只有明确返回 `AUTH_NOT_CONFIGURED` 才进入可见的 Legacy 兼容模式，401 会显示真实登录页，网络或格式错误不会绕过登录。
+- 登录页根据后端公开认证配置决定是否显示注册入口。默认 `LYRA_REGISTRATION_MODE=disabled`；受信自托管显式设为 `workspace` 后，注册会创建独立用户、独立 workspace 和 owner 成员关系，前端不能选择既有租户或自定角色。
 - 会话凭据使用 HttpOnly `lyra_session` Cookie；可读 `lyra_csrf` Cookie 只用于向同源 POST 添加 `X-CSRF-Token`，不是登录凭据。
 - 后端会话返回当前用户可访问的 workspace。切换后所有同源 `/api/**` 请求携带 `X-Workspace-Id`；绝不向跨域 URL 转发 workspace 或 CSRF 上下文。若存在未保存内容，切换前必须再次确认。
 - 设置页的系统状态面板分开展示 API、Worker、PostgreSQL、Redis、Milvus 和对象存储。“Healthy”只表示对应探针成功，不代表队列已清空、回填/历史投影已完成、签名 URL 已公网可达或故障演练已通过；Worker 项来自 PostgreSQL 心跳，不是 Worker 暴露的 HTTP 端点。
 - 退出成功会清理会话与本地 workspace 选择；退出请求失败时保留当前会话并显式报错，不在前端伪造已退出。
+- 仓库和前端不提供默认明文密码。公网开放注册前仍需邮箱验证、CAPTCHA/边缘防滥用和租户额度/计费控制；当前注册模式只面向受信自托管环境。
 
 项目采用 React、TypeScript 和 Vite，使用 hash 路由。既有 `frame:*` 浏览器存储键与内部数据协议继续兼容。
 

@@ -203,6 +203,11 @@ docker compose up -d
 docker compose run --rm main-api node dist/auth/bootstrap-admin.js
 ```
 
+默认 `LYRA_REGISTRATION_MODE=disabled`，仓库不会携带公共账号或默认密码。受信自托管环境可按
+[Stage 1 部署手册](deploy/README.md#可选受信自托管注册)显式开启 `workspace` 注册模式；注册者会
+创建自己的独立 workspace 并成为 owner。该开关不是公网多租户验收：邮箱验证、CAPTCHA、边缘
+限速、租户额度/计费和跨租户付费链路验证完成前，不应对互联网开放注册。
+
 正式域名应在 Web 前配置 HTTPS 负载均衡/WAF，并将 `LYRA_PUBLIC_ORIGIN` 设为完整同源 Origin。首次启动、云端 provider 切换、首个管理员、健康检查、备份恢复和回滚步骤见 [Stage 1 部署手册](deploy/README.md)。
 
 ### 开发与验证

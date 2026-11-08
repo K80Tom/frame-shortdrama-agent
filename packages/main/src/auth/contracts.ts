@@ -25,6 +25,12 @@ export interface LoginInput {
   email: string;
   password: string;
 }
+export interface WorkspaceRegistrationInput {
+  displayName: string;
+  email: string;
+  password: string;
+  workspaceName: string;
+}
 
 export class AuthError extends Error {
   constructor(
@@ -37,9 +43,9 @@ export class AuthError extends Error {
   }
 }
 
-function object(value: unknown): Record<string, unknown> {
+function object(value: unknown, subject = '登录'): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AuthError(400, 'AUTH_INPUT_INVALID', '登录请求格式无效。');
+    throw new AuthError(400, 'AUTH_INPUT_INVALID', `${subject}请求格式无效。`);
   }
   return value as Record<string, unknown>;
 }
@@ -68,6 +74,31 @@ export function parseLoginInput(value: unknown): LoginInput {
     throw new AuthError(400, 'AUTH_INPUT_INVALID', '登录请求包含未知字段。');
   }
   return { email: normalizeEmail(input.email), password: validatePassword(input.password) };
+}
+
+function boundedName(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new AuthError(400, 'AUTH_INPUT_INVALID', `${label}格式无效。`);
+  }
+  const normalized = value.trim();
+  if (normalized.length < 1 || normalized.length > 120 || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+    throw new AuthError(400, 'AUTH_INPUT_INVALID', `${label}必须为 1–120 个有效字符。`);
+  }
+  return normalized;
+}
+
+export function parseWorkspaceRegistrationInput(value: unknown): WorkspaceRegistrationInput {
+  const input = object(value, '注册');
+  const allowed = new Set(['displayName', 'email', 'password', 'workspaceName']);
+  if (Object.keys(input).some(key => !allowed.has(key))) {
+    throw new AuthError(400, 'AUTH_INPUT_INVALID', '注册请求包含未知字段。');
+  }
+  return {
+    displayName: boundedName(input.displayName, '昵称'),
+    email: normalizeEmail(input.email),
+    password: validatePassword(input.password, 12),
+    workspaceName: boundedName(input.workspaceName, 'Workspace 名称'),
+  };
 }
 
 export function requestedWorkspace(value: unknown): string | undefined {

@@ -112,6 +112,27 @@ unset LYRA_BOOTSTRAP_PASSWORD
 
 命令只输出新建用户/workspace 标识，不输出密码。建议在 shell history 禁用或受控的发布作业中执行，执行后立即清理环境变量。不要用 SQL 手工填写密码 hash。
 
+### 可选：受信自托管注册
+
+标准 Stage 1 部署仍按上面的 bootstrap 流程创建首个管理员，且默认设置
+`LYRA_REGISTRATION_MODE=disabled`。仓库不会提供已知账号或默认明文密码。
+
+只有在成员范围受信、部署者明确接受自助开户时，才可在 `deploy/.env` 设置：
+
+```dotenv
+LYRA_REGISTRATION_MODE=workspace
+```
+
+重建或重启 API/Web 后，登录页会显示注册入口。每次注册都会由后端生成新的用户与独立
+workspace，并把注册者设为该 workspace 的 `owner`；客户端不能指定既有 workspace、用户 ID
+或更改初始角色。注册密码由用户自行设置，只以服务端密码 hash 保存，不进入前端源码、镜像
+默认值或 Git。必须先完成上述首个管理员 bootstrap；控制 workspace 尚未激活时，注册接口会
+失败关闭，避免首个访问者抢占部署级管理权。
+
+`workspace` 模式只面向受信自托管，不代表已经具备公网 SaaS 注册条件。直接向互联网开放前，
+仍必须补齐邮箱验证、CAPTCHA/边缘限速、异常注册告警、租户额度与计费控制，并完成跨租户和
+付费链路验收。当前模型连接仍是部署级私有配置，不能把注册开关当作模型密钥或费用隔离边界。
+
 ## 4. 云服务替换目标
 
 每个环境只选一个对象存储 provider：
