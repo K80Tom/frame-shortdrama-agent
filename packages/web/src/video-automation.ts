@@ -1,3 +1,5 @@
+import { workspaceFetch } from './deployment';
+
 export const videoRatios = ['9:16', '16:9'] as const;
 export const videoResolutions = ['720p', '1080p'] as const;
 export const videoDurations = [5, 10, 15] as const;
@@ -108,7 +110,7 @@ export function videoSubmission(form: VideoForm, status: VideoStatus, clientRequ
 }
 export class VideoApiError extends Error { constructor(message: string, public status: number) { super(message); this.name = 'VideoApiError'; } }
 export async function videoAutomationApi(path: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(path, { signal, cache: 'no-store', ...(body === undefined ? {} : {
+  const response = await workspaceFetch(path, { signal, cache: 'no-store', ...(body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
   }) });
   const data: unknown = await response.json().catch(() => null);

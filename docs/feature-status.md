@@ -1,6 +1,6 @@
 # 功能状态与证据（单一真源）
 
-盘点日期：2026-11-06。适用分支：`dev`；代码盘点基线：`890cc3692203040413bfec01490df50c7a18a543`（0.1.0）。
+盘点日期：2026-11-08。适用分支：`dev`；代码盘点基线：`0622a35`（0.1.0）。
 总入口：[产品 Epic #5](https://github.com/K80Tom/frame-shortdrama-agent/issues/5)；治理需求：[#80](https://github.com/K80Tom/frame-shortdrama-agent/issues/80)。
 
 ## 判定规则
@@ -59,3 +59,16 @@
 
 上表链接 #5 下的全部生产与平台 Epic；本 PR 正文引用本文件及 #5、#9、#12、#13、#14、#16、#17、#47，合并前在这些 Issue 中建立反向入口。
 新增 Epic 时同时更新本表和 #5 的依赖列表；关闭子任务不自动升级整个 Epic。
+
+## 2026-11-08 Stage 1 增量盘点
+
+Owner 沿用 @K80Tom，状态均为 partial；本 PR 不将设计定稿等同于生产验收。
+
+| 能力 | 状态 | 代码 | 测试入口 | 执行/真实验证 | 限制 |
+| --- | --- | --- | --- | --- | --- |
+| 会话/workspace 租户边界 | partial | [auth](../packages/main/src/auth/) / [tenancy](../packages/main/src/tenancy/) | [后端测试目录](../packages/main/tests/) | 本 PR 未重新运行产品测试 / 未验证真实环境 | 不由 schema 或 RLS 存在推断 SaaS 已验收 |
+| 持久化 jobs 与 API/Worker | partial | [jobs](../packages/main/src/jobs/) / [启动编排](../packages/main/src/main.ts) | [后端测试目录](../packages/main/tests/) | 同上 | 目标环境租约/心跳/恢复和故障演练仍需按 #73 验收 |
+| 对象存储与投影 | partial | [ObjectStorage](../packages/main/src/production-media/object-storage.ts) / [数据基础设施](../packages/main/src/infrastructure/) | [后端测试目录](../packages/main/tests/) | 同上 | 媒体对象化、签名权限、历史 BYTEA 例外和端到端回滚不能被配置/健康探针替代 |
+
+架构目标与当前实现边界以[生产路线](production-architecture-roadmap.md)为准。本轮同步保留 README 的 Stage 1 部署和架构内容，不将其回退为旧单机说明。
+现有 #110–#114、#121–#122 仍是待审核 PR，不当作已合入的实现证据；后续合并时更新对应行的提交、测试与限制。

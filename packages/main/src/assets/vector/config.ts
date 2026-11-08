@@ -23,9 +23,10 @@ export function readAssetVectorConfig(
   const enabled = /^(?:1|true|yes)$/iu.test(env.ASSET_VECTOR_ENABLED?.trim() ?? '');
   if (!enabled && !options.requireEnabled) return null;
   const required = [
-    'ASSET_EMBEDDING_ENDPOINT', 'ASSET_EMBEDDING_MODEL', 'ASSET_EMBEDDING_API_KEY', 'MILVUS_URI',
+    'ASSET_EMBEDDING_ENDPOINT', 'ASSET_EMBEDDING_MODEL', 'ASSET_EMBEDDING_API_KEY',
   ] as const;
-  const missing = required.filter(key => !env[key]?.trim());
+  const missing: string[] = required.filter(key => !env[key]?.trim());
+  if (!(env.MILVUS_URI ?? env.MILVUS_ADDRESS)?.trim()) missing.push('MILVUS_URI/MILVUS_ADDRESS');
   if (missing.length) throw new Error(`向量检索已启用，但缺少配置：${missing.join('、')}`);
   const embeddingEndpoint = env.ASSET_EMBEDDING_ENDPOINT!.trim();
   try {
@@ -40,7 +41,7 @@ export function readAssetVectorConfig(
     'ASSET_EMBEDDING_TIMEOUT_MS');
   const queryCostMicros = integer(env.ASSET_EMBEDDING_QUERY_COST_MICROS, 100_000, 0, 100_000_000,
     'ASSET_EMBEDDING_QUERY_COST_MICROS');
-  const milvusUri = env.MILVUS_URI!.trim();
+  const milvusUri = (env.MILVUS_URI ?? env.MILVUS_ADDRESS)!.trim();
   if (/\s|\/\/[^/@\s]+:[^/@\s]+@/u.test(milvusUri)) throw new Error('MILVUS_URI 不能包含空白或内嵌凭据。');
   const milvusCollection = env.MILVUS_COLLECTION?.trim() || 'ohao_asset_vectors_v1';
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/u.test(milvusCollection)) throw new Error('MILVUS_COLLECTION 格式不正确。');

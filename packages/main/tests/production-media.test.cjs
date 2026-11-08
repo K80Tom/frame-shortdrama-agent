@@ -17,6 +17,13 @@ const {
   parseAssessment,
   parseFfprobe,
 } = require('../dist/production-media');
+const { ProductionMediaObjectProjection } = require('../dist/production-media/object-storage');
+const {
+  LocalObjectStorage,
+  S3CompatibleObjectStorage,
+  createObjectStorageFromEnv,
+  readObjectStorageConfig,
+} = require('../dist/infrastructure/object-storage');
 
 const probe = (changes = {}) => ({ container: 'mp4', durationSeconds: 2, width: 720, height: 1280,
   videoCodec: 'h264', hasAudio: true, audioCodec: 'aac', ...changes });
@@ -64,6 +71,18 @@ test('content-addressed storage accepts backend buffers, deduplicates bytes, and
   const rel = relative(resolve(f.root), resolve(owned.absolutePath));
   assert.ok(rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   assert.ok(f.prober.paths.length >= 3, 'dedupe and reads must not trust old probe metadata');
+});
+
+test('stored hook durably queues both new and deduplicated media before returning', async t => {
+  const f = await fixture(t, { projected: probe() });
+  const queued = [];
+  f.store.setStoredHook(async object => { queued.push(object.id); });
+  const first = await f.store.putVideoBuffer(Buffer.from('projected'));
+  const duplicate = await f.store.putVideoBuffer(Buffer.from('projected'));
+  assert.equal(duplicate.id, first.id);
+  assert.deepEqual(queued, [first.id, first.id]);
+  assert.throws(() => f.store.setStoredHook(async () => undefined),
+    rejectsCode('MEDIA_STORED_HOOK_ALREADY_SET'));
 });
 
 test('owned-file import rejects remote URLs, traversal, symlinks, hardlinks, and non-files', async t => {
@@ -684,4 +703,172 @@ test('frame assessment does not keep a pass the dimension scores do not support'
   }, 'shot_unknown');
   assert.equal(unknown.verdict, 'weak');
   assert.equal(unknown.advice.action, 'keep');
+});
+
+test('object storage scopes immutable local bytes by workspace and explicitly projects verified media', async t => {
+  const f = await fixture(t, { clip: probe() });
+  const objects = new LocalObjectStorage(join(f.base, 'object-store'));
+  const firstScope = { workspaceId: `ws_${'1'.repeat(32)}` };
+  const otherScope = { workspaceId: `ws_${'2'.repeat(32)}` };
+  await objects.probe();
+  const saved = await objects.put({ scope: firstScope, key: 'assets/clip.bin', body: Buffer.from('clip'),
+    contentType: 'application/octet-stream' });
+  assert.equal(saved.sha256, createHash('sha256').update('clip').digest('hex'));
+  assert.equal((await objects.get({ scope: firstScope, key: saved.key, maxBytes: 100 })).body.toString(), 'clip');
+  await assert.rejects(objects.get({ scope: otherScope, key: saved.key, maxBytes: 100 }),
+    error => error.code === 'OBJECT_NOT_FOUND');
+  await assert.rejects(objects.put({ scope: firstScope, key: '../escape', body: Buffer.from('x'),
+    contentType: 'application/octet-stream' }), error => error.code === 'OBJECT_KEY_INVALID');
+
+  const media = await f.store.putVideoBuffer(Buffer.from('clip'));
+  const projection = new ProductionMediaObjectProjection(f.store, objects);
+  const reference = await projection.project(firstScope, media.id);
+  assert.equal(reference.sha256, media.sha256);
+  assert.equal((await projection.restore(firstScope, reference)).id, media.id);
+
+  const unusableRoot = join(f.base, 'object-store-file');
+  await writeFile(unusableRoot, 'not a directory');
+  await assert.rejects(new LocalObjectStorage(unusableRoot).probe(),
+    error => error.code === 'OBJECT_STORAGE_UNAVAILABLE');
+});
+
+test('S3-compatible adapter keeps provider boundaries explicit and only signs tenant staging keys', async () => {
+  const saved = new Map(); let signed;
+  const client = {
+    async headBucket(input) { assert.equal(input.Bucket, 'lyra-media'); return {}; },
+    async putObject(input) {
+      saved.set(input.Key, { body: Buffer.from(input.Body), metadata: input.Metadata,
+        type: input.ContentType }); return { ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async headObject(input) {
+      const value = saved.get(input.Key); if (!value) throw { name: 'NotFound' };
+      return { ContentLength: value.body.length, ContentType: value.type, Metadata: value.metadata,
+        ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async getObject(input) {
+      const value = saved.get(input.Key); if (!value) throw { name: 'NotFound' };
+      return { Body: value.body, ContentType: value.type, Metadata: value.metadata,
+        ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async deleteObject(input) { saved.delete(input.Key); return {}; },
+  };
+  const scope = { workspaceId: `ws_${'3'.repeat(32)}` };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'cos', bucket: 'lyra-media',
+    prefix: 'prod', now: () => new Date('2026-11-08T00:00:00.000Z'),
+    presignPut: async (input, ttl) => { signed = { input, ttl }; return 'https://storage.test/signed'; },
+    presignGet: async (input, ttl) => { signed = { input, ttl }; return 'https://storage.test/download'; } });
+  await storage.probe();
+  const object = await storage.put({ scope, key: 'media/a.mp4', body: Buffer.from('movie'),
+    contentType: 'video/mp4' });
+  assert.equal(object.provider, 'cos');
+  assert.ok(saved.has(`prod/workspaces/${scope.workspaceId}/media/a.mp4`));
+  await assert.rejects(storage.createPresignedPut({ scope, key: 'media/direct.mp4',
+    contentType: 'video/mp4', expiresInSeconds: 60, expectedSha256: 'a'.repeat(64) }),
+  error => error.code === 'OBJECT_STAGING_REQUIRED');
+  const upload = await storage.createPresignedPut({ scope, key: 'staging/request/a.mp4',
+    contentType: 'video/mp4', expiresInSeconds: 60, expectedSha256: 'a'.repeat(64) });
+  assert.equal(upload.expiresAt, '2026-11-08T00:01:00.000Z');
+  assert.equal(signed.input.Key, `prod/workspaces/${scope.workspaceId}/staging/request/a.mp4`);
+  assert.equal(signed.ttl, 60);
+  const download = await storage.createPresignedGet({ scope, key: object.key,
+    expiresInSeconds: 90, expectedSha256: object.sha256 });
+  assert.equal(download.url, 'https://storage.test/download');
+  assert.equal(download.expiresAt, '2026-11-08T00:01:30.000Z');
+  assert.equal(signed.input.Key, `prod/workspaces/${scope.workspaceId}/media/a.mp4`);
+  assert.equal(signed.ttl, 90);
+
+  const denied = new S3CompatibleObjectStorage({ ...client, async headBucket() { throw { name: 'Forbidden' }; } },
+    { provider: 's3', bucket: 'lyra-media' });
+  await assert.rejects(denied.probe(), error => error.code === 'OBJECT_STORAGE_UNAVAILABLE');
+});
+
+test('S3-compatible reads reject declared oversized objects before consuming the response body', async () => {
+  let reads = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      reads++;
+      yield Buffer.from('must-not-be-read');
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { ContentLength: 11, Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 's3', bucket: 'lyra-media' });
+  await assert.rejects(storage.get({ scope: { workspaceId: `ws_${'4'.repeat(32)}` },
+    key: 'media/large.mp4', maxBytes: 10 }), rejectsCode('OBJECT_SIZE_INVALID'));
+  assert.equal(reads, 0, 'declared oversized responses must fail before the stream is read');
+});
+
+test('S3-compatible reads prefer bounded streaming over transformToByteArray', async () => {
+  const bytes = Buffer.from('movie');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  let transformed = 0;
+  let streamed = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      streamed++;
+      yield bytes.subarray(0, 2);
+      yield bytes.subarray(2);
+    },
+    async transformToByteArray() {
+      transformed++;
+      return bytes;
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { ContentLength: bytes.length, ContentType: 'video/mp4',
+      Metadata: { sha256 }, Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'minio', bucket: 'lyra-media' });
+  const result = await storage.get({ scope: { workspaceId: `ws_${'5'.repeat(32)}` },
+    key: 'media/movie.mp4', expectedSha256: sha256, maxBytes: 10 });
+  assert.equal(result.body.toString(), 'movie');
+  assert.equal(streamed, 1);
+  assert.equal(transformed, 0, 'the unbounded SDK helper must not win over an async iterator');
+});
+
+test('S3-compatible streaming stops as soon as cumulative bytes exceed the read limit', async () => {
+  let yielded = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of ['123456', '789012', 'must-not-be-read']) {
+        yielded++;
+        yield Buffer.from(chunk);
+      }
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'cos', bucket: 'lyra-media' });
+  await assert.rejects(storage.get({ scope: { workspaceId: `ws_${'6'.repeat(32)}` },
+    key: 'media/unbounded.mp4', maxBytes: 10 }), rejectsCode('OBJECT_SIZE_INVALID'));
+  assert.equal(yielded, 2, 'stream consumption must stop on the first over-limit chunk');
+});
+
+test('object storage runtime maps Stage 1 environment into a lazy MinIO SDK client', () => {
+  let clientOptions;
+  class Command { constructor(input) { this.input = input; } }
+  class S3Client { constructor(options) { clientOptions = options; } async send() { return {}; } }
+  const s3Module = { S3Client, HeadBucketCommand: Command, PutObjectCommand: Command, GetObjectCommand: Command,
+    HeadObjectCommand: Command, DeleteObjectCommand: Command };
+  const storage = createObjectStorageFromEnv({ OBJECT_STORAGE_PROVIDER: 'minio',
+    OBJECT_STORAGE_ENDPOINT: 'http://minio:9000', OBJECT_STORAGE_REGION: 'us-east-1',
+    OBJECT_STORAGE_BUCKET: 'lyra-media', OBJECT_STORAGE_ACCESS_KEY: 'access',
+    OBJECT_STORAGE_SECRET_KEY: 'secret', OBJECT_STORAGE_FORCE_PATH_STYLE: 'true' }, {
+    s3Module, presignerModule: { async getSignedUrl() { return 'https://storage.test/signed'; } },
+  });
+  assert.equal(storage.provider, 'minio');
+  assert.equal(clientOptions.endpoint, 'http://minio:9000');
+  assert.equal(clientOptions.forcePathStyle, true);
+  assert.deepEqual(clientOptions.credentials, { accessKeyId: 'access', secretAccessKey: 'secret' });
+  assert.throws(() => readObjectStorageConfig({ OBJECT_STORAGE_PROVIDER: 's3',
+    OBJECT_STORAGE_ENDPOINT: 'http://insecure.test', OBJECT_STORAGE_BUCKET: 'bucket' }),
+  /HTTP 仅允许 MinIO/);
 });

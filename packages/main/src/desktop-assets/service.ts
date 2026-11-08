@@ -18,8 +18,19 @@ import {
 } from './contracts';
 import type { DesktopBridgeHealth } from './adapter';
 import type { DesktopTaskRepository } from './repository';
+import type { JobTenantResolver } from '../jobs/tenant';
+import { tenantExecutionScope, type TenantExecutionScope } from '../tenancy/scope';
 
 const UNVERIFIED_HISTORICAL_LINK = '检测到历史版本曾关联此候选资产，但没有可验证的人工接受凭据；未认定为已接受，请人工核对。';
+const LEGACY_TENANT_REVIEW = '该任务创建于 workspace 绑定之前；已停止自动提交和导入，请人工核对原任务与产物。';
+
+export interface DesktopAssetServiceOptions {
+  executionScope?: TenantExecutionScope;
+  tenantResolver?: JobTenantResolver;
+  /** Stage 1 Worker mode refuses to execute pre-tenant task records. */
+  requireTenantWorkspace?: boolean;
+  logger?: Pick<Console, 'warn'>;
+}
 
 /** Local-only orchestrator. No model client, remote HTTP, shell string or user-supplied path is accepted. */
 export class DesktopAssetService {
@@ -27,11 +38,20 @@ export class DesktopAssetService {
   private working: Promise<void> | null = null;
   private readonly decisions = new Set<string>();
   private stopped = false;
+  private readonly executionScope: TenantExecutionScope;
+  private readonly tenantResolver?: JobTenantResolver;
+  private readonly requireTenantWorkspace: boolean;
+  private readonly logger: Pick<Console, 'warn'>;
   readonly outputRoot: string;
   constructor(private readonly jobs: DesktopTaskRepository, private readonly novels: NovelRepository,
     private readonly novelService: NovelService, private readonly assets: AssetService,
-    private readonly adapter: DesktopAssetAdapter, projectRoot = process.cwd()) {
+    private readonly adapter: DesktopAssetAdapter, projectRoot = process.cwd(),
+    options: DesktopAssetServiceOptions = {}) {
     this.outputRoot = resolve(projectRoot, 'outputs/private/desktop-assets');
+    this.executionScope = options.executionScope ?? tenantExecutionScope;
+    this.tenantResolver = options.tenantResolver;
+    this.requireTenantWorkspace = options.requireTenantWorkspace ?? false;
+    this.logger = options.logger ?? console;
   }
   async status() {
     const health = await this.adapter.health();
@@ -99,8 +119,14 @@ export class DesktopAssetService {
     if (!health.available) desktopError(503, health.code, health.message);
     this.assertModelSelection(health.connectionRevision, body.expectedModelConnectionRevision);
     const now = new Date().toISOString();
+    const scope = this.executionScope.current();
+    const workspaceId = scope?.kind === 'tenant' ? scope.tenant.workspaceId : undefined;
+    if (this.requireTenantWorkspace && !workspaceId) {
+      desktopError(503, 'DESKTOP_TENANT_SCOPE_REQUIRED', 'Stage 1 生图任务必须从已验证的 workspace 创建。');
+    }
     const base: StoredDesktopTask = {id: `desktop_${randomUUID().replaceAll('-', '')}`, jobKey,
       sourceId: source.id, chapterId: chapter.id, itemId: item.id, inputRevisionId: revisionId,
+      ...(workspaceId ? {workspaceId} : {}),
       ...(requestedIntent ? {intentId: requestedIntent} : {}),
       label: item.label, kind: item.kind, item: structuredClone(item), status: 'queued', phase: '排队',
       message: '已保存单张生成任务，等待已选生图连接；刷新或关闭页面不重复提交。',
@@ -114,17 +140,20 @@ export class DesktopAssetService {
   }
   async start() {
     // Submission uncertainty is persistent. Never replay an interrupted keystroke.
-    for (const task of await this.jobs.list()) {
-      if (task.status === 'submitting') await this.change(task, {status: 'unknown', phase: '待核对',
-        message: '后端曾在提交期间中断；只检查原任务输出，不会再次发送生图请求。'});
+    for (const task of await this.scanTasks()) {
+      if (task.status === 'submitting') await this.runForTask(task, async () => {
+        await this.change(task, {status: 'unknown', phase: '待核对',
+          message: '后端曾在提交期间中断；只检查原任务输出，不会再次发送生图请求。'});
+      });
     }
     // Resolve any durable acceptance reservation before HTTP becomes ready.
     // A linked revision wins and repairs accepted; otherwise restore the
     // version-checked review baseline without submitting or binding anything.
-    for (const candidate of await this.jobs.listCandidates()) {
+    const candidates = await this.executionScope.runAsSystem('desktop.candidate.scan', () => this.jobs.listCandidates());
+    for (const candidate of candidates) {
       if (!isAcceptanceReservation(candidate.reviewNote)) continue;
-      const task = await this.jobs.get(candidate.taskId);
-      if (task) await this.restoreAcceptanceReservation(task, candidate);
+      const task = await this.executionScope.runAsSystem('desktop.task.lookup', () => this.jobs.get(candidate.taskId));
+      if (task) await this.runForTask(task, () => this.restoreAcceptanceReservation(task, candidate));
     }
     this.stopped = false;
     this.timer = setInterval(() => { void this.tick().catch(() => undefined); }, 4_000);
@@ -135,10 +164,12 @@ export class DesktopAssetService {
   async tick() {
     if (this.working || this.stopped) return;
     this.working = (async () => {
-      const task = (await this.jobs.list()).find(value => activeStates.includes(value.status));
+      const task = (await this.scanTasks()).find(value => activeStates.includes(value.status));
       if (!task) return;
-      if (task.status === 'queued') await this.dispatch(task);
-      else await this.collect(task);
+      await this.runForTask(task, async () => {
+        if (task.status === 'queued') await this.dispatch(task);
+        else await this.collect(task);
+      });
     })();
     try { await this.working; } finally { this.working = null; }
   }
@@ -148,13 +179,53 @@ export class DesktopAssetService {
     if (!task) desktopError(404, 'DESKTOP_TASK_NOT_FOUND', '桌面生成任务不存在。');
     // This endpoint cannot dispatch, retry or authorize generation.
     if (!this.working && reconcilableStates.includes(task.status)) {
-      this.working = this.collect(task);
+      this.working = this.runForTask(task, () => this.collect(task)).then(() => undefined);
       try { await this.working; } finally { this.working = null; }
     }
     return this.public((await this.jobs.get(id))!);
   }
   private change(task: StoredDesktopTask, patch: Partial<StoredDesktopTask>) {
     return this.jobs.replace({...task, ...patch, updatedAt: new Date().toISOString()}, task.version);
+  }
+  private scanTasks(): Promise<StoredDesktopTask[]> {
+    return this.executionScope.runAsSystem('desktop.task.scan', () => this.jobs.list());
+  }
+  private async quarantineLegacy(task: StoredDesktopTask): Promise<void> {
+    if (task.status === 'needsReview') return;
+    const quarantine = async () => {
+      const current = await this.jobs.get(task.id);
+      if (!current || current.workspaceId || !activeStates.includes(current.status)
+        && !reconcilableStates.includes(current.status)) return;
+      await this.change(current, {status: 'needsReview', phase: '历史任务 · 待人工核对', message: LEGACY_TENANT_REVIEW});
+    };
+    if (this.executionScope.current()?.kind === 'tenant') await quarantine();
+    else await this.executionScope.runAsSystem('desktop.legacy.quarantine', quarantine);
+  }
+  private async runForTask<T>(task: StoredDesktopTask, work: () => Promise<T>): Promise<T | undefined> {
+    const current = this.executionScope.current();
+    if (!task.workspaceId) {
+      if (!this.requireTenantWorkspace) return work();
+      await this.quarantineLegacy(task);
+      return undefined;
+    }
+    if (current?.kind === 'tenant') {
+      if (current.tenant.workspaceId !== task.workspaceId) {
+        throw new Error('Desktop task workspace does not match the active tenant scope');
+      }
+      return work();
+    }
+    if (!this.tenantResolver) {
+      if (!this.requireTenantWorkspace) return work();
+      throw new Error('Desktop task tenant resolver is unavailable');
+    }
+    try {
+      const tenant = await this.tenantResolver.resolve(task.workspaceId, task.id);
+      return await this.executionScope.runWithTenant(tenant, work);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 1_000) : '未知错误';
+      this.logger.warn(`Desktop task tenant resolution failed for ${task.id}: ${message}`);
+      throw error;
+    }
   }
   private snapshotPrompt(task: StoredDesktopTask, health: DesktopBridgeHealth): StoredDesktopTask {
     const provider = health.transport ?? (this.adapter.promptMode === 'api' ? 'api' : 'desktop');

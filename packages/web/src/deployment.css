@@ -1,0 +1,65 @@
+.workspace-switcher { display: inline-flex; align-items: center; gap: 8px; min-width: 170px; padding: 7px 10px; border: 1px solid #ffffff12; border-radius: 7px; background: #171716; color: #aaa8a1; text-align: left; }
+.workspace-switcher:hover { background: #ffffff08; border-color: #ffffff20; }
+.workspace-switcher > span { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.workspace-switcher small { color: #77766f; font-size: 7px; letter-spacing: .7px; text-transform: uppercase; }
+.workspace-switcher strong { overflow: hidden; color: #d5d0c8; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-switcher.is-legacy > svg:first-child { color: #ba9e7c; }
+.deployment-spin { animation: deployment-spin .85s linear infinite; }
+@keyframes deployment-spin { to { transform: rotate(360deg); } }
+.workspace-modal-note { margin: 2px 0 18px; color: #969189; font-size: 11px; line-height: 1.8; }
+.workspace-compat,.deployment-error { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid #c99a5c35; border-radius: 8px; background: #c99a5c0b; color: #bea888; }
+.workspace-compat p,.deployment-error p { flex: 1; font-size: 10px; line-height: 1.7; }
+.workspace-compat button { display: inline-flex; align-items: center; gap: 5px; color: #e0b27d; font-size: 9px; }
+.workspace-options { display: grid; gap: 8px; }
+.workspace-options > button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px; border: 1px solid #ffffff11; border-radius: 8px; background: #24241f; text-align: left; }
+.workspace-options > button:not(:disabled):hover { border-color: #f18b6250; background: #2c251f; }
+.workspace-options > button[aria-current=true] { border-color: #9bb48330; background: #9bb4830c; opacity: 1; }
+.workspace-option-icon { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 8px; background: #ffffff08; color: #c9a37f; }
+.workspace-options strong,.workspace-options small { display: block; }
+.workspace-options strong { color: #d8d3ca; font-size: 11px; font-weight: 500; }
+.workspace-options small { margin-top: 4px; color: #7f7c75; font-size: 9px; }
+.workspace-options em { margin-left: auto; color: #9eb28d; font-size: 8px; font-style: normal; }
+.workspace-single { margin-top: 13px; color: #7f7b73; font-size: 9px; line-height: 1.7; }
+.deployment-status { margin-bottom: 20px; padding: 25px; border: 1px solid #ffffff13; border-radius: 12px; background: radial-gradient(circle at 90% 0%,#f18b620c,transparent 35%),#191916; }
+.deployment-status > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.deployment-kicker { color: #ae8f78; font-size: 8px; letter-spacing: 1.5px; }
+.deployment-status h2 { margin: 7px 0 6px; font-size: 19px; font-weight: 500; }
+.deployment-status header p { color: #928e86; font-size: 10px; line-height: 1.7; }
+.deployment-actions { display: flex; align-items: center; gap: 8px; }
+.deployment-actions > button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid #ffffff12; border-radius: 6px; color: #aaa69e; font-size: 9px; }
+.deployment-summary { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid #ffffff12; border-radius: 999px; font-size: 8px; white-space: nowrap; }
+.deployment-summary.is-healthy { color: #a8c18f; border-color: #9fbd8030; background: #9fbd800c; }
+.deployment-summary.is-degraded { color: #dbac78; border-color: #d79a5530; background: #d79a550c; }
+.deployment-summary.is-unavailable { color: #aaa49a; }
+.deployment-error { margin: 18px 0 0; }
+.deployment-service-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px; margin-top: 20px; }
+.deployment-service { min-width: 0; padding: 15px; border: 1px solid #ffffff0e; border-radius: 9px; background: #131312; }
+.deployment-service.is-healthy { border-color: #91aa7630; }
+.deployment-service.is-degraded { border-color: #d39b5a35; }
+.deployment-service.is-unconfigured,.deployment-service.is-unavailable { border-style: dashed; }
+.deployment-service-top { display: flex; align-items: center; gap: 9px; }
+.deployment-service-top > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 8px; background: #ffffff07; color: #ae9982; }
+.deployment-service-top > div { min-width: 0; }
+.deployment-service-top strong,.deployment-service-top small { display: block; }
+.deployment-service-top strong { color: #d5d0c7; font-size: 11px; font-weight: 500; }
+.deployment-service-top small { margin-top: 3px; color: #77736d; font-size: 8px; }
+.deployment-service-top em { margin-left: auto; color: #969189; font-size: 7px; font-style: normal; letter-spacing: .4px; text-transform: uppercase; }
+.deployment-service.is-healthy .deployment-service-top em { color: #9db585; }
+.deployment-service.is-degraded .deployment-service-top em { color: #d8a66d; }
+.deployment-service p { min-height: 34px; margin-top: 12px; color: #908b82; font-size: 9px; line-height: 1.8; }
+.deployment-degrade-note { display: inline-block; margin-top: 10px; color: #ad9578; font-size: 8px; }
+.deployment-policies { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 13px; }
+.deployment-policies article { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid #ffffff0d; border-radius: 8px; background: #ffffff02; color: #ad9477; }
+.deployment-policies strong { color: #bdb7ad; font-size: 10px; font-weight: 500; }
+.deployment-policies p { margin-top: 5px; color: #827e77; font-size: 8px; line-height: 1.75; }
+.deployment-status footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; color: #6f6c66; font-size: 8px; }
+@media(max-width:1000px) { .deployment-service-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:720px) {
+  .workspace-switcher { min-width: 0; padding: 7px; }
+  .workspace-switcher > span,.workspace-switcher > svg:last-child { display: none; }
+  .deployment-status { padding: 20px; }
+  .deployment-status > header { flex-direction: column; }
+  .deployment-service-grid,.deployment-policies { grid-template-columns: 1fr; }
+  .deployment-actions { width: 100%; justify-content: space-between; }
+  .deployment-status footer { flex-direction: column; }
+}
