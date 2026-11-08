@@ -5,7 +5,12 @@ const { readFileSync } = require('node:fs');
 const { mkdtemp, rm, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
-const { acceptsRecordedChecksum, normalizeMigrationSql, readMigrations } = require('../dist/db/migrate');
+const {
+  acceptsRecordedChecksum,
+  migrationSqlForExecution,
+  normalizeMigrationSql,
+  readMigrations,
+} = require('../dist/db/migrate');
 const hash = sql => createHash('sha256').update(sql, 'utf8').digest('hex');
 const sql = normalizeMigrationSql(readFileSync(join(__dirname, '../migrations/003_extract_facts_execution.sql'), 'utf8'));
 const current = hash(sql);
@@ -48,6 +53,56 @@ test('the exception cannot mask changed SQL, other versions, names or unknown ch
   const ordinary = { version: '009', fileName: '009_novel_assets.sql', sql: 'SELECT 1;', checksum: hash('SELECT 1;') };
   assert.equal(acceptsRecordedChecksum(ordinary, ordinary.checksum), true);
   assert.equal(acceptsRecordedChecksum(ordinary, current), false);
+});
+
+test('execution strips only one outer transaction wrapper while checksums stay on committed bytes', async () => {
+  const directory = join(__dirname, '../migrations');
+  const migrations = await readMigrations(directory);
+  const wrapped = migrations.find(item => item.version === '031');
+  assert.ok(wrapped);
+  const original = normalizeMigrationSql(readFileSync(join(directory, wrapped.fileName), 'utf8'));
+  assert.equal(wrapped.sql, original);
+  assert.equal(wrapped.checksum, hash(original));
+  const execution = migrationSqlForExecution(wrapped.fileName, wrapped.sql);
+  assert.doesNotMatch(execution, /^\s*BEGIN\s*;/iu);
+  assert.doesNotMatch(execution, /COMMIT\s*;\s*$/iu);
+  assert.match(execution, /ALTER TABLE vector_projection_states/iu);
+
+  const unwrapped = 'CREATE TABLE example (id bigint PRIMARY KEY);\n';
+  assert.equal(migrationSqlForExecution('001_example.sql', unwrapped), unwrapped);
+});
+
+test('execution scanner ignores procedural BEGIN and transaction words in quoted or commented content', () => {
+  const sql = `BEGIN;
+    -- COMMIT; must not be parsed as transaction control
+    DO $body$
+    BEGIN
+      PERFORM 'ROLLBACK;';
+    END
+    $body$;
+    SELECT 'BEGIN; COMMIT;'::text;
+  COMMIT;`;
+  const execution = migrationSqlForExecution('999_procedural.sql', sql);
+  assert.match(execution, /DO \$body\$/u);
+  assert.match(execution, /PERFORM 'ROLLBACK;'/u);
+  assert.match(execution, /SELECT 'BEGIN; COMMIT;'/u);
+});
+
+test('execution rejects partial, nested, mismatched and internal transaction control', () => {
+  const rejected = [
+    'BEGIN; SELECT 1;',
+    'SELECT 1; COMMIT;',
+    'BEGIN; SELECT 1; ROLLBACK;',
+    'BEGIN; SAVEPOINT nested; SELECT 1; COMMIT;',
+    'BEGIN; SELECT 1; COMMIT; SELECT 2;',
+    'SELECT 1; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;',
+  ];
+  for (const [index, value] of rejected.entries()) {
+    assert.throws(() => migrationSqlForExecution(`9${index}_invalid.sql`, value),
+      /unsupported transaction control/u);
+  }
+  assert.throws(() => migrationSqlForExecution('999_unterminated.sql', "SELECT 'oops;"),
+    /unterminated quoted value/u);
 });
 
 test('012 releases unknown from the global slot without weakening per-job idempotency', () => {

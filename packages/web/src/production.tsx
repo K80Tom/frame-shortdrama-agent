@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import FactsEditor from './FactsEditor';
 import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
 import { buildEntityEdits, createEntityDrafts, latestPlanForScript, validateEntityDrafts, type EntityDraft, type EntityDrafts, type FactPlan as Plan, type SourceRef as Ref } from './facts-editor';
+import { workspaceFetch } from './deployment';
 import './production.css';
 
 type Project = { id: string; title: string; source: { url: string; title?: string; author?: string; chapterTitle?: string } | null; currentScriptVersionId: string | null; activePlanRevisionId: string | null; activeStoryboardRevisionId: string | null };
@@ -16,7 +17,7 @@ type DraftSession = { basePlan: Plan; drafts: EntityDrafts };
 type IsCurrent = () => boolean;
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? {} : {
+  const response = await workspaceFetch(path, body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));

@@ -26,6 +26,8 @@ export interface ProductionServiceOptions {
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
+  /** Worker scheduler resolves the persisted run owner before touching tenant data or media. */
+  runInTenantScope?: <T>(runId: string, work: () => Promise<T>) => Promise<T>;
 }
 
 const terminal = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -55,6 +57,7 @@ export class ProductionService {
   private readonly sourceCatalog?: ProductionSourceCatalog;
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
+  private readonly runInTenantScope?: ProductionServiceOptions['runInTenantScope'];
   private timer: NodeJS.Timeout | null = null;
   private tickTail: Promise<void> = Promise.resolve();
 
@@ -64,6 +67,7 @@ export class ProductionService {
     this.sourceCatalog = options.sourceCatalog;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
     this.methodPacks = options.methodPacks;
+    this.runInTenantScope = options.runInTenantScope;
     for (const executor of [new ProductionPreflightExecutor(), ...(options.executors ?? [])]) this.executors.set(executor.stage, executor);
   }
 
@@ -238,27 +242,29 @@ export class ProductionService {
   async start() {
     const at = this.timestamp();
     for (const current of await this.repository.list()) {
-      if (terminal.has(current.status) || current.pausedAt) continue;
-      let changed = false;
-      for (const task of current.tasks.filter(item => item.status === 'running')) {
-        const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
-        const attemptWasRunning = attempt?.status === 'running';
-        if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
-        const operation = this.activeOperation(current, task.id);
-        if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
-          task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
-        else {
-          // The process that held this attempt is gone, and no external operation
-          // was opened. Settle the hold so a later retry can reserve again.
-          if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
-          task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+      await this.inRunScope(current.id, async () => {
+        if (terminal.has(current.status) || current.pausedAt) return;
+        let changed = false;
+        for (const task of current.tasks.filter(item => item.status === 'running')) {
+          const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
+          const attemptWasRunning = attempt?.status === 'running';
+          if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
+          const operation = this.activeOperation(current, task.id);
+          if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
+            task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
+          else {
+            // The process that held this attempt is gone, and no external operation
+            // was opened. Settle the hold so a later retry can reserve again.
+            if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
+            task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+          }
+          task.updatedAt = at; task.version++; this.addIssue(current, task, {
+            code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
+            severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
+          }, at); changed = true;
         }
-        task.updatedAt = at; task.version++; this.addIssue(current, task, {
-          code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
-          severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
-        }, at); changed = true;
-      }
-      if (changed) { this.refreshRunStatus(current); await this.save(current, 'production.run.recovered', {}); }
+        if (changed) { this.refreshRunStatus(current); await this.save(current, 'production.run.recovered', {}); }
+      });
     }
     if (!this.timer) {
       this.timer = setInterval(() => void this.tick().catch(() => undefined), this.pollIntervalMs);
@@ -276,15 +282,21 @@ export class ProductionService {
     const execute = async () => {
       const runs = runId ? [await this.requireRun(parseProductionRunId(runId))] : await this.repository.list();
       for (const run of runs) {
-        if (terminal.has(run.status) || run.pausedAt || run.status === 'pausedBudget') continue;
-        await this.advanceOne(run).catch(error => {
-          if (!(error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT')) throw error;
+        await this.inRunScope(run.id, async () => {
+          if (terminal.has(run.status) || run.pausedAt || run.status === 'pausedBudget') return;
+          await this.advanceOne(run).catch(error => {
+            if (!(error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT')) throw error;
+          });
         });
       }
     };
     const scheduled = this.tickTail.then(execute, execute);
     this.tickTail = scheduled.catch(() => undefined);
     return scheduled;
+  }
+
+  private inRunScope<T>(runId: string, work: () => Promise<T>): Promise<T> {
+    return this.runInTenantScope ? this.runInTenantScope(runId, work) : work();
   }
 
   private async advanceOne(initial: StoredProductionRun) {
