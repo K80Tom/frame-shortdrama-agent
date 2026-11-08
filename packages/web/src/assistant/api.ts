@@ -1,3 +1,5 @@
+import { workspaceFetch } from '../deployment';
+
 export interface AssistantContext { label: string; projectId?: string; runId?: string }
 
 export interface AssistantSession {
@@ -60,7 +62,7 @@ async function readError(response: Response): Promise<Error> {
 }
 
 export async function createAssistantSession(context: AssistantContext): Promise<AssistantSession> {
-  const response = await fetch('/api/assistant/sessions', {
+  const response = await workspaceFetch('/api/assistant/sessions', {
     method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(context), cache: 'no-store',
   });
   if (!response.ok) throw await readError(response);
@@ -69,7 +71,7 @@ export async function createAssistantSession(context: AssistantContext): Promise
 
 export async function assistantHistory(sessionId: string):
   Promise<{ session: AssistantSession; items: AssistantMessage[]; quotes: AssistantQuote[] }> {
-  const response = await fetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages`, { cache: 'no-store' });
+  const response = await workspaceFetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages`, { cache: 'no-store' });
   if (!response.ok) throw await readError(response);
   return response.json();
 }
@@ -77,7 +79,7 @@ export async function assistantHistory(sessionId: string):
 export async function streamAssistantMessage(
   sessionId: string, content: string, onEvent: (event: AssistantEvent) => void, signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages?stream=1`, {
+  const response = await workspaceFetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages?stream=1`, {
     method: 'POST', headers: { ...JSON_HEADERS, Accept: 'text/event-stream' },
     body: JSON.stringify({ content }), cache: 'no-store', signal,
   });
@@ -106,7 +108,7 @@ export async function streamAssistantMessage(
 
 export async function submitAssistantQuote(sessionId: string, quoteId: string):
   Promise<{ quote: AssistantQuote; runId: string }> {
-  const response = await fetch(
+  const response = await workspaceFetch(
     `/api/assistant/sessions/${encodeURIComponent(sessionId)}/quotes/${encodeURIComponent(quoteId)}/submit`,
     { method: 'POST', headers: JSON_HEADERS, body: '{}', cache: 'no-store' });
   if (!response.ok) throw await readError(response);

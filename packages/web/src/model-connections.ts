@@ -1,3 +1,5 @@
+import { workspaceFetch } from './deployment';
+
 export const modelRoles = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof modelRoles[number];
 export type ModelConnection = {
@@ -68,7 +70,7 @@ export async function connectionApi<T>(path = '', body?: unknown, signal?: Abort
   return modelSettingsApi<T>(`/api/model-connections${path}`, body, signal);
 }
 export async function modelSettingsApi<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal, cache: 'no-store',
+  const response = await workspaceFetch(path, { signal, cache: 'no-store',
     ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body) }) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result?.error?.message ?? '无法读取或保存模型连接，请检查本机后端。');

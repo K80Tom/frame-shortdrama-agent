@@ -1,7 +1,7 @@
-import type { DataEventV1 } from '@lyra/shared';
 import type { DataOutboxRepository } from './repository';
 import type { StoredDataEvent } from './outbox';
 import type { DataProjector } from './projector';
+import type { TenantDataEvent } from './tenant-event';
 
 export interface DataDispatcherOptions {
   batchSize?: number;
@@ -20,7 +20,7 @@ export interface DispatchSummary {
   deadLettered: number;
 }
 
-function eventOf(stored: StoredDataEvent): DataEventV1 { return stored.event; }
+function eventOf(stored: StoredDataEvent): TenantDataEvent { return stored.event; }
 
 /**
  * Outbox 消费者：逐条投递、失败退避、版本缺口不阻塞其他 aggregate。

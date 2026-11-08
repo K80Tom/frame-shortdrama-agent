@@ -14,6 +14,10 @@ interface SessionRow {
   id: string; context_key: string; context_json: AssistantContext; title: string;
   created_at: Date | string; updated_at: Date | string;
 }
+interface ConversationVersionRow {
+  conversation_version: string | number;
+  last_message_seq: string | number;
+}
 interface MessageRow {
   id: string; session_id: string; seq: string | number; role: AssistantMessage['role']; content: string; thinking: string;
   status: AssistantMessage['status']; tool_name: string | null; payload_json: Record<string, unknown> | null; created_at: Date | string;
@@ -65,21 +69,75 @@ export class PostgresAssistantRepository implements AssistantRepository {
   }
 
   async appendMessage(message: Omit<AssistantMessage, 'seq' | 'createdAt'>): Promise<AssistantMessage> {
-    await this.getSession(message.sessionId);
-    const result = await this.database.query<MessageRow>(
-      `INSERT INTO assistant_messages (id, session_id, seq, role, content, thinking, status, tool_name, payload_json)
-       SELECT $1, $2, COALESCE((SELECT MAX(seq) FROM assistant_messages WHERE session_id = $2), 0) + 1, $3, $4, $5, $6, $7, $8::jsonb
-       RETURNING *`,
-      [message.id, message.sessionId, message.role, message.content, message.thinking, message.status,
+    return this.database.transaction(async client => {
+      const locked = await client.query<ConversationVersionRow>(`
+        SELECT conversation_version, last_message_seq
+        FROM assistant_sessions WHERE id = $1 FOR UPDATE
+      `, [message.sessionId]);
+      const state = locked.rows[0];
+      if (!state) throw new AssistantError(404, 'ASSISTANT_SESSION_NOT_FOUND', '助手会话不存在或已过期，请重新打开 AI 工作区。');
+      const seq = Number(state.last_message_seq) + 1;
+      if (!Number.isSafeInteger(seq) || seq < 1) {
+        throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '对话版本异常，请稍后重试。');
+      }
+      const result = await client.query<MessageRow>(`
+        INSERT INTO assistant_messages
+          (id, session_id, seq, role, content, thinking, status, tool_name, payload_json)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+        RETURNING *
+      `, [message.id, message.sessionId, seq, message.role, message.content, message.thinking, message.status,
         message.toolName ?? null, message.payload ? JSON.stringify(message.payload) : null]);
-    if (message.role === 'user') {
-      await this.database.query(
-        `UPDATE assistant_sessions SET updated_at = now(), title = CASE WHEN title = '' THEN $2 ELSE title END WHERE id = $1`,
-        [message.sessionId, message.content.slice(0, 40)]);
-    }
+      await client.query(`
+        UPDATE assistant_sessions
+        SET conversation_version = conversation_version + 1,
+            last_message_seq = $2,
+            updated_at = now(),
+            title = CASE WHEN title = '' AND $3 = 'user' THEN $4 ELSE title END
+        WHERE id = $1
+      `, [message.sessionId, seq, message.role, message.content.slice(0, 40)]);
+      const row = result.rows[0];
+      if (!row) throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '消息写入失败，请重试。');
+      return messageOf(row);
+    });
+  }
+
+  async conversationVersion(sessionId: string): Promise<number> {
+    const result = await this.database.query<ConversationVersionRow>(`
+      SELECT conversation_version, last_message_seq FROM assistant_sessions WHERE id = $1
+    `, [sessionId]);
     const row = result.rows[0];
-    if (!row) throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '消息写入失败，请重试。');
-    return messageOf(row);
+    if (!row) throw new AssistantError(404, 'ASSISTANT_SESSION_NOT_FOUND', '助手会话不存在或已过期，请重新打开 AI 工作区。');
+    const version = Number(row.conversation_version);
+    const lastMessageSeq = Number(row.last_message_seq);
+    if (!Number.isSafeInteger(version) || version < 0 || !Number.isSafeInteger(lastMessageSeq)
+      || lastMessageSeq < 0 || version !== lastMessageSeq) {
+      throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '对话版本异常，请稍后重试。');
+    }
+    return version;
+  }
+
+  async conversationSnapshot(sessionId: string): Promise<{ version: number; messages: AssistantMessage[] }> {
+    return this.database.transaction(async client => {
+      const stateResult = await client.query<ConversationVersionRow>(`
+        SELECT conversation_version, last_message_seq
+        FROM assistant_sessions WHERE id = $1 FOR SHARE
+      `, [sessionId]);
+      const state = stateResult.rows[0];
+      if (!state) throw new AssistantError(404, 'ASSISTANT_SESSION_NOT_FOUND', '助手会话不存在或已过期，请重新打开 AI 工作区。');
+      const version = Number(state.conversation_version);
+      const lastMessageSeq = Number(state.last_message_seq);
+      if (!Number.isSafeInteger(version) || version < 0 || version !== lastMessageSeq) {
+        throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '对话版本异常，请稍后重试。');
+      }
+      const result = await client.query<MessageRow>(`
+        SELECT * FROM assistant_messages WHERE session_id = $1 ORDER BY seq
+      `, [sessionId]);
+      const messages = result.rows.map(messageOf);
+      if ((messages.at(-1)?.seq ?? 0) !== lastMessageSeq || messages.length !== lastMessageSeq) {
+        throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '对话消息序列不完整，请稍后重试。');
+      }
+      return { version, messages };
+    });
   }
 
   async listQuotes(sessionId: string): Promise<AssistantQuote[]> {
