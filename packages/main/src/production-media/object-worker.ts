@@ -63,8 +63,9 @@ export class ProductionMediaObjectService {
     if (record.status !== 'ready') throw new ProductionMediaError(409, 'OBJECT_MEDIA_NOT_READY',
       '媒体对象正在入库或需要重试，暂不可读取。');
     const loaded = await this.objects.get({ scope, key: record.key,
-      expectedSha256: record.sha256, maxBytes: this.local.limits.maxBytes });
+      expectedSha256: record.sha256, maxBytes: this.local.limits.maxBytes,...(record.versionId!==null?{providerVersionId:record.versionId}:{}) });
     if (loaded.object.provider !== record.provider || loaded.object.bucket !== record.bucket
+      || (record.versionId!==null&&loaded.object.versionId!==record.versionId)
       || loaded.object.key !== record.key || loaded.object.sha256 !== record.sha256
       || loaded.object.size !== record.sizeBytes || loaded.body.length !== record.sizeBytes) {
       throw new ProductionMediaError(409, 'OBJECT_MEDIA_VERIFICATION_FAILED',
@@ -81,7 +82,7 @@ export class ProductionMediaObjectService {
     if (!this.objects.createPresignedGet) throw new ProductionMediaError(503, 'OBJECT_MEDIA_SIGNING_UNAVAILABLE',
       '当前存储后端不支持签名下载，请使用同源媒体接口。');
     return this.objects.createPresignedGet({ scope, key: record.key,
-      expectedSha256: record.sha256, expiresInSeconds });
+      expectedSha256: record.sha256, expiresInSeconds,...(record.versionId!==null?{providerVersionId:record.versionId}:{}) });
   }
 
   private timestamp(): string {

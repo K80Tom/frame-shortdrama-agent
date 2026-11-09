@@ -24,15 +24,15 @@ export class ProductionMediaObjectProjection {
   }
 
   /** Restores the local rollback/work copy and re-runs ffprobe plus media limits. */
-  async restore(scope: ObjectStorageScope, reference: Pick<ObjectDescriptor, 'key' | 'sha256' | 'size'>):
+  async restore(scope: ObjectStorageScope, reference: Pick<ObjectDescriptor, 'key' | 'sha256' | 'size'> & Partial<Pick<ObjectDescriptor,'versionId'>>):
   Promise<LocalVideoObject> {
     if (!reference || !Number.isSafeInteger(reference.size) || reference.size < 1
       || reference.size > this.local.limits.maxBytes) {
       throw new ProductionMediaError(409, 'OBJECT_MEDIA_REFERENCE_INVALID', '对象媒体引用无效。');
     }
     const result = await this.objects.get({ scope, key: reference.key,
-      expectedSha256: reference.sha256, maxBytes: this.local.limits.maxBytes });
-    if (result.body.length !== reference.size || result.object.size !== reference.size) {
+      expectedSha256: reference.sha256, maxBytes: this.local.limits.maxBytes,...(reference.versionId!=null?{providerVersionId:reference.versionId}:{}) });
+    if (result.body.length !== reference.size || result.object.size !== reference.size || reference.versionId!=null&&result.object.versionId!==reference.versionId) {
       throw new ProductionMediaError(409, 'OBJECT_MEDIA_VERIFICATION_FAILED',
         '对象存储中的视频大小与登记信息不一致。');
     }

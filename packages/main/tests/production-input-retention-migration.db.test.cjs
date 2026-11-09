@@ -91,3 +91,35 @@ test('038 installs on empty historical scene refs and atomically rejects unprova
     }
   }finally{await client.end();}
 });
+test('044 never upgrades an unprovable provider selector into an internal object version',{
+ skip:process.env.DATABASE_ADMIN_URL?false:'isolated DATABASE_ADMIN_URL required',
+},async()=>{
+ const client=new Client({connectionString:process.env.DATABASE_ADMIN_URL});await client.connect();
+ try{for(const orphan of [false,true]){
+  await client.query('BEGIN');try{
+   const schema='object_upgrade_'+randomBytes(12).toString('hex');await client.query('CREATE SCHEMA '+schema);
+   await client.query('SET LOCAL search_path TO '+schema+',public');await client.query("SELECT set_config('lyra.system_bypass','on',true)");
+   await client.query(`CREATE TABLE users(id text PRIMARY KEY);
+    CREATE TABLE jobs(workspace_id text,id text,state text,UNIQUE(workspace_id,id));
+    CREATE TABLE object_records(workspace_id text,id text,status text,deleted_at timestamptz,UNIQUE(workspace_id,id));
+    CREATE TABLE production_input_snapshots(workspace_id text,id text,UNIQUE(workspace_id,id));
+    CREATE TABLE production_input_states(workspace_id text,snapshot_id text,state text);
+    CREATE TABLE production_input_shots(workspace_id text,snapshot_id text,shot_version_id text);
+    CREATE TABLE shot_spec_versions(workspace_id text,id text,spec_json jsonb);
+    CREATE TABLE data_outbox_events(aggregate_type text CONSTRAINT data_outbox_events_aggregate_type_check CHECK(aggregate_type IN ('asset')))`);
+   const workspace='ws_'+'a'.repeat(32),spec={assetPacks:orphan?[{media:[{objectId:'obj_'+'b'.repeat(32),objectVersionId:'provider-old',checksum:'c'.repeat(64)}]}]:[]};
+   await client.query("INSERT INTO production_input_snapshots VALUES($1,'snapshot_one')",[workspace]);
+   await client.query("INSERT INTO production_input_states VALUES($1,'snapshot_one','frozen')",[workspace]);
+   await client.query("INSERT INTO production_input_shots VALUES($1,'snapshot_one','shotversion_one')",[workspace]);
+   await client.query("INSERT INTO shot_spec_versions VALUES($1,'shotversion_one',$2)",[workspace,spec]);
+   const sql=migrationSqlForExecution('044_object_versions.sql',readFileSync(join(__dirname,'../migrations/044_object_versions.sql'),'utf8'));
+   await client.query('SAVEPOINT object_upgrade');
+   if(orphan){
+    await assert.rejects(client.query(sql),e=>e.code==='55000');await client.query('ROLLBACK TO SAVEPOINT object_upgrade');
+    assert.equal((await client.query('SELECT to_regclass($1) AS name',[schema+'.object_versions'])).rows[0].name,null);
+    assert.equal((await client.query('SELECT to_regclass($1) AS name',[schema+'.production_input_object_version_refs'])).rows[0].name,null);
+    assert.deepEqual((await client.query('SELECT spec_json FROM shot_spec_versions')).rows[0].spec_json,spec);
+   }else{await client.query(sql);assert.equal((await client.query('SELECT count(*)::integer AS n FROM object_versions')).rows[0].n,0);}
+  }finally{await client.query('ROLLBACK');}
+ }}finally{await client.end();}
+});

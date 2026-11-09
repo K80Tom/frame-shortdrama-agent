@@ -64,7 +64,7 @@ PostgreSQL 凭据职责固定如下：
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | `postgres`、一次性 `postgres-app-role`、`migrate` | 数据库所有者/迁移管理员；创建角色、修改 schema、执行显式 migration；不得注入 API/Worker |
 | `POSTGRES_APP_USER` / `POSTGRES_APP_PASSWORD` | `main-api`、`main-worker` | `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`；仅连接、schema usage、表 DML、序列和所需函数执行 |
 
-`postgres-app-role` 每次启动都会幂等校正应用角色属性和密码，清除旧角色成员关系与角色级配置，为已有表补权限，并为迁移管理员后续创建的表/序列/函数/类型设置默认权限；随后 `migrate` 才以管理员 DSN 执行。应用角色名只允许小写 PostgreSQL 标识符且不能与管理员相同，两个密码也必须不同；如果应用角色意外成为数据库/schema/table/function owner，初始化会直接失败，必须先由管理员重新分配 owner。迁移 025–039 及本 PR 的 042 构成当前 Stage 1 schema，其中迁移 030 对租户表执行回填、`workspace_id NOT NULL`、RLS `ENABLE/FORCE`，迁移 031 收紧向量投影 fencing/checkpoint，迁移 042 按 workspace 隔离资产检索策略 Registry 与不可变审计流；API/Worker 启动以 042 为最低基线，并拒绝 superuser 或 `BYPASSRLS` 连接，避免因错误 DSN 绕过租户策略。
+`postgres-app-role` 每次启动都会幂等校正应用角色属性和密码，清除旧角色成员关系与角色级配置，为已有表补权限，并为迁移管理员后续创建的表/序列/函数/类型设置默认权限；随后 `migrate` 才以管理员 DSN 执行。应用角色名只允许小写 PostgreSQL 标识符且不能与管理员相同，两个密码也必须不同；如果应用角色意外成为数据库/schema/table/function owner，初始化会直接失败，必须先由管理员重新分配 owner。迁移 025–044 及本 PR 的 045 构成当前 Stage 1 schema，其中迁移 030 对租户表执行回填、`workspace_id NOT NULL`、RLS `ENABLE/FORCE`，迁移 031 收紧向量投影 fencing/checkpoint，迁移 045 按 workspace 隔离资产检索策略 Registry 与不可变审计流；API/Worker 启动以 045 为最低基线，并拒绝 superuser 或 `BYPASSRLS` 连接，避免因错误 DSN 绕过租户策略。
 
 Compose 只把显式白名单中的运行变量传给 `main-api` / `main-worker`，不会用 `env_file` 把整个 `.env` 注入容器；因此 PostgreSQL 管理员密码和 MinIO root 密码不会出现在应用容器环境中。
 
@@ -213,7 +213,7 @@ docker compose down                   # 停止容器，保留卷
 
 当前分支已建立 Stage 1 拓扑、端口、数据迁移、会话登录界面、健康状态和测试基座，但以下项目仍需在后续 contract 迁移或目标环境中完成：
 
-- 在目标环境完整应用迁移 025–039 及本 PR 的 042，核验迁移 030 的回填、`NOT NULL`、`ENABLE/FORCE RLS`，并确认 API/Worker 实际连接角色不是 superuser 且没有 `BYPASSRLS`；
+- 在目标环境完整应用迁移 025–044 及本 PR 的 045，核验迁移 030 的回填、`NOT NULL`、`ENABLE/FORCE RLS`，并确认 API/Worker 实际连接角色不是 superuser 且没有 `BYPASSRLS`；
 - 将所有业务 Repository、后台任务和跨 workspace 访问路径完成 tenant contract/404 验收；
 - 将 Production/Asset/Video 旧调度逐步迁入新的通用 `jobs` 租约队列；
 - 对已接入的媒体对象记录/持久任务/Outbox/Worker 投影执行故障演练，验证签名入口的公网 HTTPS endpoint 与授权边界，并补齐孤儿对象 GC；
@@ -223,6 +223,6 @@ docker compose down                   # 停止容器，保留卷
 
 因此，本 Compose 是可执行的 Stage 1 集成基线，不是未经环境验收就可以直接承载公网多租户数据的安全背书。
 
-### 资产检索策略 Registry 升级（042）
+### 资产检索策略 Registry 升级（045）
 
 先停旧版本治理写入，再以管理员执行迁移并部署新 API/Worker；旧策略和不可变审计仅归属保留 workspace，不复制给新租户。不能直接回滚旧镜像继续写新 schema。升级、备份恢复边界及验证入口见[隔离增量记录](../docs/asset-policy-tenant-isolation.md)。本增量不代表真实 shadow probe 或 #128 其他验收已完成。

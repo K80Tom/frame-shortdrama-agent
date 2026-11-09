@@ -86,6 +86,32 @@ test('non-retryable worker failures become terminal queue failures', async () =>
   assert.equal(failed.retryable, false);
   assert.equal(failed.error, 'invalid projection');
 });
+test('domain-transaction handlers must prove durable settlement and cannot be double-completed by the worker',async()=>{
+ for(const state of ['succeeded','queued','running']){
+  let automatic=0,failed,warnings=0;const repository={async claim(){return lease('test.domain');},async heartbeat(){return job();},
+    async get(){return {...job(),state};},async complete(){automatic++;},async fail(input){failed=input;return {...job(),state:'failed'};}};
+  const resolver={async resolve(){return {userId,workspaceId,role:'owner',requestId:'worker:'+jobId};}};
+  const worker=new PersistentJobWorker(repository,resolver,[{queueName:'projection',kind:'test.domain',settlement:'domain_transaction',
+    async handle(ctx){assert.equal(ctx.tenant.workspaceId,workspaceId);}}],{workerId:'worker-test',now:()=>new Date(now),logger:{warn(){warnings++;}}});
+  await worker.runOnce('projection');assert.equal(automatic,0);
+  assert.equal(failed,undefined,'the generic worker must not settle only jobs outside the domain transaction');
+  assert.equal(warnings,state==='running'?1:0,'unconfirmed settlement keeps its lease for expiry/reconciliation');
+ }
+});
+test('a domain rollback or unknown commit does not orphan its pending fact with a generic job failure',async()=>{
+ let warnings=[],failed=0,completed=0;
+ const worker=new PersistentJobWorker({async claim(){return lease('test.domain');},async fail(){failed++;},async complete(){completed++;}},
+  {async resolve(){return {userId,workspaceId,role:'owner',requestId:'worker:'+jobId};}},
+  [{queueName:'projection',kind:'test.domain',settlement:'domain_transaction',async handle(){throw Error('PRIVATE_DATABASE_ERROR');}}],
+  {workerId:'worker-test',now:()=>new Date(now),logger:{warn(message){warnings.push(message);}}});
+ await worker.runOnce('projection');assert.equal(failed,0);assert.equal(completed,0);assert.equal(warnings.length,1);assert.ok(!warnings[0].includes('PRIVATE_DATABASE_ERROR'));
+});
+test('a resolver cannot substitute another workspace before a handler receives authority',async()=>{
+ let handled=0,failed;const repository={async claim(){return lease('test.tenant');},async fail(input){failed=input;return {...job(),state:'failed'};}};
+ const resolver={async resolve(){return {userId,workspaceId:'ws_'+'f'.repeat(32),role:'owner',requestId:'worker:'+jobId};}};
+ const worker=new PersistentJobWorker(repository,resolver,[{queueName:'projection',kind:'test.tenant',async handle(){handled++;}}],{workerId:'worker-test',now:()=>new Date(now)});
+ await worker.runOnce('projection');assert.equal(handled,0);assert.equal(failed.workspaceId,workspaceId);
+});
 
 test('dispatcher pump converts a pending outbox record into one durable projection job', async () => {
   const enqueued = [];
@@ -187,5 +213,5 @@ test('031 migration fences vector projection metadata writes', () => {
 
 test('first-admin bootstrap requires the complete Stage 1 migration baseline', () => {
   const source = readFileSync(join(__dirname, '../src/auth/bootstrap-admin.ts'), 'utf8');
-  assert.match(source, /hasMigrations\(\['025', '028', '030', '031', '042'\]\)/u);
+  assert.match(source, /hasMigrations\(\['025', '028', '030', '031', '045'\]\)/u);
 });

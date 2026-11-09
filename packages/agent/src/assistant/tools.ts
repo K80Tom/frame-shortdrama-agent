@@ -1,3 +1,5 @@
+import { defineTool, digestOf, type ToolDefinition } from '@lyra/shared';
+import { ToolRegistry } from '../kernel/tool-registry';
 import { AssistantError } from './contracts';
 
 /**
@@ -72,4 +74,67 @@ export async function executeAssistantTool(
       // 模型发明了工具名：不执行，如实回报，让它改用白名单工具或直接回答。
       throw new AssistantError(400, 'ASSISTANT_TOOL_UNKNOWN', `不支持的工具「${name}」。可用工具：${ASSISTANT_TOOLS.map(tool => tool.name).join('、')}。`);
   }
+}
+
+/**
+ * 版本化 Tool Definition：旧 `ASSISTANT_TOOLS` 保持给 Prompt 使用，
+ * 这里提供带 schema、副作用、权限与幂等声明的不可变定义，供 Registry 冻结。
+ */
+function assistantDefinition(input: {
+  name: string; description: string; argument?: { name: string; description: string };
+}): ToolDefinition {
+  const properties = input.argument
+    ? { [input.argument.name]: { type: 'string' as const, minLength: 1, maxLength: 128, description: input.argument.description } }
+    : {};
+  return defineTool({
+    toolId: input.name,
+    version: '1.0.0',
+    displayName: input.name,
+    description: input.description,
+    ownerDomain: 'assistant',
+    inputSchema: {
+      type: 'object',
+      properties,
+      required: input.argument ? [input.argument.name] : [],
+      additionalProperties: false,
+    },
+    outputSchema: { type: 'object', properties: {}, additionalProperties: true },
+    sideEffect: 'none',
+    executionOwner: 'agent_selectable',
+    requiredPermission: 'workspace_read',
+    allowedAgentIds: ['project-copilot'],
+    allowedWorkflowIds: [],
+    sensitivity: { input: 'internal', output: 'internal' },
+    cost: null,
+    idempotency: { strategy: 'tool_call_id', keyVersion: 1 },
+    retry: { timeoutMs: 15_000, maxAttempts: 1, backoffMs: 0, retryableCodes: [], unknownCodes: [] },
+    capability: { async: false, reconcile: false, cancel: false },
+    providers: { hosts: [], modelConnections: [] },
+    limits: { maxInputBytes: 1024, maxOutputBytes: 8 * 1024, maxItems: 20 },
+    produces: { entities: [], revisions: [], artifacts: [], evidence: [], events: [] },
+    adapterDigest: digestOf({ adapter: 'assistant-tools', version: '1.0.0' }),
+    status: 'frozen',
+    frozenAt: '2024-01-01T00:00:00.000Z',
+  });
+}
+
+export const ASSISTANT_TOOL_DEFINITIONS: readonly ToolDefinition[] = Object.freeze(
+  ASSISTANT_TOOLS.map(tool => assistantDefinition({
+    name: tool.name, description: tool.description,
+    ...(tool.argument ? { argument: { name: tool.argument.name, description: tool.argument.description } } : {}),
+  })),
+);
+
+/** 构造绑定真实 Port 的 Registry；Adapter 仍然只走既有的安全执行入口。 */
+export function createAssistantToolRegistry(ports: AssistantToolPorts): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const definition of ASSISTANT_TOOL_DEFINITIONS) {
+    registry.register(definition, {
+      execute: async (args) => {
+        const result = await executeAssistantTool(ports, definition.toolId, args);
+        return { summary: result.observation, data: JSON.parse(result.observation) };
+      },
+    });
+  }
+  return registry;
 }

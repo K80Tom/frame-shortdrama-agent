@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { access, unlink } from 'node:fs/promises';
+import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   ProductionMediaError, TIMELINE_MANIFEST_SCHEMA_VERSION, parseMediaId,
   type ComposeTimelineRequest, type OwnedLocalVideo, type TimelineEditPlan,
   type TimelineEditRequest, type TimelineManifest, type TimelineClipDirective,
 } from './contracts';
+import { timelineFontCandidates, findTimelineFont, timelineFontFilterPath } from './timeline-fonts';
 import type { ProcessRunner } from './probe';
 import type { ProductionMediaStore } from './store';
 
@@ -15,6 +16,8 @@ export interface TimelineComposerOptions {
   maxTimelineDurationSeconds?: number;
   timeoutMs?: number;
   now?: () => Date;
+  /** 后端配置/测试注入；不接受客户端字体路径。 */
+  fontCandidates?: readonly string[];
 }
 
 const TITLE_CARD_SECONDS = 2.5;
@@ -22,14 +25,7 @@ const END_CARD_SECONDS = 2.2;
 const CARD_FADE_SECONDS = 0.5;
 const MIN_CLIP_SECONDS = 1;
 const CARD_BACKGROUND = '0x0A0A0F';
-const FONT_CANDIDATES = [
-  '/System/Library/Fonts/PingFang.ttc',
-  '/System/Library/Fonts/Hiragino Sans GB.ttc',
-  '/System/Library/Fonts/STHeiti Light.ttc',
-  '/System/Library/Fonts/Supplemental/Songti.ttc',
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-];
+
 
 interface NormalizedEditRequest {
   titleCardText: string | null;
@@ -63,10 +59,12 @@ export class TimelineComposer {
   private readonly timeoutMs: number;
   private readonly now: () => Date;
   private readonly active = new Map<string, Promise<TimelineManifest>>();
+  private readonly fontCandidates: readonly string[];
   private drawtextSupport: Promise<boolean> | null = null;
 
   constructor(private readonly store: ProductionMediaStore, private readonly runner: ProcessRunner,
     options: TimelineComposerOptions = {}) {
+    this.fontCandidates = [...(options.fontCandidates ?? timelineFontCandidates())];
     this.ffmpegExecutable = options.ffmpegExecutable ?? 'ffmpeg';
     this.maxClips = options.maxClips ?? 200;
     this.maxTimelineDurationSeconds = options.maxTimelineDurationSeconds ?? Math.min(15 * 60, store.limits.maxDurationSeconds);
@@ -274,10 +272,7 @@ export class TimelineComposer {
   }
 
   private async detectFont(): Promise<string | null> {
-    for (const candidate of FONT_CANDIDATES) {
-      if (await access(candidate).then(() => true, () => false)) return candidate;
-    }
-    return null;
+    return findTimelineFont(this.fontCandidates);
   }
 
   private ffmpegArgs(inputs: OwnedLocalVideo[], outputPath: string, width: number, height: number, audio: boolean,
@@ -402,7 +397,7 @@ export class TimelineComposer {
     const parts = [`[${inputIndex}:v:0]fps=30,setsar=1,format=yuv420p,settb=AVTB`];
     for (const line of lines) {
       if (!fontFile) break;
-      parts.push(`drawtext=fontfile='${fontFile}':text='${line.text}':fontcolor=white:`+
+      parts.push(`drawtext=fontfile='${timelineFontFilterPath(fontFile)}':text='${line.text}':fontcolor=white:`+
         `fontsize=${line.fontSize}:x=(w-text_w)/2:y=${line.y}:shadowcolor=black@0.6:shadowx=2:shadowy=2`);
     }
     parts.push(`fade=t=in:st=0:d=${CARD_FADE_SECONDS}`);

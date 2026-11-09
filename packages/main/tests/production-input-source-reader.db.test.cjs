@@ -135,10 +135,11 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   } };
   const checkObject = ctx => db.runWithTenant(ctx, () => db.transaction(client =>
     new ProductionInputObjectVerifier(client, objectStorageStub).check(ctx, { objectId, versionId: 'version-one', checksum })));
-  assert.equal(await checkObject(a), null);
-  assert.equal(await checkObject(b), 'REFERENCE_NOT_FOUND'); assert.equal(headCalls, 1);
+  // Legacy provider-only metadata is not an internal immutable version. Positive real-byte proof lives in object-versions.db.test.cjs.
+  assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE');
+  assert.equal(await checkObject(b), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 0);
   await admin.query('UPDATE object_records SET version_id=NULL WHERE id=$1', [objectId]);
-  assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 1);
+  assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 0);
   const snapshots = new PostgresProductionInputSnapshotRepository(db), snapshotId = 'snapshot_' + token();
   const manifestRef = { id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) };
   // Persistence fixture only; intentionally unresolved source refs may be saved as draft, never as ready.

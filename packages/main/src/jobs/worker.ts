@@ -2,8 +2,10 @@ import { randomBytes } from 'node:crypto';
 import { JobQueueError, type JobLease, type JobQueueRepository } from './contracts';
 import type { JobTenantResolver } from './tenant';
 import { tenantExecutionScope, type TenantExecutionScope } from '../tenancy/scope';
+import {parseTenantContext,type TenantContext} from '../tenancy/context';
 
 export interface JobHandlerContext {
+  readonly tenant:TenantContext;
   readonly lease: JobLease;
   readonly signal: AbortSignal;
   checkpoint(stepKey: string, checkpoint: Record<string, unknown>,
@@ -12,6 +14,8 @@ export interface JobHandlerContext {
 }
 
 export interface JobHandler {
+  /** Handler settles domain fact + Outbox + job in ONE transaction; Worker verifies the durable fence/state. */
+  readonly settlement?: 'domain_transaction';
   readonly queueName: string;
   readonly kind: string;
   handle(context: JobHandlerContext): Promise<void>;
@@ -78,6 +82,7 @@ export class PersistentJobWorker {
       throw new Error('retryBaseMs must be 0..3600000');
     }
     for (const handler of handlers) {
+      if(handler.settlement!==undefined&&handler.settlement!=='domain_transaction')throw new Error('不支持的任务结算模式。');
       const key = this.handlerKey(handler.queueName, handler.kind);
       if (this.handlers.has(key)) throw new Error(`Duplicate job handler: ${key}`);
       this.handlers.set(key, handler);
@@ -109,12 +114,13 @@ export class PersistentJobWorker {
     if (!lease) return false;
     let tenant;
     try {
-      tenant = await this.tenantResolver.resolve(lease.job.workspaceId, lease.job.id);
+      tenant = parseTenantContext(await this.tenantResolver.resolve(lease.job.workspaceId, lease.job.id));
+      if(tenant.workspaceId!==lease.job.workspaceId)throw new NonRetryableJobError('任务租户与持久工作区不一致。');
     } catch (error) {
-      await this.executionScope.runAsSystem('jobs.tenant.failure', () => this.failLease(lease, error, true));
+      await this.executionScope.runAsSystem('jobs.tenant.failure', () => this.failLease(lease, error, !(error instanceof NonRetryableJobError)));
       return true;
     }
-    await this.executionScope.runWithTenant(tenant, () => this.executeLease(lease));
+    await this.executionScope.runWithTenant(tenant, () => this.executeLease(lease,tenant));
     return true;
   }
 
@@ -130,7 +136,7 @@ export class PersistentJobWorker {
     }
   }
 
-  private async executeLease(lease: JobLease): Promise<void> {
+  private async executeLease(lease: JobLease,tenant:TenantContext): Promise<void> {
     const handler = this.handlers.get(this.handlerKey(lease.job.queueName, lease.job.kind));
     const controller = new AbortController();
     let leaseLost = false;
@@ -163,6 +169,7 @@ export class PersistentJobWorker {
     try {
       if (!handler) throw new NonRetryableJobError(`Unsupported job kind: ${lease.job.kind}`);
       await handler.handle({
+        tenant,
         lease,
         signal: controller.signal,
         assertLease: heartbeat,
@@ -172,9 +179,21 @@ export class PersistentJobWorker {
       });
       if (heartbeatInFlight) await heartbeatInFlight;
       if (leaseLost) return;
-      await this.repository.complete(identity());
+      if(handler.settlement==='domain_transaction'){
+        const settled=await this.repository.get(tenant,lease.job.id);
+        if(!settled||settled.fencingToken!==lease.fencingToken||settled.state==='running')
+          throw new NonRetryableJobError('领域处理器没有持久化结算对应栅栏任务。');
+      }else await this.repository.complete(identity());
     } catch (error) {
       if (leaseLost || error instanceof JobQueueError && error.code === 'JOB_LEASE_LOST') return;
+      if (handler?.settlement === 'domain_transaction') {
+        // A domain settlement may have rolled back (or its commit outcome may
+        // be unknown). Never mutate only jobs here: that could strand a pending
+        // domain fact behind a failed job. The durable lease expires and the
+        // domain handler reconciles the whole transaction on the next claim.
+        this.logger.warn('领域任务未确认原子结算，保留租约等待到期恢复。');
+        return;
+      }
       await this.failLease(lease, error, !(error instanceof NonRetryableJobError));
     } finally {
       clearInterval(timer);

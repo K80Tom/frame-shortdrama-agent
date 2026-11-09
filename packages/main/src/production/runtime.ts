@@ -395,7 +395,10 @@ export class VideoProductionExecutor implements ProductionExecutor {
       ...director.promptLines, ...repair.promptLines].join('\n');
     const prompt = basePrompt + methodReference(run.methodPacks, 'video', Math.min(4000, 8000 - basePrompt.length));
     return { prompt, ratio: run.ratio, duration: Math.max(4, Math.min(30, Math.ceil(shot.design.durationMs / 1000))),
-      resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const, generateAudio: true,
+      resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const,
+      // Video-provider audio is a temporary scratch track, never the formal voice
+      // deliverable. The independent voice graph owns formal dialogue/mix/subtitles.
+      generateAudio: false,
       referenceAssetIds: references.assetIds,
       clientRequestId: `prod_${context.operationKey ?? canonicalDigest({ runId: run.id, taskId: task.id })}`.slice(0, 100),
       expectedModelConnectionRevision: status.connectionRevision, allowPaid: true as const };
@@ -425,6 +428,13 @@ export class VideoProductionExecutor implements ProductionExecutor {
           ...(coordinates.repairIndex === null ? {} : { repairIndex: coordinates.repairIndex }),
           storyboardRevisionId: board.id, durationSeconds: local.probe.durationSeconds,
           width: local.probe.width, height: local.probe.height, hasAudio: local.probe.hasAudio,
+          audioKind: local.probe.hasAudio ? 'provider_scratch' : 'none',
+          audioRequested: video.generateAudio,
+          pictureStatus: 'picture_ready', audioStatus: 'audio_pending',
+          controlFrames: { firstFrameAssetId: video.firstFrameAssetId ?? null,
+            lastFrameAssetId: video.lastFrameAssetId ?? null },
+          actualControlsSent: { firstFrame: Boolean(video.firstFrameAssetId), lastFrame: Boolean(video.lastFrameAssetId),
+            referenceImages: video.referenceAssetIds?.length ?? 0 },
           model: video.model, modelConnectionRevision: video.modelConnectionRevision,
           directorConstraintMode: director.state === 'ready' && director.artifactId ? 'prompt-only' : 'none',
           directorSceneArtifactId: director.state === 'ready' ? director.artifactId : null,
