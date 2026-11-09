@@ -49,3 +49,11 @@ projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboa
 已在全新 lyra_shot_adoption_test 库执行 001–031/033/034；非特权 PostgreSQL 验证创建幂等、一事件、跨租户读取拒绝、校验失败回滚、并发采用仅一个成功、项目 revision 2→3、旧 CAS 冲突、同 head no-op 不额外推进、只追加一次采用事件。test:rls2/2；既有 DB 矩阵27/27；契约/事件相关31/31；构建通过。采用回调在此事务测试中是桩，仅证明事务/CAS/Outbox，不证明真实资产授权已接通。
 
 旧测试库上的 033 草案不再用于当前迁移 checksum 验证。仍需正式引用验证适配、候选编译、Snapshot 记录/采用/冻结、HTTP/客户端与 Run 执行器切换后，才能交付整个 #123。
+
+## 当前项目只读候选编译检查点
+
+来源 reader 的同一条 MVCC SQL 已包含指定分集与其正式 ShotSpec heads/版本（有序、workspace/project/episode/shot 多重关联、2001 项显式超限哨兵）。编译器从这个服务端视图派生剧本/计划/分镜/镜头版本及引用清单；不接收浏览器任意 ID 清单，不把未知来源伪造成默认版本，不写数据库，不升为 ready/frozen。缺少采用计划/分镜/正式镜头时返回 blocked + candidate:null；同资源混入不同版本或跨租户镜头会被拒绝。编译用的预算/模型等 profile 只能来自 main 服务端版本解析，尚未接通其正式解析器。
+
+构建通过；相关27/27（编译器成功分支使用明确的服务端视图夹具）；真实 PG test:rls2/2 验证同视图正式 head、项目revision、分集越权拒绝，以及实际无正式计划/分镜时编译 blocked。不能把夹具成功分支当作全部真实资源/模型能力已就绪，也不能把 draft 当作生产授权完成。
+
+下一步是正式 profile/版本/对象/能力适配、同事务验证和 Snapshot 持久化/冻结，再接 Run。旧运行依然未切换，整个 #123 尚未达到 PR 交付闭环。

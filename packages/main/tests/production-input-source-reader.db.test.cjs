@@ -6,6 +6,7 @@ const { PostgresDatabase } = require('../dist/db/client');
 const { PostgresProductionInputSourceReader } = require('../dist/production/input-source-reader');
 const { PostgresShotSpecRepository } = require('../dist/production/shot-spec-repository');
 const { sealShotSpecV2 } = require('../dist/production/shot-spec');
+const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
 const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
 const token = () => randomBytes(16).toString('hex');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -97,5 +98,12 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   assert.equal(adoptedEvents.rowCount, 1);
   const replay = await repository.adopt(a, { ...adoption, expectedCurrentVersion: realId, expectedProjectRevision: '3' }, async () => {});
   assert.equal(replay.projectRevision, '3', 'same-head no-op must not advance project');
+  await admin.query('UPDATE script_versions SET content_sha256=$1 WHERE id=$2', [hash(newRaw), newer]);
+  const adoptedView = await reader.readCurrentProjectInputs(a, projectId, episodeId);
+  assert.equal(adoptedView.projectRevision, '3'); assert.equal(adoptedView.shotVersions[0].revisionId, realId);
+  assert.equal(await reader.readCurrentProjectInputs(b, projectId, episodeId), null);
+  assert.equal(await reader.readCurrentProjectInputs(a, projectId, 'episode_missing'), null);
+  const compiled = await new ProductionInputCandidateCompiler(reader).compile(a, projectId, episodeId, {});
+  assert.equal(compiled.state, 'blocked'); assert.equal(compiled.candidate, null); // real project has no adopted plan/board
   await assert.rejects(repository.create({ ...a, role: 'viewer' }, spec), e => e.code === 'REFERENCE_FORBIDDEN');
 });
