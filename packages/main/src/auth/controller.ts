@@ -5,6 +5,7 @@ import {
   CSRF_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   parseLoginInput,
+  parseWorkspaceRegistrationInput,
   type AuthenticatedRequest,
 } from './contracts';
 import type { AuthService, IssuedSession } from './service';
@@ -65,6 +66,11 @@ export class AuthController {
     @Inject('AUTH_COOKIE_OPTIONS') private readonly cookies: AuthCookieOptions,
   ) {}
 
+  @Get('config')
+  config() {
+    return this.auth?.registrationConfig() ?? { registrationMode: 'disabled' as const };
+  }
+
   @Get('session')
   session(@Req() request: FastifyRequest) {
     requireService(this.auth);
@@ -74,6 +80,13 @@ export class AuthController {
   @Post('login') @HttpCode(200)
   async login(@Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
     const issued = await requireService(this.auth).login(parseLoginInput(body));
+    setSessionCookies(reply, issued, this.cookies);
+    return issued.view;
+  }
+
+  @Post('register') @HttpCode(201)
+  async register(@Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
+    const issued = await requireService(this.auth).register(parseWorkspaceRegistrationInput(body));
     setSessionCookies(reply, issued, this.cookies);
     return issued.view;
   }

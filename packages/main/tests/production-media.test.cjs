@@ -738,15 +738,16 @@ test('drawtext font paths normalize Windows separators and escape drive colons',
   assert.equal(timelineFontFilterPath('C:\\Windows\\Fonts\\msyh.ttc'), 'C\\:/Windows/Fonts/msyh.ttc');
   assert.equal(timelineFontFilterPath('/System/Library/Fonts/Hiragino Sans GB.ttc'),
     '/System/Library/Fonts/Hiragino Sans GB.ttc');
-  for (const path of ["C:/font'bad.ttf", '/font;evil.ttf', '/font,evil.ttf', '/font[evil].ttf', 'relative.ttf', '/font.ttf\n']) {
+  for (const path of ["C:/font'bad.ttf", '/font;evil.ttf', '/font,evil.ttf', '/font[evil].ttf', 'relative.ttf', '/font.ttf\n',
+    '//server/share/font.ttf', '\\\\server\\share\\font.ttf', '\\\\.\\pipe\\font.ttf']) {
     assert.throws(() => timelineFontFilterPath(path), TypeError);
   }
 });
 
 
-test('real FFmpeg smoke: local font produces visible title pixels', {
+test('real FFmpeg smoke: local font and actual composer produce visible title/end pixels', {
   skip: process.env.LYRA_TEST_FFMPEG !== '1',
-}, async () => {
+}, async t => {
   const { spawnSync } = require('node:child_process');
   const font = await findTimelineFont(timelineFontCandidates());
   assert.ok(font, 'local integration environment must provide a readable system font');
@@ -758,6 +759,50 @@ test('real FFmpeg smoke: local font produces visible title pixels', {
   assert.equal(result.stdout.length, 320 * 180 * 3);
   assert.ok(result.stdout.some(channel => channel > 128), 'text must change the black frame');
 
+  // Exercise the actual composer-generated filter, not only a handwritten
+  // drawtext string. All media is generated locally; no provider is called.
+  const base = resolve(tmpdir());
+  const root = await mkdtemp(join(base, 'lyra-timeline-font-'));
+  t.after(async () => {
+    const child = relative(base, resolve(root));
+    if (isAbsolute(child) || child.includes(sep) || !child.startsWith('lyra-timeline-font-')) {
+      throw new Error('测试目录越界，拒绝清理。');
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const { FfprobeVideoProber } = require('../dist/production-media');
+  const runner = new BoundedProcessRunner();
+  const store = new ProductionMediaStore(root, new FfprobeVideoProber(runner));
+  const work = await store.createWorkDirectory('font-smoke');
+  const sourcePath = join(work, 'black.mp4');
+  await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:s=320x180:r=30:d=1', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sourcePath], { timeoutMs: 30_000 });
+  const video = await store.importOwnedVideo(sourcePath);
+  let compositions = 0;
+  const composer = new TimelineComposer(store, { run(command, args, options) {
+    if (args.includes('-filter_complex')) compositions++;
+    return runner.run(command, args, options);
+  } });
+  const request = { videoIds: [video.id], title: '本地字体回归', edit: {
+    titleCardText: '中文片头', endCardText: '中文片尾', transitionSeconds: 0.4,
+  } };
+  const manifest = await composer.compose(request);
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  assert.ok(Math.abs(manifest.output.probe.durationSeconds - manifest.composition.expectedDurationSeconds) < 0.15);
+  assert.equal(manifest.output.probe.width, 320);
+  assert.equal(manifest.output.probe.height, 180);
+  assert.ok(!JSON.stringify(manifest).includes(font), 'private font path is not a delivery manifest field');
+  const output = await store.getVideo(manifest.output.id);
+  for (const seconds of [1, manifest.composition.expectedDurationSeconds - 1]) {
+    const frame = await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(seconds),
+      '-i', output.absolutePath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+    { timeoutMs: 30_000, maxOutputBytes: 1024 * 1024 });
+    assert.equal(frame.stdout.length, 320 * 180 * 3);
+    assert.ok(frame.stdout.some(channel => channel > 180), `card at ${seconds}s must contain visible light glyph pixels`);
+  }
+  assert.equal(compositions, 1);
+  assert.deepEqual(await composer.compose(request), manifest);
+  assert.equal(compositions, 1, 'saved composition must not invoke FFmpeg again');
 });
 test('object storage scopes immutable local bytes by workspace and explicitly projects verified media', async t => {
   const f = await fixture(t, { clip: probe() });

@@ -22,23 +22,21 @@
 .hub-projects--grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .hub-card { display: flex; flex-direction: column; min-width: 0; padding: 0; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .hub-cover { display: flex; position: relative; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid transparent; border-radius: 10px; background: #222224; transition: background .18s, border-color .18s; }
+.hub-cover.hub-cover--holo { overflow: visible; border-color: transparent; background: transparent; }
+.hub-card:hover .hub-cover.hub-cover--holo { border-color: transparent; background: transparent; }
+.hub-holo-card { display: block; width: 100%; max-width: none; height: 100%; aspect-ratio: 16 / 9; }
+.hub-holo-card .holo-card__face { border: 1px solid rgb(232 200 120 / 28%); box-shadow: inset 0 1px rgb(255 255 255 / 12%); }
 .hub-cover-placeholder { color: #4e4e52; }
 .hub-card:hover .hub-cover { background: #29292c; border-color: #48484d; }
 .hub-cover-image { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; }
 .hub-card-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 10px 2px 0; }
 .hub-card-title { overflow: hidden; margin: 0; color: #d6d6d9; font-size: 13px; line-height: 1.5; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .hub-date { color: #818187; font-size: 11px; line-height: 1.5; }
-.hub-create-cover { flex-direction: column; gap: 8px; border-color: #353538; background: #29292b; color: #bfbfc4; font-size: 13px; }
-.hub-create-cover > svg { color: #909095; }
-.hub-create-caption { color: #919197; font-size: 12px; line-height: 1.65; }
-.hub-card:hover .hub-create-cover { border-color: #55555a; background: #303033; }
 .hub-projects--list { grid-template-columns: 1fr; gap: 16px; }
 .hub-projects--list .hub-card { flex-direction: row; align-items: center; gap: 18px; }
 .hub-projects--list .hub-cover { flex: 0 0 124px; width: 124px; height: 70px; border-radius: 7px; }
 .hub-projects--list .hub-card-body { flex: 1; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; padding: 0 8px 0 0; }
 .hub-projects--list .hub-date { flex-shrink: 0; }
-.hub-projects--list .hub-create-cover { gap: 2px; font-size: 11px; }
-.hub-projects--list .hub-create-cover > svg { width: 19px; height: 19px; }
 .hub-error { display: flex; align-items: center; gap: 9px; margin: -4px 0 20px; color: #a69b88; }
 .hub-error > svg { flex-shrink: 0; }
 .hub-error-copy { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
@@ -65,6 +63,6 @@
 @keyframes hub-pulse { to { opacity: .45; } }
 @media (max-width: 1200px) { .hub-projects--grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .hub-page { padding-top: 8px; } .hub-toolbar { flex-wrap: wrap; gap: 20px; margin-bottom: 24px; } .hub-tools { width: 100%; } .hub-search { flex: 1; width: auto; min-width: 0; } .hub-projects--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .hub-projects { gap: 24px 12px; } .hub-cover, .hub-skeleton-cover { border-radius: 8px; } .hub-card-body { padding-top: 9px; gap: 4px; } .hub-card-title { font-size: 12px; } .hub-create-caption { font-size: 11px; } .hub-create-cover { font-size: 12px; gap: 4px; } .hub-filter select { padding-left: 9px; font-size: 11px; } .hub-search { padding: 0 8px; } .hub-tools { gap: 6px; } .hub-view-button { width: 25px; } .hub-projects--list .hub-card { gap: 12px; } .hub-projects--list .hub-cover { flex-basis: 100px; width: 100px; height: 62px; } .hub-projects--list .hub-card-body { flex-direction: column; align-items: flex-start; gap: 4px; overflow: hidden; } .hub-projects--list .hub-card-title { max-width: 100%; } .hub-error { align-items: flex-start; gap: 6px; } .hub-error > svg { margin-top: 2px; } }
+@media (max-width: 560px) { .hub-projects { gap: 24px 12px; } .hub-cover, .hub-skeleton-cover { border-radius: 8px; } .hub-card-body { padding-top: 9px; gap: 4px; } .hub-card-title { font-size: 12px; } .hub-filter select { padding-left: 9px; font-size: 11px; } .hub-search { padding: 0 8px; } .hub-tools { gap: 6px; } .hub-view-button { width: 25px; } .hub-projects--list .hub-card { gap: 12px; } .hub-projects--list .hub-cover { flex-basis: 100px; width: 100px; height: 62px; } .hub-projects--list .hub-card-body { flex-direction: column; align-items: flex-start; gap: 4px; overflow: hidden; } .hub-projects--list .hub-card-title { max-width: 100%; } .hub-error { align-items: flex-start; gap: 6px; } .hub-error > svg { margin-top: 2px; } }
 @media (max-width: 360px) { .hub-projects--grid { grid-template-columns: 1fr; } .hub-filter select { max-width: 85px; } }
-@media (prefers-reduced-motion: reduce) { .hub-spinner, .hub-skeleton-cover { animation: none; } .hub-cover { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .hub-spinner, .hub-skeleton-cover { animation: none; } .hub-cover { transition: none; } .hub-holo-card .holo-card__rotor { transform: none !important; } }

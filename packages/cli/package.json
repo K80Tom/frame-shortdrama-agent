@@ -1,6 +1,6 @@
 {
   "name": "@lyra/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lyra 命令行客户端：只调用 main 的 HTTP API，不连接数据库、不持有模型密钥。付费操作遵循 计划 → 人工确认 → 提交。",
   "main": "dist/index.js",

@@ -9,6 +9,15 @@ export type AuthSession = {
   workspaces: AuthWorkspace[];
   currentWorkspaceId: string;
 };
+export const registrationModes = ['disabled', 'workspace'] as const;
+export type RegistrationMode = typeof registrationModes[number];
+export type AuthConfig = { registrationMode: RegistrationMode };
+export type WorkspaceRegistrationInput = {
+  displayName: string;
+  email: string;
+  password: string;
+  workspaceName: string;
+};
 
 export class AuthApiError extends Error {
   constructor(message: string, public readonly kind: 'unauthenticated' | 'not-configured' | 'unreachable' | 'invalid' | 'http',
@@ -71,6 +80,27 @@ export function validateLoginInput(email: string, password: string): string | nu
   return null;
 }
 
+export function parseAuthConfig(value: unknown): AuthConfig {
+  const source = record(value);
+  const registrationMode = text(source?.registrationMode, 32) as RegistrationMode;
+  if (!registrationModes.includes(registrationMode)) {
+    throw new AuthApiError('认证配置响应格式不完整。', 'invalid');
+  }
+  return { registrationMode };
+}
+
+export function validateWorkspaceRegistration(input: WorkspaceRegistrationInput, confirmPassword: string): string | null {
+  const displayName = input.displayName.trim();
+  const workspaceName = input.workspaceName.trim();
+  const loginError = validateLoginInput(input.email, input.password);
+  if (!displayName || displayName.length > 120 || /[\u0000-\u001f\u007f]/u.test(displayName)) return '请输入 1–120 个字符的昵称。';
+  if (loginError) return loginError;
+  if (input.password.length < 12) return '密码至少需要 12 个字符。';
+  if (input.password !== confirmPassword) return '两次输入的密码不一致。';
+  if (!workspaceName || workspaceName.length > 120 || /[\u0000-\u001f\u007f]/u.test(workspaceName)) return '请输入 1–120 个字符的工作室名称。';
+  return null;
+}
+
 function errorFields(value: unknown): { code: string; message: string } {
   const source = record(value); const error = record(source?.error);
   return { code: text(error?.code, 80), message: text(error?.message, 300) };
@@ -107,6 +137,11 @@ export async function fetchAuthSession(signal?: AbortSignal, includeSelectedWork
   return parseAuthSession(value);
 }
 
+export async function fetchAuthConfig(signal?: AbortSignal): Promise<AuthConfig> {
+  const value = await authRequest('/api/auth/config', { method: 'GET' }, '读取认证配置', signal, false);
+  return parseAuthConfig(value);
+}
+
 export async function loginWithPassword(email: string, password: string, signal?: AbortSignal): Promise<AuthSession> {
   const validation = validateLoginInput(email, password);
   if (validation) throw new AuthApiError(validation, 'invalid');
@@ -115,6 +150,22 @@ export async function loginWithPassword(email: string, password: string, signal?
     headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' },
     body: JSON.stringify({ email: email.trim(), password }),
   }, '登录', signal, false);
+  return parseAuthSession(value);
+}
+
+export async function registerWorkspace(input: WorkspaceRegistrationInput, signal?: AbortSignal): Promise<AuthSession> {
+  const validation = validateWorkspaceRegistration(input, input.password);
+  if (validation) throw new AuthApiError(validation, 'invalid');
+  const value = await authRequest('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' },
+    body: JSON.stringify({
+      displayName: input.displayName.trim(),
+      email: input.email.trim(),
+      password: input.password,
+      workspaceName: input.workspaceName.trim(),
+    }),
+  }, '创建工作室', signal, false);
   return parseAuthSession(value);
 }
 

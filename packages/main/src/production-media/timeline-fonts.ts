@@ -35,7 +35,8 @@ export async function findTimelineFont(
 /** 盘符冒号需在 drawtext 参数内转义，拒绝额外滤镜语法。 */
 export function timelineFontFilterPath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
-  if (/[\r\n]/u.test(normalized) || !/^(?:[a-z]:)?\/[\p{L}\p{N}_ ./-]+$/iu.test(normalized)) {
+  if (normalized.startsWith('//') || /[\r\n]/u.test(normalized)
+    || !/^(?:[a-z]:)?\/[\p{L}\p{N}_ ./-]+$/iu.test(normalized)) {
     throw new TypeError('时间线字体路径无效。');
   }
   return normalized.replace(/:/g, '\\:');
