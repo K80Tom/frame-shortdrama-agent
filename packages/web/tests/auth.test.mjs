@@ -40,6 +40,15 @@ test('login validation rejects malformed input without sending it', () => {
   assert.match(auth.validateLoginInput('not-an-email', 'secret'), /邮箱/);
   assert.match(auth.validateLoginInput('user@example.com', ''), /密码/);
   assert.equal(auth.validateLoginInput(' user@example.com ', 'secret'), null);
+  const registration = { displayName: '林导演', email: 'owner@example.com', password: 'correct horse battery staple', workspaceName: '星河片场' };
+  assert.equal(auth.validateWorkspaceRegistration(registration, registration.password), null);
+  assert.match(auth.validateWorkspaceRegistration({ ...registration, displayName: '' }, registration.password), /昵称/);
+  assert.match(auth.validateWorkspaceRegistration({ ...registration, password: 'short' }, 'short'), /12/);
+  assert.match(auth.validateWorkspaceRegistration(registration, 'another password'), /不一致/);
+  assert.deepEqual(auth.parseAuthConfig({ registrationMode: 'workspace' }), { registrationMode: 'workspace' });
+  assert.deepEqual(auth.parseAuthConfig({ registrationMode: 'disabled' }), { registrationMode: 'disabled' });
+  assert.throws(() => auth.parseAuthConfig({ registrationMode: 'open' }), error =>
+    error instanceof auth.AuthApiError && error.kind === 'invalid');
 });
 
 test('auth APIs use the declared endpoints and explicit local mutation marker', async () => {
@@ -53,25 +62,37 @@ test('auth APIs use the declared endpoints and explicit local mutation marker', 
   } });
   globalThis.fetch = async (input, init = {}) => {
     calls.push({ input: String(input), init });
+    if (String(input).endsWith('/config')) return new Response(JSON.stringify({ registrationMode: 'workspace' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (String(input).endsWith('/logout')) return new Response(null, { status: 204 });
     return new Response(JSON.stringify(sessionPayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   try {
+    assert.equal((await auth.fetchAuthConfig()).registrationMode, 'workspace');
     assert.equal((await auth.fetchAuthSession()).authenticated, true);
     const loggedIn = await auth.loginWithPassword(' user@example.com ', 'correct horse battery staple');
     assert.equal(loggedIn.currentWorkspaceId, sessionPayload.currentWorkspaceId);
+    const registered = await auth.registerWorkspace({ displayName: ' 林导演 ', email: ' owner@example.com ',
+      password: 'correct horse battery staple', workspaceName: ' 星河片场 ' });
+    assert.equal(registered.currentWorkspaceId, sessionPayload.currentWorkspaceId);
     await auth.logoutAuthSession();
 
-    assert.deepEqual(calls.map(call => call.input), ['/api/auth/session', '/api/auth/login', '/api/auth/logout']);
+    assert.deepEqual(calls.map(call => call.input), ['/api/auth/config', '/api/auth/session', '/api/auth/login', '/api/auth/register', '/api/auth/logout']);
     assert.equal(calls[0].init.method, 'GET');
-    assert.equal(calls[1].init.method, 'POST');
-    assert.equal(new Headers(calls[0].init.headers).get('X-Workspace-Id'), sessionPayload.currentWorkspaceId);
-    const loginHeaders = new Headers(calls[1].init.headers);
+    assert.equal(calls[1].init.method, 'GET');
+    assert.equal(new Headers(calls[0].init.headers).has('X-Workspace-Id'), false);
+    assert.equal(new Headers(calls[1].init.headers).get('X-Workspace-Id'), sessionPayload.currentWorkspaceId);
+    const loginHeaders = new Headers(calls[2].init.headers);
     assert.equal(loginHeaders.get('X-Shortdrama-Call'), '1');
     assert.equal(loginHeaders.has('X-Workspace-Id'), false, 'a stale tenant selection must not affect login');
     assert.equal(loginHeaders.has('X-CSRF-Token'), false, 'login uses the explicit mutation marker before a session exists');
-    assert.deepEqual(JSON.parse(calls[1].init.body), { email: 'user@example.com', password: 'correct horse battery staple' });
-    const logoutHeaders = new Headers(calls[2].init.headers);
+    assert.deepEqual(JSON.parse(calls[2].init.body), { email: 'user@example.com', password: 'correct horse battery staple' });
+    const registerHeaders = new Headers(calls[3].init.headers);
+    assert.equal(registerHeaders.get('X-Shortdrama-Call'), '1');
+    assert.equal(registerHeaders.has('X-Workspace-Id'), false);
+    assert.equal(registerHeaders.has('X-CSRF-Token'), false);
+    assert.deepEqual(JSON.parse(calls[3].init.body), { displayName: '林导演', email: 'owner@example.com',
+      password: 'correct horse battery staple', workspaceName: '星河片场' });
+    const logoutHeaders = new Headers(calls[4].init.headers);
     assert.equal(logoutHeaders.get('X-Shortdrama-Call'), '1');
     assert.equal(logoutHeaders.get('X-Workspace-Id'), sessionPayload.currentWorkspaceId);
     assert.equal(logoutHeaders.get('X-CSRF-Token'), 'csrf-token-123');
@@ -162,13 +183,27 @@ test('every mutating API request adds workspace and CSRF context without overrid
 
 test('login and session controls expose honest loading, error, logout, and legacy states', () => {
   const errorHtml = renderToStaticMarkup(createElement(LoginView, { busy: false, error: '账号或密码错误', async onLogin() {} }));
-  assert.match(errorHtml, /type="email"/);
-  assert.match(errorHtml, /type="password"/);
-  assert.match(errorHtml, /账号或密码错误/);
-  assert.match(errorHtml, /HttpOnly Cookie/);
-  const busyHtml = renderToStaticMarkup(createElement(LoginView, { busy: true, error: '', async onLogin() {} }));
-  assert.match(busyHtml, /正在验证/);
-  assert.match(busyHtml, /disabled=""/);
+  assert.match(errorHtml, /data-backdrop-variant="landing"/);
+  assert.match(errorHtml, />登录</);
+  assert.doesNotMatch(errorHtml, /auth-project-card/);
+  assert.doesNotMatch(errorHtml, /type="email"|type="password"/);
+  assert.doesNotMatch(errorHtml, /admin@lyra\.local/, 'the repository must not imply a shared default account');
+  assert.doesNotMatch(errorHtml, /账号或密码错误/, 'credentials and errors appear only after the user opens authentication');
+
+  const registerHtml = renderToStaticMarkup(createElement(LoginView, { busy: false, error: '', registrationEnabled: true,
+    initialMode: 'register', registerBusy: false, registerError: '', async onLogin() {}, async onRegister() {} }));
+  assert.match(registerHtml, /aria-label="账号入口"/);
+  assert.match(registerHtml, /data-backdrop-variant="auth"/);
+  assert.match(registerHtml, />登录<\/button>/);
+  assert.match(registerHtml, /aria-current="page"[^>]*>创建工作室/);
+  assert.match(registerHtml, /id="auth-display-name"/);
+  assert.match(registerHtml, /id="auth-workspace-name"/);
+  assert.match(registerHtml, /id="auth-register-email"/);
+  assert.match(registerHtml, /autoComplete="new-password"|autocomplete="new-password"/i);
+  assert.match(registerHtml, /minLength="12"|minlength="12"/i);
+  assert.match(registerHtml, /租户边界（workspace ID）和角色由后端生成/);
+  assert.match(registerHtml, /当前版本不支持自助加入已有 workspace/);
+  assert.doesNotMatch(registerHtml, /name="workspaceId"|name="tenantId"|name="role"/);
 
   const authenticated = renderToStaticMarkup(createElement(SessionControlView, { mode: 'authenticated', session: auth.parseAuthSession(sessionPayload), busy: false, error: '', onLogout() {} }));
   assert.match(authenticated, /林导演/);

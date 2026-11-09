@@ -9,6 +9,7 @@
 面向中文短剧生产的 AI 制片工作台 · TypeScript monorepo
 
 <p>
+  <img src="https://img.shields.io/badge/release-v0.2.0-8B5CF6?style=flat-square" alt="v0.2.0 release">
   <img src="https://img.shields.io/badge/status-Stage_1_pilot-F2C46D?style=flat-square" alt="Stage 1 pilot">
   <img src="https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js 22.19+">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
@@ -27,7 +28,7 @@
 
 Lyra 不是单一的“文生视频”按钮。它把小说/剧本拆解、资产准备、分镜设计、空间预演、镜头生成、候选选择、技术复核、有限返修和 FFmpeg 合片组织成一条持久化生产链。每个阶段都有真实状态、冻结输入、预算记录和恢复入口；失败停在具体节点，修复后从受影响的位置继续。
 
-> **当前状态：Stage 1 集成基线 / 单受信 workspace 试运行。** 主链路、工作台和 PostgreSQL 事实源已落地；当前分支进一步加入 API/Worker 分进程、workspace 与会话认证、迁移管理员/非特权应用账号分离、租户表 `FORCE RLS`、可恢复任务与租户化 Outbox、Redis 对话快照与分布式限流、Milvus v2 租户向量投影任务、MinIO/S3/OSS/COS 生产媒体对象投影与签名访问入口，以及单机 Compose 拓扑。旧业务调度迁移、资产图片对象化、签名公网 endpoint/授权边界验证与对象 GC、向量全量回填、密钥托管、备份/PITR 与故障恢复尚未全部闭环，因此不能据此宣称已通过公网多租户生产验收。具体边界见[生产部署架构与分阶段演进路线](docs/production-architecture-roadmap.md)。
+> **当前状态：v0.2.0 / Stage 1 单受信 workspace 试运行。** 主链路、工作台和 PostgreSQL 事实源已落地；本版本加入 API/Worker 分进程、workspace 与会话认证、迁移管理员/非特权应用账号分离、租户表 `FORCE RLS`、可恢复任务与租户化 Outbox、Redis 对话快照与分布式限流、Milvus v2 租户向量投影任务、MinIO/S3/OSS/COS 生产媒体对象投影与签名访问入口，以及单机 Compose 拓扑。旧业务调度迁移、资产图片对象化、签名公网 endpoint/授权边界验证与对象 GC、向量全量回填、密钥托管、备份/PITR 与故障恢复尚未全部闭环，因此不能据此宣称已通过公网多租户生产验收。具体边界见[生产部署架构与分阶段演进路线](docs/production-architecture-roadmap.md)。
 
 ## 产品能力
 
@@ -44,7 +45,7 @@ Lyra 不是单一的“文生视频”按钮。它把小说/剧本拆解、资�
 | **自动成片** | 创建整集运行，查看阶段轨道、镜头任务、问题、预算、时间线和交付物 | 十阶段运行可暂停、恢复和局部重试 |
 | **自进化** | 从真实终态运行生成可审计提案，经离线 Probe 后人工采用或回滚 | 当前治理资产 RAG 策略，不自动改写资产 |
 | **方法包** | 搜索、查看许可与正文、启停、导入 `.md/.txt`，运行创建时冻结启用版本 | 需要应用数据库迁移 `020–021` |
-| **插件 / 设置** | 查看可用工具，按用途配置拆解、生图和视频模型连接 | 密钥只保存在后端，不进入浏览器 |
+| **设置** | 查看运行状态，按用途配置拆解、生图和视频模型连接 | 密钥只保存在后端，不进入浏览器 |
 
 ### AI 工作区
 
@@ -203,6 +204,11 @@ docker compose up -d
 docker compose run --rm main-api node dist/auth/bootstrap-admin.js
 ```
 
+默认 `LYRA_REGISTRATION_MODE=disabled`，仓库不会携带公共账号或默认密码。受信自托管环境可按
+[Stage 1 部署手册](deploy/README.md#可选受信自托管注册)显式开启 `workspace` 注册模式；注册者会
+创建自己的独立 workspace 并成为 owner。该开关不是公网多租户验收：邮箱验证、CAPTCHA、边缘
+限速、租户额度/计费和跨租户付费链路验证完成前，不应对互联网开放注册。
+
 正式域名应在 Web 前配置 HTTPS 负载均衡/WAF，并将 `LYRA_PUBLIC_ORIGIN` 设为完整同源 Origin。首次启动、云端 provider 切换、首个管理员、健康检查、备份恢复和回滚步骤见 [Stage 1 部署手册](deploy/README.md)。
 
 ### 开发与验证
@@ -236,43 +242,40 @@ npm run cli -- run cancel
 
 ## 界面与演示素材
 
-下面直接展示轻量 GIF 预览，无需先打开附件。需要查看完整画质时，可使用每项下方的高清 MP4 链接。部分素材录制于品牌更名前，画面中的 OHAO / FRAME 名称和旧布局不代表当前页面。
+以下截图于 2026-11-08 从 v0.2.0 的 Stage 1 Web 入口重录，展示当前首页、项目、资产、方法库和质量中心。截图仅说明界面和信息结构，不代表模型质量、生产吞吐或公网多租户验收已经完成。
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <strong>14 秒工作台导览</strong><br><br>
-      <img src="packages/main/docs/media/product-tour.gif" width="100%" alt="Lyra 工作台导览">
-      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/product-tour.mp4">查看高清 MP4</a>
+      <strong>首页</strong><br><br>
+      <img src="packages/main/docs/media/home.png" width="100%" alt="Lyra v0.2.0 首页">
     </td>
     <td width="50%" valign="top">
-      <strong>45 秒功能概览</strong><br><br>
-      <img src="packages/main/docs/media/promo-45s-preview.gif" width="100%" alt="Lyra 45 秒功能概览预览">
-      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/promo-45s.mp4">查看完整 MP4</a>
+      <strong>项目目录</strong><br><br>
+      <img src="packages/main/docs/media/projects.png" width="100%" alt="Lyra v0.2.0 项目目录">
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <strong>90 秒产品演示</strong><br><br>
-      <img src="packages/main/docs/media/promo-90s-preview.gif" width="100%" alt="Lyra 90 秒产品演示预览">
-      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/promo-90s.mp4">查看完整 MP4</a>
+      <strong>个人资产库</strong><br><br>
+      <img src="packages/main/docs/media/assets.png" width="100%" alt="Lyra v0.2.0 个人资产库">
     </td>
     <td width="50%" valign="top">
-      <strong>自进化页面演示</strong><br><br>
-      <img src="packages/main/docs/media/evolution-tour-preview.gif" width="100%" alt="Lyra 自进化页面演示预览">
-      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/evolution-tour.mp4">查看完整 MP4</a>
+      <strong>方法库</strong><br><br>
+      <img src="packages/main/docs/media/methods.png" width="100%" alt="Lyra v0.2.0 方法库">
     </td>
   </tr>
   <tr>
     <td colspan="2" valign="top">
-      <strong>单镜头候选样例</strong><br><br>
-      <img src="packages/main/docs/media/shot-1-preview.gif" width="100%" alt="Lyra 单镜头候选样例预览">
-      <br><a href="https://raw.githubusercontent.com/K80Tom/frame-shortdrama-agent/main/packages/main/docs/media/shot-1-preview.mp4">查看完整 MP4</a>
+      <strong>质量中心 / 受控自进化</strong><br><br>
+      <img src="packages/main/docs/media/quality-center.png" width="100%" alt="Lyra v0.2.0 质量中心与受控自进化">
     </td>
   </tr>
 </table>
 
-这些素材用于界面和流程说明，不作为模型质量或自动化能力的验收证据。
+### 历史演示素材
+
+仓库仍保留 [14 秒工作台导览](packages/main/docs/media/product-tour.mp4)、[45 秒功能概览](packages/main/docs/media/promo-45s.mp4)、[90 秒产品演示](packages/main/docs/media/promo-90s.mp4)、[自进化页面演示](packages/main/docs/media/evolution-tour.mp4)与[单镜头候选样例](packages/main/docs/media/shot-1-preview.mp4)。这些 GIF/MP4 录制于 v0.2.0 之前，可能出现 OHAO / FRAME 旧名称、插件入口或旧布局，只作为历史版本和流程说明，不代表当前界面，也不作为模型质量或自动化能力的验收证据。
 
 ## 当前能力边界
 
