@@ -39,3 +39,13 @@ shared/main 构建通过，镜头+快照契约回归 18/18（含真实浏览器 
 projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboard 指针变化由数据库 trigger 自动递增，展示字段变化和外部直接伪改计数器不会递增。Snapshot 的 baseProjectRevision 改为无精度损失的十进制字符串；reader 返回真实计数器而不是拿 inputSetDigest 冒充 revision。后续 ShotSpec head 正式采用还必须接通同事务的项目 revision 推进与 Outbox，当前计数器只覆盖旧三类采用指针，不能声称覆盖新正式镜头采用。
 
 已在全新专用 PostgreSQL 17.6 数据库实际应用 001–031、033（没有依赖未合并的 #132/032）。非特权角色 test:rls 2/2，额外验证计数器、episode/version 租户 FK、null 身份拒绝、版本不可变、错误 shot/version head 外键拒绝；相关契约24/24。第一次本地迁移草案数据库不继续复用，新验证库名为 lyra_input_versions_test。无真实模型调用。
+
+## 采用事务与统一 Outbox 检查点（以本节覆盖早期 counter 限制）
+
+已修订尚未发布的 033：正式 ShotSpec head 插入/变更通过嵌套 trigger 原子推进 projects.input_revision；同版本 no-op 不推进，外部直接伪改 counter 仍被抑制。增加 PostgresShotSpecRepository 的 episode/create/get/adopt：不可变版本重复创建不追加事件，采用要求 expectedCurrentVersion + expectedProjectRevision，锁定项目/当前 head，校验失败回滚，viewer 写入拒绝。采用事务接受 main 内部的同事务只读引用验证回调，绝不作为客户端代码执行入口。
+
+创建和采用使用既有 DataOutbox transaction 发布 shot_spec.created.v2 / shot_spec.adopted.v2，不新建队列。shared 聚合枚举新增 shot_spec，034 对既有 Outbox 的 aggregate_type CHECK 做兼容扩展；旧事件/摘要不重写。真实数据库发现缺少该 CHECK 扩展会使 Outbox 插入失败，现已通过 034 修正，不隐藏失败或跳过事件。
+
+已在全新 lyra_shot_adoption_test 库执行 001–031/033/034；非特权 PostgreSQL 验证创建幂等、一事件、跨租户读取拒绝、校验失败回滚、并发采用仅一个成功、项目 revision 2→3、旧 CAS 冲突、同 head no-op 不额外推进、只追加一次采用事件。test:rls2/2；既有 DB 矩阵27/27；契约/事件相关31/31；构建通过。采用回调在此事务测试中是桩，仅证明事务/CAS/Outbox，不证明真实资产授权已接通。
+
+旧测试库上的 033 草案不再用于当前迁移 checksum 验证。仍需正式引用验证适配、候选编译、Snapshot 记录/采用/冻结、HTTP/客户端与 Run 执行器切换后，才能交付整个 #123。

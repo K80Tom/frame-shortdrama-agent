@@ -13,11 +13,11 @@ export const DATA_EVENT_MAX_PAYLOAD_BYTES = 4096;
 
 export type DataAggregateType =
   | 'novel_chapter' | 'script' | 'asset' | 'production_run' | 'production_attempt'
-  | 'external_operation' | 'quality_check' | 'delivery_artifact' | 'evaluation_run';
+  | 'external_operation' | 'quality_check' | 'delivery_artifact' | 'evaluation_run' | 'shot_spec';
 
 export const DATA_AGGREGATE_TYPES: readonly DataAggregateType[] = Object.freeze([
   'novel_chapter', 'script', 'asset', 'production_run', 'production_attempt',
-  'external_operation', 'quality_check', 'delivery_artifact', 'evaluation_run',
+  'external_operation', 'quality_check', 'delivery_artifact', 'evaluation_run', 'shot_spec',
 ]);
 
 export interface DataEventFieldIssue {

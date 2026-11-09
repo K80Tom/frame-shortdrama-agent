@@ -10,6 +10,9 @@ BEGIN
   ELSIF ROW(NEW.current_script_version_id, NEW.active_plan_revision_id, NEW.active_storyboard_revision_id)
     IS DISTINCT FROM ROW(OLD.current_script_version_id, OLD.active_plan_revision_id, OLD.active_storyboard_revision_id) THEN
     NEW.input_revision := OLD.input_revision + 1;
+  ELSIF pg_trigger_depth() > 1 AND NEW.input_revision = OLD.input_revision + 1 THEN
+    -- A formal ShotSpec head trigger advances the same project fact atomically.
+    NEW.input_revision := OLD.input_revision + 1;
   ELSE NEW.input_revision := OLD.input_revision;
   END IF;
   RETURN NEW;
@@ -65,6 +68,19 @@ CREATE TABLE shot_spec_heads (
   FOREIGN KEY (workspace_id, project_id, episode_id, shot_id, current_version_id)
     REFERENCES shot_spec_versions(workspace_id, project_id, episode_id, shot_id, id) ON DELETE RESTRICT
 );
+
+CREATE FUNCTION lyra_shot_head_project_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'INSERT' OR NEW.current_version_id IS DISTINCT FROM OLD.current_version_id THEN
+    UPDATE projects SET input_revision=input_revision+1
+      WHERE workspace_id=NEW.workspace_id AND id=NEW.project_id;
+    IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='42501', MESSAGE='LYRA_PROJECT_SCOPE_REQUIRED'; END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER shot_head_project_revision AFTER INSERT OR UPDATE ON shot_spec_heads
+  FOR EACH ROW EXECUTE FUNCTION lyra_shot_head_project_revision();
 
 CREATE FUNCTION lyra_reject_shot_spec_version_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='LYRA_SHOT_SPEC_VERSION_IMMUTABLE'; END;
