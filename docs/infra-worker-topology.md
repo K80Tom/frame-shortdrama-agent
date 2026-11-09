@@ -16,7 +16,7 @@
 "业务事务内落一条待消费任务 → Worker 推进 pending → delivering →
 delivered / failed / dead_letter 状态机"。
 
-## 2. 实例租约（`worker_leases`，迁移 038）
+## 2. 实例租约（`worker_leases`，迁移 043）
 
 - PostgreSQL 是租约与 fencing 的权威事实源：`worker_leases` 用部分唯一索引
   `(role) WHERE state='active'` 保证同角色全局最多一个 active 实例。
@@ -32,7 +32,7 @@ delivered / failed / dead_letter 状态机"。
   专用 worker 进程会退出并等待编排层重启接管。
 - 平台表不携带 workspace_id：仅审计系统作用域可读写，租户连接被 FORCE RLS 拒绝。
 
-## 3. 任务出件箱（`infra_outbox_*`，迁移 037）
+## 3. 任务出件箱（`infra_outbox_*`，迁移 042）
 
 - 业务代码在自身事务内通过 `appendWithClient(client, …)` 落任务
   （UNIQUE(workspace_id, idempotency_key) 幂等）；HTTP 提交走

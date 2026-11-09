@@ -28,13 +28,13 @@ if (!process.env.DATABASE_URL) {
     'worker_leases', 'worker_lease_events',
   ];
 
-  test('037/038 迁移对象、RLS 与租约/出件箱全链路', async t => {
+  test('042/043 迁移对象、RLS 与租约/出件箱全链路', async t => {
     const database = new PostgresDatabase({ connectionString });
     t.after(async () => {
       await database.close();
     });
     await database.verifyConnection();
-    assert.equal(await database.hasMigrations(['037', '038']), true, 'Run npm run db:migrate before test:db.');
+    assert.equal(await database.hasMigrations(['042', '043']), true, 'Run npm run db:migrate before test:db.');
     const currentRole = await database.query('SELECT rolsuper FROM pg_roles WHERE rolname = current_user');
     if (currentRole.rows[0]?.rolsuper) {
       // 超级用户绕过 RLS，跨租户隔离断言必然失真：本测试必须以非超级用户角色运行
@@ -251,7 +251,7 @@ if (!process.env.DATABASE_URL) {
     assert.equal(await leaseStore.activeLease('worker', new Date(Date.parse(now) + 34_000).toISOString()), null);
   });
 
-  test('037 迁移约束：delivering 必须携带租约、delivered 必须携带时间戳', async t => {
+  test('042 迁移约束：delivering 必须携带租约、delivered 必须携带时间戳', async t => {
     const database = new PostgresDatabase({ connectionString });
     t.after(() => database.close());
     await database.verifyConnection();
