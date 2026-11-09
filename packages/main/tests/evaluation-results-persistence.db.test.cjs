@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { randomBytes } = require('node:crypto');
 
 const hex = value => value.repeat(64);
 const id = (prefix, char) => `${prefix}_${char.repeat(32)}`;
@@ -45,25 +46,30 @@ if (!process.env.DATABASE_URL) {
     const database = new PostgresDatabase(readDatabaseConfig());
     try {
       await database.verifyConnection();
-      assert.equal(await database.hasMigrations(['025']), true, 'Run migrations before test:db.');
+      assert.equal(await database.hasMigrations(['047']), true, 'Run migrations before test:db.');
       const service = new EvaluationResultsService(new PostgresEvaluationResultsRepository(database));
+      const suffix = randomBytes(16).toString('hex');
+      const subjectId = `shot-db-${suffix}`;
       const first = fixtureResult();
-      first.resultId = id('evalres', '1');
+      first.resultId = `evalres_${suffix}`;
+      first.subject.id = subjectId;
       first.resultDigest = evaluationResultDigest(first);
       const r1 = await service.record(first);
       assert.equal(r1.created, true);
 
       // 幂等重放：同一内容返回既有记录
-      const replay = await service.record(fixtureResult({ resultId: id('evalres', '1') }));
+      const replay = fixtureResult({ resultId: `evalres_${suffix}`, subject: { kind: 'shot', id: subjectId, revisionId: null, digest: hex('b') } });
       replay.resultDigest = evaluationResultDigest(replay);
       const r2 = await service.record(replay);
       assert.equal(r2.created, false);
       assert.equal(r2.result.resultId, r1.result.resultId);
 
       // 不同结果并存
+      const secondSuffix = randomBytes(16).toString('hex');
+      const secondSubjectId = `shot-db-${secondSuffix}`;
       const second = fixtureResult({
-        resultId: id('evalres', '2'),
-        subject: { kind: 'shot', id: 'shot-db-2', revisionId: null, digest: hex('1') },
+        resultId: `evalres_${secondSuffix}`,
+        subject: { kind: 'shot', id: secondSubjectId, revisionId: null, digest: hex('1') },
       });
       second.resultDigest = evaluationResultDigest(second);
       await service.record(second);
@@ -72,7 +78,7 @@ if (!process.env.DATABASE_URL) {
       assert.equal(byDigest.resultId, r1.result.resultId);
       // 往返解析：从 DB 读出的完整对象仍闭合
       assert.equal(parseEvaluationResult(byDigest).status, 'pass');
-      const bySubject = await service.listBySubject('shot', 'shot-db-2');
+      const bySubject = await service.listBySubject('shot', secondSubjectId);
       assert.equal(bySubject.length, 1);
 
       // 直接触碰表验证 append-only 触发器拒绝 UPDATE/DELETE

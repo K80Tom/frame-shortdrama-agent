@@ -1,8 +1,8 @@
-# 统一评估结果协议（#42）
+# 统一评估结果协议（#134）
 
 状态：**Implemented**（本地 commit，待契约评审合并）。
 契约版本：`lyra-evaluator-result/1`。
-共享实现：`packages/shared/src/evaluator.ts`；main 切片：`packages/main/src/evaluation-results/`；迁移：`packages/main/migrations/025_evaluation_results.sql`；测试：`packages/main/tests/evaluator-protocol.test.cjs`、`evaluation-results-migration.test.cjs`、`evaluation-results-persistence.db.test.cjs`。
+共享实现：`packages/shared/src/evaluator.ts`；main 切片：`packages/main/src/evaluation-results/`；迁移：`packages/main/migrations/047_evaluator_protocol.sql`；测试：`packages/main/tests/evaluator-protocol.test.cjs`、`evaluation-results-migration.test.cjs`、`evaluation-results-persistence.db.test.cjs`。
 
 本文只新增"结果/证据/适配/分层指标"这一层，复用 023 的 EvaluationRun、冻结快照、case/sample attempt 与事件/恢复，不新建第二套运行或状态机。
 

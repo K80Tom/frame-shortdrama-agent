@@ -88,23 +88,29 @@ export class PostgresEvaluationResultsRepository implements EvaluationResultsRep
     try {
       return await this.database.transaction(async client => {
         const existing = await client.query<ResultRow>(
-          `SELECT ${COLUMNS} FROM evaluation_results WHERE result_digest = $1`,
+          `SELECT ${COLUMNS} FROM evaluation_results
+          WHERE workspace_id = COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')
+            AND result_digest = $1`,
           [result.resultDigest],
         );
         if (existing.rows[0]) return { result: resultOf(existing.rows[0]!), created: false };
         await client.query(
           `INSERT INTO evaluation_results (
-             result_id, result_digest, run_id, case_id, sample_index, subject_kind, subject_id,
+             workspace_id, result_id, result_digest, run_id, case_id, sample_index, subject_kind, subject_id,
              subject_revision_id, subject_digest, evaluator_id, evaluator_version, evaluator_digest,
              status, confidence, duration_ms, error_json, legacy_json, evidence_json, metrics_json,
              result_json, occurred_at, recorded_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+           ) VALUES (
+             COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000'),
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+           )`,
           [
             result.resultId, result.resultDigest, result.locator.runId, result.locator.caseId,
             result.locator.sampleIndex, result.subject.kind, result.subject.id,
             result.subject.revisionId, result.subject.digest, result.evaluator.evaluatorId,
             result.evaluator.version, result.evaluator.digest, result.status, result.confidence,
-            result.durationMs, JSON.stringify(result.error), JSON.stringify(result.legacy),
+            result.durationMs, result.error ? JSON.stringify(result.error) : null,
+            result.legacy ? JSON.stringify(result.legacy) : null,
             JSON.stringify(result.evidence), JSON.stringify(result.metrics), JSON.stringify(result),
             result.occurredAt, result.recordedAt,
           ],
@@ -119,7 +125,9 @@ export class PostgresEvaluationResultsRepository implements EvaluationResultsRep
   async getByDigest(digest: string): Promise<EvaluationResult | null> {
     try {
       const row = await this.database.query<ResultRow>(
-        `SELECT ${COLUMNS} FROM evaluation_results WHERE result_digest = $1`, [digest]);
+        `SELECT ${COLUMNS} FROM evaluation_results
+          WHERE workspace_id = COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')
+            AND result_digest = $1`, [digest]);
       return row.rows[0] ? resultOf(row.rows[0]!) : null;
     } catch (error) {
       return failure(error);
@@ -129,7 +137,9 @@ export class PostgresEvaluationResultsRepository implements EvaluationResultsRep
   async listByRun(runId: string): Promise<EvaluationResult[]> {
     try {
       const row = await this.database.query<ResultRow>(
-        `SELECT ${COLUMNS} FROM evaluation_results WHERE run_id = $1 ORDER BY recorded_at`, [runId]);
+        `SELECT ${COLUMNS} FROM evaluation_results
+        WHERE workspace_id = COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')
+          AND run_id = $1 ORDER BY recorded_at`, [runId]);
       return row.rows.map(resultOf);
     } catch (error) {
       return failure(error);
@@ -139,8 +149,9 @@ export class PostgresEvaluationResultsRepository implements EvaluationResultsRep
   async listBySubject(kind: string, id: string): Promise<EvaluationResult[]> {
     try {
       const row = await this.database.query<ResultRow>(
-        `SELECT ${COLUMNS} FROM evaluation_results WHERE subject_kind = $1 AND subject_id = $2
-         ORDER BY recorded_at`, [kind, id]);
+        `SELECT ${COLUMNS} FROM evaluation_results
+        WHERE workspace_id = COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')
+          AND subject_kind = $1 AND subject_id = $2 ORDER BY recorded_at`, [kind, id]);
       return row.rows.map(resultOf);
     } catch (error) {
       return failure(error);
@@ -150,8 +161,9 @@ export class PostgresEvaluationResultsRepository implements EvaluationResultsRep
   async listByEvaluator(evaluatorId: string, version: string): Promise<EvaluationResult[]> {
     try {
       const row = await this.database.query<ResultRow>(
-        `SELECT ${COLUMNS} FROM evaluation_results WHERE evaluator_id = $1 AND evaluator_version = $2
-         ORDER BY recorded_at`, [evaluatorId, version]);
+        `SELECT ${COLUMNS} FROM evaluation_results
+        WHERE workspace_id = COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')
+          AND evaluator_id = $1 AND evaluator_version = $2 ORDER BY recorded_at`, [evaluatorId, version]);
       return row.rows.map(resultOf);
     } catch (error) {
       return failure(error);
