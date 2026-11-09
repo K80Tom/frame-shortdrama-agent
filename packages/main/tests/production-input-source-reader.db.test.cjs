@@ -9,6 +9,8 @@ const { sealShotSpecV2 } = require('../dist/production/shot-spec');
 const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
 const { ProductionInputObjectVerifier } = require('../dist/production/input-object-verifier');
 const { PostgresProductionInputReferenceReader } = require('../dist/production/input-reference-reader');
+const { PostgresProductionInputSnapshotRepository } = require('../dist/production/input-snapshot-repository');
+const { sealProductionInputSnapshot } = require('../dist/production/input-snapshot');
 const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
 const token = () => randomBytes(16).toString('hex');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -136,4 +138,29 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   assert.equal(await checkObject(b), 'REFERENCE_NOT_FOUND'); assert.equal(headCalls, 1);
   await admin.query('UPDATE object_records SET version_id=NULL WHERE id=$1', [objectId]);
   assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 1);
+  const snapshots = new PostgresProductionInputSnapshotRepository(db), snapshotId = 'snapshot_' + token();
+  const manifestRef = { id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) };
+  // Persistence fixture only; intentionally unresolved source refs may be saved as draft, never as ready.
+  const draft = { schemaVersion: 'lyra-production-input/1', id: snapshotId, workspaceId: a.workspaceId, projectId, episodeId,
+    baseProjectRevision: '3', state: 'draft', shots: [{ shotId, revisionId: realId, contentDigest: spec.contentDigest }],
+    script: manifestRef, plan: manifestRef, storyboard: manifestRef, assetPacks: [], directorScenes: [], controls: [], methodPacks: [], promptPacks: [],
+    modelConnections: [], retrievalPolicy: manifestRef, qualityGates: [], budgetPolicy: { version: manifestRef, limitMicros: 0, currency: 'CNY', allowPaid: false },
+    candidatePolicy: { mode: 'direct', limit: 1 }, automationMode: 'auto', findings: [], createdBy: a.userId, createdAt: spec.createdAt, reason: 'Persistence test' };
+  const snapshot = sealProductionInputSnapshot(draft);
+  await snapshots.create(a, snapshot); await snapshots.create(a, snapshot);
+  assert.equal((await snapshots.get(a, snapshotId)).state, 'draft'); assert.equal(await snapshots.get(b, snapshotId), null);
+  assert.equal((await admin.query('SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2', [a.workspaceId, snapshotId])).rowCount, 1);
+  await assert.rejects(snapshots.create(a, sealProductionInputSnapshot({ ...draft, id: 'snapshot_' + token(), baseProjectRevision: '2' })), e => e.code === 'REVISION_CONFLICT');
+  await assert.rejects(snapshots.create(a, sealProductionInputSnapshot({ ...draft, state: 'frozen' })), e => e.code === 'SNAPSHOT_NOT_READY');
+  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE production_input_snapshots SET snapshot_json=snapshot_json WHERE id=$1', [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query('DELETE FROM production_input_shots WHERE snapshot_id=$1', [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='frozen',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '55000');
+  // Direct SQL here tests database transition guards, not production authorization or the unfinished freeze service.
+  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='validating',version=version+1 WHERE snapshot_id=$1", [snapshotId]));
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=2 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '55000');
+  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId]));
+  assert.equal((await snapshots.get(a, snapshotId)).state, 'ready');
+  assert.equal((await snapshots.create(a, snapshot)).state, 'ready', 'idempotent retry hydrates actual state instead of returning stale draft');
+  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='frozen',version=version+1 WHERE snapshot_id=$1", [snapshotId]));
+  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE production_input_states SET updated_at=now() WHERE snapshot_id=$1', [snapshotId])), e => e.code === '55000');
 });

@@ -73,3 +73,13 @@ projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboa
 原 reader 的 checkSource 已复用该适配，消除两套原文校验实现。main 构建通过，相关34/34；真实非特权 PG test:rls2/2新增同事务 project/script/source 检查、跨租户拒绝与 plan/board 缺失查询。plan/board 的已采用成功/未采用阻断分支当前为明确的 SQL row 夹具测试，不是完整真实计划采用 E2E。对象 HEAD 和其他未实现资源域仍未完成真实外部验收。
 
 尚未发布 PR：需要统一组装正式验证 ports、解析缺失领域的服务端版本，完成 Snapshot 持久化/冻结/API/客户端和 Run/Executor 切换。不得在 #123 平行重建 #126/#131/#134/#135 所拥有的资产包、方法准入或治理状态机。
+
+## Snapshot 不可变持久化检查点（035）
+
+新增 production_input_snapshots、production_input_shots、production_input_states：正文和有序镜头关联不可改写，状态独立记录、版本化并受数据库 transition guard 约束；首次只能 draft，ready/frozen 必须无 findings 且验证 revision 匹配正文，禁止 draft 直接 frozen，frozen 状态行也不可 UPDATE/DELETE。全部使用 workspace RLS 和复合外键，复用现有 Outbox，并兼容扩展 production_input 聚合类型，不重写旧事件。
+
+Repository 只能保存 draft，要求 Actor/workspace 一致、真实项目 revision 未变化、分集正式 head 集合完整且镜头内容摘要一致；创建重试不重复事件，重试读取返回实际状态而不是过期 draft。该 Repository 还没有提供 ready/frozen API，不会信任客户端标志。
+
+035 已在独立真实 PG17.6 测试库执行。非特权 test:rls2/2覆盖保存/重试/跨租户拒绝/陈旧项目拒绝/伪造frozen拒绝、正文与关联不可变及状态转换约束。测试里的 ready→frozen 是明确的直接SQL guard测试，未冒充完整真实资源验证或正式冻结服务；候选源引用夹具允许尚未解析的版本，不能作为 ready 的证据。既有 DB 矩阵与相关契约仍需以本次工具运行输出为证。
+
+下一步必须接通正式事务验证/冻结服务、资源授权适配与 HTTP，并把 Run 和所有执行器切到快照读取；整个 #123 仍未完成，不因新增表/Repository就提空壳 PR。
