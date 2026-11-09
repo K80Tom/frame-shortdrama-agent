@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  ObjectStorageError, normalizeObjectKey, validateContentType, validateMaxBytes, validateSha256,
+  ObjectStorageError, normalizeObjectKey, validateContentType, validateMaxBytes, validateSha256, validateProviderVersionId,
   workspaceIdOf, type ObjectDescriptor, type ObjectStorage, type ObjectStorageProvider,
   type ObjectStorageScope, type ObjectReadResult, type PresignedGet, type PresignedGetRequest,
   type PresignedPut, type PresignedPutRequest,
@@ -126,9 +126,12 @@ export class S3CompatibleObjectStorage implements ObjectStorage {
     const maxBytes = validateMaxBytes(request.maxBytes);
     const key = normalizeObjectKey(request.key);
     const workspaceId = workspaceIdOf(request.scope);
+    const providerVersionId=validateProviderVersionId(request.providerVersionId);
     let response: Record<string, unknown>;
-    try { response = await this.client.getObject({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key) }); }
+    try { response = await this.client.getObject({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key),...(providerVersionId?{VersionId:providerVersionId}:{}) }); }
     catch (error) { throw mapCloudError(error, '读取'); }
+    if(providerVersionId!==undefined&&stringOrNull(response.VersionId)!==providerVersionId)
+      throw new ObjectStorageError('OBJECT_VERSION_MISMATCH','存储未返回指定的供应商版本。');
     const declaredSize = contentLength(response.ContentLength, maxBytes);
     const body = await objectBody(response.Body, maxBytes);
     if (declaredSize !== null && body.length !== declaredSize) {
@@ -145,15 +148,18 @@ export class S3CompatibleObjectStorage implements ObjectStorage {
       size: body.length, contentType: stringOrNull(response.ContentType) } };
   }
 
-  async head(scope: ObjectStorageScope, keyValue: string): Promise<ObjectDescriptor | null> {
+  async head(scope: ObjectStorageScope, keyValue: string, options?:{providerVersionId?:string}): Promise<ObjectDescriptor | null> {
     const key = normalizeObjectKey(keyValue);
     const workspaceId = workspaceIdOf(scope);
+    const providerVersionId=validateProviderVersionId(options?.providerVersionId);
     let response: Record<string, unknown>;
-    try { response = await this.client.headObject({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key) }); }
+    try { response = await this.client.headObject({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key),...(providerVersionId?{VersionId:providerVersionId}:{}) }); }
     catch (error) {
       if (isNotFound(error)) return null;
       throw mapCloudError(error, '查询');
     }
+    if(providerVersionId!==undefined&&stringOrNull(response.VersionId)!==providerVersionId)
+      throw new ObjectStorageError('OBJECT_VERSION_MISMATCH','存储未返回指定的供应商版本。');
     const sha256 = metadataValue(response.Metadata, 'sha256');
     const size = Number(response.ContentLength);
     if (!sha256 || !/^[a-f0-9]{64}$/u.test(sha256) || !Number.isSafeInteger(size) || size < 1) {
@@ -200,13 +206,14 @@ export class S3CompatibleObjectStorage implements ObjectStorage {
       || request.expiresInSeconds > 900) {
       throw new ObjectStorageError('OBJECT_EXPIRY_INVALID', '下载签名有效期必须为 30–900 秒。');
     }
-    const descriptor = await this.head(request.scope, key);
+    const providerVersionId=validateProviderVersionId(request.providerVersionId);
+    const descriptor = await this.head(request.scope, key,{providerVersionId});
     if (!descriptor) throw new ObjectStorageError('OBJECT_NOT_FOUND', '对象不存在。');
     if (request.expectedSha256 && validateSha256(request.expectedSha256) !== descriptor.sha256) {
       throw new ObjectStorageError('OBJECT_CHECKSUM_MISMATCH', '对象与登记的 SHA-256 不一致。');
     }
     const workspaceId = workspaceIdOf(request.scope);
-    const url = await this.presignGet({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key) },
+    const url = await this.presignGet({ Bucket: this.bucket, Key: this.physicalKey(workspaceId, key),...(providerVersionId?{VersionId:providerVersionId}:{}) },
       request.expiresInSeconds);
     return { method: 'GET', url,
       expiresAt: new Date(this.now().getTime() + request.expiresInSeconds * 1000).toISOString() };
@@ -233,7 +240,7 @@ function metadataValue(value: unknown, name: string): string | null {
 function isNotFound(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const value = error as Record<string, unknown>;
-  return value.name === 'NotFound' || value.Code === 'NoSuchKey' || Boolean(value.$metadata
+  return value.name === 'NotFound' || value.name === 'NoSuchVersion' || value.Code === 'NoSuchKey' || value.Code === 'NoSuchVersion' || Boolean(value.$metadata
     && typeof value.$metadata === 'object'
     && (value.$metadata as Record<string, unknown>).httpStatusCode === 404);
 }

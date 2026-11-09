@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { link, mkdir, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import {
-  ObjectStorageError, normalizeObjectKey, validateContentType, validateMaxBytes, validateSha256,
+  ObjectStorageError, normalizeObjectKey, validateContentType, validateMaxBytes, validateSha256, validateProviderVersionId,
   workspaceIdOf, type ObjectDescriptor, type ObjectStorage, type ObjectStorageScope,
   type PutObjectRequest, type ReadObjectRequest, type ObjectReadResult,
 } from './port';
@@ -81,6 +81,8 @@ export class LocalObjectStorage implements ObjectStorage {
   }
 
   async get(request: ReadObjectRequest): Promise<ObjectReadResult> {
+    if(validateProviderVersionId(request.providerVersionId)!==undefined)
+      throw new ObjectStorageError('OBJECT_VERSION_UNSUPPORTED','本地存储没有供应商版本选择器。');
     const maxBytes = validateMaxBytes(request.maxBytes);
     const { logicalKey, target } = await this.target(request.scope, request.key, false);
     let handle;
@@ -106,8 +108,8 @@ export class LocalObjectStorage implements ObjectStorage {
     } finally { await handle.close(); }
   }
 
-  async head(scope: ObjectStorageScope, key: string): Promise<ObjectDescriptor | null> {
-    try { return (await this.get({ scope, key, maxBytes: 4 * 1024 * 1024 * 1024 })).object; }
+  async head(scope: ObjectStorageScope, key: string, options?:{providerVersionId?:string}): Promise<ObjectDescriptor | null> {
+    try { return (await this.get({ scope, key, maxBytes: 4 * 1024 * 1024 * 1024,...options })).object; }
     catch (error) {
       if (error instanceof ObjectStorageError && error.code === 'OBJECT_NOT_FOUND') return null;
       throw error;

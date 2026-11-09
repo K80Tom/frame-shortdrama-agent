@@ -61,6 +61,8 @@ import { PromptPackService } from './prompt-packs/service';
 import { SystemStatusService, staticProbe, type ServiceProbe } from './system/status';
 import { AuthService } from './auth/service';
 import { PostgresAuthRepository } from './auth/repository';
+import { createObjectVersionRuntime } from './production-media/object-version-worker';
+import type { ObjectVersionApi } from './production-media/object-version-controller';
 import { createObjectStorageFromEnv } from './infrastructure/object-storage';
 import { CachedAssistantRepository, createConversationContextRuntime } from './infrastructure/conversation-context';
 import { createAssetVectorV2Runtime, createTenantAwareAssetRetriever } from './assets/vector/runtime-v2';
@@ -197,6 +199,7 @@ async function main() {
   let stopRuntimeHeartbeat: (() => Promise<void>) | undefined;
   let persistentJobWorker: PersistentJobWorker | undefined;
   let productionMediaObjectService: ProductionMediaObjectService | undefined;
+  let objectVersions: ObjectVersionApi | undefined;
   let productionMediaObjectWorker: ProductionMediaObjectWorker | undefined;
   let dataDispatchPump: DataDispatchJobPump | undefined;
   let assetVectorReconciler: AssetVectorJobReconciler | undefined;
@@ -525,6 +528,11 @@ async function main() {
           new DataOutboxJobHandler(outbox,
             new DataProjector('stage1-data-projection-v2', new PostgresProjectionStore(database))),
         ];
+        const objectVersionRuntime = await createObjectVersionRuntime(database, objectStorage);
+        if (objectVersionRuntime) {
+          objectVersions = objectVersionRuntime.repository;
+          handlers.push(objectVersionRuntime.handler);
+        }
         dataDispatchPump = new DataDispatchJobPump(outbox, jobs);
         if (assetVectorConfig && assetVectorV2.enabled) {
           const embedding = new DoubaoAssetEmbeddingClient({
@@ -670,6 +678,7 @@ async function main() {
     productionService,
     productionMediaStore,
     productionMediaObjectService,
+    objectVersions,
     assistantService,
     canvasService,
     agentRuntime: agentTooling?.runtime,

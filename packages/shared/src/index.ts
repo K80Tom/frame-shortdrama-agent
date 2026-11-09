@@ -25,6 +25,7 @@ export * from './evaluation-statistics';
 export * from './shot-spec';
 export * from './production-input-snapshot';
 export * from './director-scene';
+export * from './object-version';
 export * from './video-control';
 export * from './audio-production';
 export * from './agent/contracts';

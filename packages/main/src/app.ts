@@ -35,7 +35,8 @@ import { VIDEO_AUTOMATION_SERVICE, VideoAutomationController } from './video-aut
 import { VideoAutomationError } from './video-automation/contracts';
 import type { VideoAutomationService } from './video-automation/service';
 import { PRODUCTION_SERVICE, ProductionController } from './production/controller';
-import { ProductionError } from '@lyra/shared';
+import { ProductionError, ObjectVersionContractError } from '@lyra/shared';
+import { OBJECT_VERSIONS, ObjectVersionController, type ObjectVersionApi } from './production-media/object-version-controller';
 import type { ProductionService } from './production/service';
 import {
   PRODUCTION_MEDIA_OBJECT_SERVICE,
@@ -122,6 +123,7 @@ export interface AppDependencies {
   productionService?: ProductionService;
   productionMediaStore?: ProductionMediaStore;
   productionMediaObjectService?: ProductionMediaObjectService;
+  objectVersions?: ObjectVersionApi;
   assistantService?: AssistantService;
   canvasService?: CanvasService;
   /** 041 迁移就绪后由 main 注入的持久化 Agent Runtime（纯逻辑实现留在 agent）。 */
@@ -478,6 +480,7 @@ class SafeErrors implements ExceptionFilter {
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError
+      || error instanceof ObjectVersionContractError
       || contractLike) {
       const status = (error as { status: number }).status;
       const code = (error as { code: string }).code;
@@ -502,7 +505,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [PlatformController, SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, AssistantController, CanvasController, ToolRegistryController,
+    ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController, ToolRegistryController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : []),
@@ -526,6 +529,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_SERVICE, useValue: dependencies.productionService ?? null },
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
+    { provide: OBJECT_VERSIONS, useValue: dependencies.objectVersions ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: CANVAS_SERVICE, useValue: dependencies.canvasService ?? null },
     { provide: AGENT_RUNTIME, useValue: dependencies.agentRuntime ?? null },
