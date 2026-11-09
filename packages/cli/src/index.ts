@@ -48,6 +48,8 @@ async function request<T>(method: string, path: string, flags: Flags, body?: unk
         accept: 'application/json',
         ...(body === undefined ? {} : { 'content-type': 'application/json', 'X-Shortdrama-Call': '1' }),
         ...(process.env.Lyra_TOKEN ? { authorization: `Bearer ${process.env.Lyra_TOKEN}` } : {}),
+        ...(process.env.Lyra_COOKIE ? { cookie: process.env.Lyra_COOKIE } : {}),
+        ...(process.env.Lyra_CSRF ? { 'x-csrf-token': process.env.Lyra_CSRF } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
@@ -125,6 +127,8 @@ const HELP = `Lyra CLI（只调用 main API；付费需先 create 计划、再 s
                                              生成生产计划（不提交、不扣费）
   ohao run submit [--json]                   确认并提交上一次 create 的计划
   ohao run cancel                            丢弃待提交计划
+  ohao outbox submit --type <taskType> [选项]  提交异步 Outbox 任务（由 Worker 消费）
+  ohao outbox status <taskId> [--json]       查询任务状态与消费者记录
 
 run create 选项：
   --duration <秒>      目标时长，默认 60        --ratio <9:16|16:9>   画幅
@@ -133,7 +137,13 @@ run create 选项：
   --style <视觉风格>                            默认 电影感写实
   --budget <元>        本次预算上限，默认 30     --gacha --candidates <1-4>  多候选
 
+outbox submit 选项：
+  --message <文本>     runtime.smoke 的回显消息
+  --payload <json>     自定义任务负载（JSON 对象字符串）
+  --idempotency-key <键> 幂等键，默认自动生成（同工作区 8-200 字符）
+
 全局：--api <地址> 或 Lyra_API（默认 ${DEFAULT_API}）；Lyra_TOKEN 可附加访问令牌。
+会话模式：设置 Lyra_COOKIE（如 "lyra_session=…; lyra_csrf=…"）与 Lyra_CSRF（写请求 CSRF 头）。
 
 示例：
   ohao run create --project proj_1 --script-version sv_3 --duration 60 --budget 30
@@ -204,6 +214,49 @@ async function main(): Promise<void> {
     if (action === 'cancel') {
       rmSync(PENDING_FILE, { force: true });
       console.log('已丢弃待提交计划，未产生任何费用。');
+      return;
+    }
+  }
+
+  if (group === 'outbox') {
+    if (action === 'submit') {
+      const taskType = String(flags.type ?? '');
+      if (!taskType) throw new Error('outbox submit 需要 --type <taskType>，例如 runtime.smoke。');
+      let payload: Record<string, unknown> = {};
+      if (flags.payload !== undefined && flags.payload !== true) {
+        const parsed: unknown = JSON.parse(String(flags.payload));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('--payload 必须是 JSON 对象字符串。');
+        }
+        payload = parsed as Record<string, unknown>;
+      }
+      if (flags.message !== undefined && flags.message !== true) payload.message = String(flags.message);
+      const idempotencyKey = flags['idempotency-key'] !== undefined && flags['idempotency-key'] !== true
+        ? String(flags['idempotency-key']) : `cli_outbox_${randomUUID()}`;
+      const result = await request<{ task: { taskId: string; state: string; taskType: string } }>(
+        'POST', '/api/runtime/outbox/tasks', flags, {
+          taskType, payload, idempotencyKey,
+          ...(flags['max-attempts'] !== undefined && flags['max-attempts'] !== true
+            ? { maxAttempts: Number(flags['max-attempts']) } : {}),
+        });
+      print(result, json, () => {
+        console.log(`已提交 Outbox 任务：${result.task.taskId}`);
+        console.log(`类型：${result.task.taskType}　状态：${result.task.state}`);
+        console.log(`跟踪：ohao outbox status ${result.task.taskId}`);
+      });
+      return;
+    }
+    if (action === 'status' && id) {
+      const data = await request<{ task: Record<string, unknown>; consumers?: unknown[] }>(
+        'GET', `/api/runtime/outbox/tasks/${encodeURIComponent(id)}`, flags);
+      print(data, json, () => {
+        const task = data.task;
+        console.log(JSON.stringify(task, null, 2));
+        const consumers = data.consumers ?? [];
+        if (Array.isArray(consumers) && consumers.length > 0) {
+          console.log(`\n消费者记录：${consumers.length} 条（幂等去重与处理证据链）`);
+        }
+      });
       return;
     }
   }

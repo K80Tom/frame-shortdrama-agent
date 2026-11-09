@@ -56,6 +56,9 @@ import { methodReference } from './prompt-packs/runtime';
 import { PromptPackError, type PromptPackService } from './prompt-packs/service';
 import { SYSTEM_STATUS, SystemController } from './system/controller';
 import { SystemStatusService } from './system/status';
+import { OutboxTaskController, OUTBOX_TASK_SERVICE } from './production/outbox/controller';
+import { OutboxTaskError } from './production/outbox/contracts';
+import type { OutboxTaskService } from './production/outbox/service';
 import { randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { AuthController, AUTH_SERVICE, WorkspacesController } from './auth/controller';
@@ -112,6 +115,8 @@ export interface AppDependencies {
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
+  /** 基础设施异步 Outbox 服务；未迁移 037/038 或纯模型测试时省略。 */
+  outboxTaskService?: OutboxTaskService;
   authService?: AuthService;
   systemStatus?: SystemStatusService;
   rateLimiter?: RequestRateLimiter;
@@ -436,6 +441,11 @@ class SafeErrors implements ExceptionFilter {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message,
         details: error.details } });
     }
+    if (error instanceof OutboxTaskError) {
+      const status = { OUTBOX_TASK_INVALID: 400, OUTBOX_TASK_NOT_FOUND: 404,
+        OUTBOX_TASK_CONFLICT: 409, OUTBOX_HANDLER_MISSING: 500 }[error.code] ?? 500;
+      return reply.status(status).send({ error: { code: error.code, message: error.message } });
+    }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError) {
@@ -463,9 +473,11 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     ProductionController, ProductionMediaController, AssistantController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
-    ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
+    ...(dependencies.promptPacksService ? [PromptPacksController] : []),
+    ...(dependencies.outboxTaskService ? [OutboxTaskController] : [])], providers: [ModelsService,
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: SYSTEM_STATUS, useValue: systemStatus },
+    { provide: OUTBOX_TASK_SERVICE, useValue: dependencies.outboxTaskService ?? null },
     { provide: AUTH_SERVICE, useValue: dependencies.authService ?? null },
     { provide: 'AUTH_COOKIE_OPTIONS', useValue: {
       secure: config.sessionCookieSecure,

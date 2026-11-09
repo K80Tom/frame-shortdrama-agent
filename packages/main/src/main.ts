@@ -65,6 +65,18 @@ import { PostgresProjectionStore } from './data/checkpoint';
 import { DataProjector } from './data/projector';
 import { DataDispatchJobPump, DataOutboxJobHandler } from './data/job-dispatcher';
 import { tenantExecutionScope } from './tenancy/scope';
+import { INFRA_OUTBOX_MIGRATIONS } from './db/readiness';
+import {
+  RedisLeaseLock, WorkerInstanceLeaseManager, WorkerRuntime, createRedisLeaseClientFromEnv,
+  newOwnerInstanceId, readWorkerRuntimeOptions,
+} from './runtime';
+import { PostgresWorkerLeaseStore } from './runtime/postgres-lease-store';
+import type { RedisLeaseHandle } from './runtime/redis-lease';
+import {
+  OutboxTaskConsumer, OutboxTaskService, PostgresOutboxTaskStore,
+  createRuntimeSmokeHandler, createStagingGcHandler,
+} from './production/outbox';
+import { createStorageDriverFromEnv } from './storage/runtime';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -174,6 +186,10 @@ async function main() {
   let stage1Jobs: PostgresJobQueueRepository | undefined;
   let tenantResolver: PostgresJobTenantResolver | undefined;
   let stage1RuntimeMigrated = false;
+  let outboxTaskService: OutboxTaskService | undefined;
+  let workerRuntime: WorkerRuntime | undefined;
+  let redisLease: RedisLeaseHandle | undefined;
+  let requestWorkerShutdown: (() => void) | undefined;
   const mediaRunner = new BoundedProcessRunner();
   const productionMediaStore = new ProductionMediaStore(
     resolve('outputs/private/production-media'),
@@ -379,6 +395,49 @@ async function main() {
         }
         persistentJobWorker = new PersistentJobWorker(jobs,
           tenantResolver!, handlers);
+        // 基础设施异步 Outbox（037/038）：与业务事实同事务提交的 Worker 任务。
+        // 复用既有骨架：PersistentJobWorker 管 job 级租约，本模块提供实例级
+        // 租约（worker_leases，PG 权威 + Redis 快速互斥）与任务出件箱消费。
+        if (await database.hasMigrations(INFRA_OUTBOX_MIGRATIONS)) {
+          const runtimeOptions = readWorkerRuntimeOptions(process.env);
+          const ownerInstanceId = newOwnerInstanceId(randomBytes);
+          const outboxStore = new PostgresOutboxTaskStore(database);
+          outboxTaskService = new OutboxTaskService(outboxStore);
+          const storageDriver = createStorageDriverFromEnv(process.env);
+          redisLease = await createRedisLeaseClientFromEnv(process.env, {
+            onError: () => undefined,
+          });
+          const leaseManager = new WorkerInstanceLeaseManager({
+            ownerInstanceId,
+            role: config.runtimeRole,
+            leaseMs: runtimeOptions.leaseMs,
+            heartbeatIntervalMs: runtimeOptions.heartbeatIntervalMs,
+            store: new PostgresWorkerLeaseStore(database),
+            lock: redisLease
+              ? new RedisLeaseLock({ role: config.runtimeRole, client: redisLease.client })
+              : undefined,
+          });
+          const outboxConsumer = new OutboxTaskConsumer({
+            database,
+            store: outboxStore,
+            tenantResolver: tenantResolver!,
+            handlers: [createRuntimeSmokeHandler(), createStagingGcHandler({ driver: storageDriver })],
+            ownerInstanceId,
+            consumerName: 'main-worker',
+            batchSize: runtimeOptions.outbox.batchSize,
+            pollIntervalMs: runtimeOptions.outbox.pollIntervalMs,
+            retryBaseMs: runtimeOptions.outbox.retryBaseMs,
+            claimLeaseMs: runtimeOptions.leaseMs,
+          });
+          workerRuntime = new WorkerRuntime({
+            lease: leaseManager,
+            tasks: [outboxConsumer],
+            onLeaseLost: error => {
+              console.error(`[infra-outbox] 实例租约丢失（${error.code}）：停止任务消费，等待其他实例接管。`);
+              if (config.runtimeRole === 'worker') requestWorkerShutdown?.();
+            },
+          });
+        }
       }
     } catch (error) {
       await stopRuntimeHeartbeat?.();
@@ -435,6 +494,8 @@ async function main() {
     await Promise.all([desktopAssetService?.stop(), videoAutomationService?.stop(), productionService?.stop()]);
     await Promise.all([dataDispatchPump?.stop(), assetVectorReconciler?.stop()]);
     await Promise.all([productionMediaObjectWorker?.stop(), persistentJobWorker?.stop()]);
+    await workerRuntime?.stop().catch(() => undefined);
+    await redisLease?.close().catch(() => undefined);
     await conversationContext.close().catch(() => undefined);
     await stopRuntimeHeartbeat?.();
     await database?.close();
@@ -458,6 +519,7 @@ async function main() {
     rateLimiter: conversationContext.rateLimiter,
     registrationRateLimiter: conversationContext.mode === 'redis'
       ? conversationContext.rateLimiter : undefined,
+    outboxTaskService,
     systemStatus,
     close: shutdown,
   };
@@ -475,6 +537,10 @@ async function main() {
       persistentJobWorker?.start();
       dataDispatchPump?.start();
       assetVectorReconciler?.start();
+      if (workerRuntime) {
+        // 实例租约互斥：同 role 已有存活实例时快速失败，避免双实例并发消费。
+        await workerRuntime.start();
+      }
       // Legacy schedulers predate tenant-aware jobs. Their timers inherit this
       // explicit audited system scope. ProductionService immediately narrows
       // each run to its real workspace before invoking any executor.
@@ -502,6 +568,9 @@ async function main() {
     const endpoint = runApi ? `http://${listenHost}:${config.port}` : 'no HTTP listener';
     console.log(`Lyra ${config.runtimeRole} ready: ${endpoint} (${persistence}, ${extractFacts}, ${production})`);
     if (!runApi) {
+      requestWorkerShutdown = () => {
+        void shutdown().finally(() => process.exit(process.exitCode ?? 0));
+      };
       const lifetime = startWorkerProcessLifetime(shutdown);
       await lifetime.done;
     }
@@ -511,7 +580,10 @@ async function main() {
     throw error;
   }
 }
-main().catch(() => {
+main().catch(error => {
   console.error('本机后端启动失败：请检查 .env、本机 PostgreSQL 和端口占用。未输出凭据或原始错误。');
+  if (process.env.LYRA_DEBUG_STARTUP === '1') {
+    console.error('[LYRA_DEBUG_STARTUP]', error instanceof Error ? (error.stack ?? error.message) : error);
+  }
   process.exitCode = 1;
 });

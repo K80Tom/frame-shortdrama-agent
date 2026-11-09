@@ -21,3 +21,6 @@ export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
 
 /** Unified transactional outbox; production writes require it before starting. */
 export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
+
+/** 基础设施异步 Outbox（Worker 任务出件箱，#124/#133 Worker 拓扑）。 */
+export const INFRA_OUTBOX_MIGRATIONS = ["037", "038"] as const;
