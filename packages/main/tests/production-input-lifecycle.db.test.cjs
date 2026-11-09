@@ -87,11 +87,17 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   });
   const candidate = await makeCandidate();
   const ready = await lifecycle.validate(tenant,candidate.id,1,at); assert.equal(ready.snapshot.state,'ready'); assert.equal(ready.stateVersion,3);
+  assert.equal((await snapshots.get(tenant,candidate.id)).state,'ready');
+  assert.equal((await snapshots.create(tenant,candidate)).state,'ready');
   revoked = true;
   const blocked = await lifecycle.freeze(tenant,candidate.id,3,at); assert.equal(blocked.snapshot.state,'blocked'); assert.equal(blocked.stateVersion,5);
   revoked = false;
   const revalidated = await lifecycle.validate(tenant,candidate.id,5,at); assert.equal(revalidated.stateVersion,7);
   const frozen = await lifecycle.freeze(tenant,candidate.id,7,at); assert.equal(frozen.snapshot.state,'frozen'); assert.equal(frozen.stateVersion,10);
+  await assert.rejects(scope(()=>database.query('UPDATE production_input_states SET updated_at=now() WHERE snapshot_id=$1',[candidate.id])),e=>e.code==='55000');
+  const retained = await scope(()=>database.query('SELECT * FROM production_input_source_refs WHERE snapshot_id=$1',[candidate.id]));
+  assert.equal(retained.rows[0].script_version_id,script.id); assert.equal(retained.rows[0].plan_revision_id,plan.id);
+  await assert.rejects(scope(()=>database.query('DELETE FROM production_input_source_refs WHERE snapshot_id=$1',[candidate.id])),e=>e.code==='55000');
   const frozenReader = new PostgresFrozenProductionInputReader(database);
   const loaded = await frozenReader.load(tenant,candidate.id,candidate.snapshotDigest);
   assert.equal(loaded.shots[0].revisionId,spec.revisionId); assert.equal(loaded.sources.scriptText,rawText);
@@ -117,6 +123,7 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   assert.ok(unsupported.snapshot.findings.every(f=>f.code==='CAPABILITY_INCOMPATIBLE'));
   await assert.rejects(productionDefault.freeze(tenant,missingDomains.id,unsupported.stateVersion,at),e=>e.code==='SNAPSHOT_NOT_READY');
   await scope(()=>breakdown.createScriptVersion(project.id,{rawText:'新空房'}));
+  await assert.rejects(scope(()=>database.query('DELETE FROM storyboard_revisions WHERE id=$1',[board.id])),e=>e.code==='23503');
   await assert.rejects(lifecycle.freeze(tenant,concurrent.id,3,at),e=>e.code==='REVISION_CONFLICT');
   assert.equal((await snapshots.get(tenant,candidate.id)).state,'frozen');
   assert.equal(await reader.checkSource(tenant,project.id,sourceRef),null); assert.equal(modelStubs,1);

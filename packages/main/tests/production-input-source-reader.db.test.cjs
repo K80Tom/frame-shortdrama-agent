@@ -165,9 +165,7 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   // Direct SQL here tests database transition guards, not production authorization or the unfinished freeze service.
   await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='validating',version=version+1 WHERE snapshot_id=$1", [snapshotId]));
   await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=2 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '55000');
-  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId]));
-  assert.equal((await snapshots.get(a, snapshotId)).state, 'ready');
-  assert.equal((await snapshots.create(a, snapshot)).state, 'ready', 'idempotent retry hydrates actual state instead of returning stale draft');
-  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='frozen',version=version+1 WHERE snapshot_id=$1", [snapshotId]));
-  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE production_input_states SET updated_at=now() WHERE snapshot_id=$1', [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '23503');
+  // A draft fixture with unresolved source IDs cannot bypass physical source retention by raw state updates.
+  assert.equal((await snapshots.get(a, snapshotId)).state, 'validating');
 });

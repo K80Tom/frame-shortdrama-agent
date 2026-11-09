@@ -115,3 +115,13 @@ Lifecycle 正向集成已改用此生产工厂，只有尚未完成领域 owner 
 真实 PG lifecycle 测试新增：expectedDigest 错误拒绝、跨租户拒绝、draft 拒绝；项目后来切换新剧本后，使用全新 PostgreSQL client 仍恢复原 script/board/ShotSpec 内容。RLS3/3、相关37/37、shared/main构建通过。这里只证明 Reader 的新连接恢复，不宣称已经完成真实 Worker 进程杀死/重启演练，或所有执行器都已切换。
 
 下一步需要 Run 创建保存并保护 snapshot ID/digest、Worker/Director/资产/视频执行器实际消费，以及显式 V1 CompatibilityReader。另需补 legacy script/plan/board 的快照引用保留约束（当前 JSON 指针缺少完整物理 FK），避免旧资源清理破坏历史；读取器发现丢失会阻断，但“阻断”不等于保留问题已解决。正式资源域与版本 profile 仍需完成。
+
+## 冻结来源保留约束检查点（036）
+
+已补 production_input_source_refs：验证进入 ready 时自动建立不可变的 script→plan→board 精确复合外键，要求 workspace/project/episode/版本链与 Snapshot 正文一致；后续 blocked/frozen 仍保留原来源，禁止删除关联来绕开保护。不是新增版本事实源，而是现有版本表的保留/关联约束。这样历史读取不再仅仅“找不到就阻断”，还阻止普通旧资源清理删除已验证快照所需来源。
+
+036 会回填既有 ready/frozen；如果来源已经遗失，则整个迁移失败并回滚，不猜测替代版本、不跳过孤儿、不重写历史 JSON。升级前须备份、审计和从权威备份修复孤儿；没有自动接受坏历史的降级通道。曾用于早期开发的孤儿夹具不能作为合法升级数据，新验证库为 lyra_snapshot_retention_test。
+
+已实际应用完整当前迁移序列并通过非特权 test:rls4/4；新增测试在事务隔离 schema 中执行原始036 SQL，证明有效来源精确回填、无效来源失败后无残留表/约束、旧正文不变；真实生命周期中项目切换后 board 删除被FK拒绝、关联删除被不可变guard拒绝，而新连接仍恢复旧输入。原 source-reader 测试的“未解析假来源直接 SQL 置 ready”现在必须失败；同样的 ready/frozen 正向断言已保留在完整真实来源生命周期测试，未删断言来制造绿灯。
+
+既有DB矩阵27/27，相关44/44，构建通过。尚未接 Run 创建/执行器、HTTP/客户端及真实领域版本/授权适配，仍不把 #123 标成完成。
