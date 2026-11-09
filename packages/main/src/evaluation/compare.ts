@@ -60,8 +60,8 @@ function parseRun(value: unknown): Run {
     const status = r.status as Status;
     const value = status === 'pass' || status === 'fail' ? number(r.value) : r.value === null ? null : invalid();
     const evidenceRefs = unique(list(r.evidenceRefs, 0, 20).map(ref => {
-      if (typeof ref !== 'string' || !/^[A-Za-z][A-Za-z0-9_.:/-]{0,199}$/u.test(ref)
-        || ref.includes('://') || /[\r\n]/u.test(ref)) invalid();
+      if (typeof ref !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,79}(?::[A-Za-z0-9][A-Za-z0-9_.-]{0,118})?$/u.test(ref)
+        || /[\r\n]/u.test(ref)) invalid();
       return ref;
     }));
     if ((status === 'pass' || status === 'fail') && !evidenceRefs.length) invalid();

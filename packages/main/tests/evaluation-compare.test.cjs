@@ -206,3 +206,46 @@ test('real offline CLI returns 0/1/3/2 and exports JSON/Markdown without leaking
   await writeFile(path, ' '.repeat(8 * 1024 * 1024 + 1));
   assert.equal(invoke().status, 2);
 });
+
+
+test('evidence tokens cannot carry filesystem paths or URI payloads into reports', () => {
+  for (const ref of ['C:/Users/private/frame.png', 'file:/private/frame.png', 'private/frame.png',
+    'evidence:../private', 'data:text/plain:secret', 'https:vendor.invalid/secret']) {
+    const input = fixture();
+    input.candidate.samples[0].evidenceRefs = [ref];
+    assert.throws(() => compare(input), TypeError, ref);
+  }
+  const input = fixture();
+  input.candidate.samples[0].evidenceRefs = ['frame-001', 'artifact:sha256-001'];
+  assert.equal(compare(input).status, 'pass');
+});
+
+test('real CLI preserves missing-both plan and rejects unreadable input without leaking paths', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'lyra-eval-missing-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'private-input.json');
+  const script = join(__dirname, '../scripts/evaluation-gate.mjs');
+  const invoke = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 10000 });
+  const input = fixture();
+  input.baseline.samples = [];
+  input.candidate.samples = [];
+  await writeFile(path, JSON.stringify(input));
+  const result = invoke(path);
+  assert.equal(result.status, 3, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.pairs.length, 1);
+  assert.equal(report.pairs[0].baseline, null);
+  assert.equal(report.pairs[0].candidate, null);
+  for (const group of report.groups) {
+    assert.equal(group.candidate.passDenominator, 1);
+    assert.equal(group.candidate.counts.missing, 1);
+    assert.equal(group.candidate.mean, null);
+  }
+  for (const args of [[], [join(directory, 'nonexistent-secret.json')], [directory], [path, 'json', 'extra']]) {
+    const rejected = invoke(...args);
+    assert.equal(rejected.status, 2, rejected.stderr);
+    assert.equal(rejected.stdout, '');
+    assert.equal(rejected.stderr.includes(directory), false);
+    assert.equal(rejected.stderr.includes('nonexistent-secret'), false);
+  }
+});
