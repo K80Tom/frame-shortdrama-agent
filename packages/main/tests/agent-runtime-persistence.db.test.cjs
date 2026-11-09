@@ -12,7 +12,7 @@ const workspaceId = 'ws_00000000000000000000000000000000';
 const digest = 'a'.repeat(64);
 const token = () => randomBytes(16).toString('hex');
 
-test('039 Agent runtime store persists run, step, approval and events under tenant scope', {
+test('041 Agent runtime store persists run, step, approval and events under tenant scope', {
   skip: connectionString ? false : 'DATABASE_URL is required',
 }, async t => {
   const database = new PostgresDatabase({ connectionString }, { unscopedAccess: 'deny' });

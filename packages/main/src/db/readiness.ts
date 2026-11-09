@@ -27,4 +27,4 @@ export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
  * invocation/attempt ledger, agent runs and approvals, skill versions and
  * admissions, and MCP server revisions.
  */
-export const AGENT_PERSISTENCE_MIGRATIONS = ["039"] as const;
+export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;

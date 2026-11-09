@@ -49,7 +49,7 @@ function snapshot(userId) {
   };
 }
 
-test('039 预算预留按 Invocation 唯一，并发执行不重复扣费，取消释放预留', {
+test('041 预算预留按 Invocation 唯一，并发执行不重复扣费，取消释放预留', {
   skip: connectionString ? false : 'DATABASE_URL is required',
 }, async t => {
   const database = new PostgresDatabase({ connectionString }, { unscopedAccess: 'deny' });
