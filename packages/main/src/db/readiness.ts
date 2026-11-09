@@ -21,3 +21,6 @@ export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
 
 /** Unified transactional outbox; production writes require it before starting. */
 export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
+
+/** Unified lineage read model (nodes/edges/gaps); derived projection only. */
+export const LINEAGE_MIGRATIONS = ["026"] as const;

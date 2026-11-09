@@ -9,7 +9,8 @@ if (!process.env.DATABASE_URL) {
     'tests/production-e2e.db.test.cjs', 'tests/evaluation-catalog.db.test.cjs',
     'tests/evaluation-run-persistence.db.test.cjs',
     'tests/data-outbox-persistence.db.test.cjs',
-    'tests/data-projection.db.test.cjs'], {
+    'tests/data-projection.db.test.cjs',
+    'tests/lineage-persistence.db.test.cjs'], {
     stdio: 'inherit',
     env: process.env,
   });
