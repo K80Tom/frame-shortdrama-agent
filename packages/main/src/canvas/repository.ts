@@ -299,13 +299,14 @@ export class PostgresCanvasStore {
       if (existing.rows[0]) {
         return { receipt: existing.rows[0].receipt_json as CanvasCommandReceipt, replay: true };
       }
+      const document = await client.query<DocumentRow>('SELECT workspace_id, project_id FROM canvas_documents WHERE id = $1', [input.documentId]);
+      if (!document.rows[0]) throw canvasError('canvas_not_found', '画布不存在。');
       await client.query(`
         INSERT INTO canvas_commands
-          (id, document_id, revision_id, client_request_id, actor, expected_revision, batch_json, receipt_json)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [input.id, input.documentId, input.revisionId, input.clientRequestId, input.actor,
-        input.expectedRevision, input.batch, input.receipt]);
-      const document = await client.query<DocumentRow>('SELECT workspace_id, project_id FROM canvas_documents WHERE id = $1', [input.documentId]);
+          (id, document_id, revision_id, workspace_id, project_id, client_request_id, actor, expected_revision, batch_json, receipt_json)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [input.id, input.documentId, input.revisionId, document.rows[0].workspace_id, document.rows[0].project_id,
+        input.clientRequestId, input.actor, input.expectedRevision, input.batch, input.receipt]);
       await this.appendEvent(client, {
         workspaceId: document.rows[0]!.workspace_id, projectId: document.rows[0]!.project_id,
         documentId: input.documentId, revisionId: input.revisionId, type: 'canvas.commands.applied',

@@ -62,6 +62,8 @@ CREATE TABLE canvas_commands (
   id text PRIMARY KEY,
   document_id text NOT NULL REFERENCES canvas_documents(id) ON DELETE CASCADE,
   revision_id text NOT NULL REFERENCES canvas_revisions(id) ON DELETE CASCADE,
+  workspace_id text NOT NULL,
+  project_id text NOT NULL,
   client_request_id text NOT NULL,
   actor text NOT NULL,
   expected_revision integer NOT NULL CHECK (expected_revision >= 1),
