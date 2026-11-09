@@ -99,3 +99,11 @@ main 构建通过；真实非特权 PG test:rls2/2 新增证明：即便 Snapsho
 源 script/plan/board、采用记录、sourceRef 和 ShotSpec 验证使用真实事务 Reader。尚未落地的策略/Prompt/模型能力等域使用明确的测试 oracle，这些域通过不能作为正式授权证明。测试覆盖：ready3 → 撤权后 freeze 变 blocked5（无 frozen 事件）→ 重新验证 ready7 → 重新验证后 frozen10；事件版本1–10连续、只有一次 frozen；同 frozen 请求无新验证/事件；工厂异常回滚到 draft1 并且只有创建事件；并发同状态CAS只有一个成功；项目后来切换原文导致未冻候选冲突，而已冻快照与精确历史原文保持不变。
 
 真实非特权 test:rls3/3，既有数据库矩阵27/27，构建通过。最初夹具因缺 synopsis 被正式质量门禁拒绝，现补上来自原文的 synopsis，未跳过或放宽质量断言。整个 #123 仍缺正式资源域适配/HTTP/客户端及 Run/Executor 消费，不能把这条带 oracle 的测试链称为完整生产验收。
+
+## 生产验证端口组装检查点
+
+新增 createProductionInputValidationPorts，正式组合当前事务的 PostgreSQL 来源 Reader 与对象 Verifier；绑定 tenant/user/role/project/snapshot，拒绝换主体/换项目复用端口。script/plan/storyboard 永远使用现有事实和采用记录，领域 hook 即使运行时带同名键也不能覆盖这些核心检查。其他版本域及资产绑定/控制绑定/能力必须由其领域 owner 的 main 内部工厂接入；未注册或对象存储缺失明确 CAPABILITY_INCOMPATIBLE，绝无默认成功。没有新增通用 Registry 或客户端代码执行入口。
+
+Lifecycle 正向集成已改用此生产工厂，只有尚未完成领域 owner 仍是明确 oracle；另实际用不带任何 oracle 的默认生产工厂验证同一真实 PG 来源候选，结果 blocked 且全为 CAPABILITY_INCOMPATIBLE，不能 freeze。这样不会把“仅有合法剧本和镜头”误标成所有生产能力已就绪。真实非特权RLS3/3、相关37/37、main构建通过；无真实供应商请求。
+
+正式领域适配、可用的服务器版本 profile 解析、HTTP/客户端和 Run 消费仍待接通；默认阻断是安全边界，不是整个 #123 完成，更不是所有领域能力都已实现。

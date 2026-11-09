@@ -15,6 +15,7 @@ const { PostgresProductionInputReferenceReader } = require('../dist/production/i
 const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
 const { PostgresProductionInputSnapshotRepository } = require('../dist/production/input-snapshot-repository');
 const { PostgresProductionInputLifecycle } = require('../dist/production/input-lifecycle');
+const { createProductionInputValidationPorts } = require('../dist/production/input-validation-ports');
 const token = () => randomBytes(16).toString('hex');
 test('real adopted source chain compiles, validates, blocks revoked policy and freezes transactionally', {
   skip: process.env.DATABASE_URL && process.env.DATABASE_ADMIN_URL ? false : 'isolated application/admin database URLs required',
@@ -77,11 +78,11 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   };
   let revoked = false, factories = 0;
   const lifecycle = new PostgresProductionInputLifecycle(database,(client,ctx,snapshot) => {
-    factories++; const refs = new PostgresProductionInputReferenceReader(client,ctx,snapshot.projectId);
-    // Source/shot paths use real PostgreSQL. The not-yet-implemented policy/capability domains are explicit test oracles.
-    return { authorizeProject:()=>refs.authorizeProject(),loadShot:(_ctx,id)=>refs.loadShot(id),checkSource:(_ctx,r)=>refs.checkSource(r),
-      checkVersion:(_ctx,kind,r)=>['script','plan','storyboard'].includes(kind)?refs.checkVersion(kind,r):Promise.resolve(revoked?'REFERENCE_FORBIDDEN':null),
-      checkObject:async()=>null,checkAssetBinding:async()=>null,checkControl:async()=>null,checkCapabilities:async()=>[] };
+    factories++;
+    // Concrete production wiring always owns the PostgreSQL base checks. Only missing domain owners are test oracles.
+    return createProductionInputValidationPorts(client,ctx,snapshot,undefined,async()=>({
+      versions:Object.fromEntries(['asset_pack','director_scene','control','method_pack','prompt_pack','model_connection','model_capability','retrieval_policy','quality_gate','budget_policy']
+        .map(kind=>[kind,async()=>revoked?'REFERENCE_FORBIDDEN':null])),capabilities:async()=>[] }));
   });
   const candidate = await makeCandidate();
   const ready = await lifecycle.validate(tenant,candidate.id,1,at); assert.equal(ready.snapshot.state,'ready'); assert.equal(ready.stateVersion,3);
@@ -102,6 +103,12 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   const concurrent = await makeCandidate();
   const races = await Promise.allSettled([0,1].map(()=>lifecycle.validate(tenant,concurrent.id,1,at)));
   assert.equal(races.filter(r=>r.status==='fulfilled').length,1); assert.equal(races.find(r=>r.status==='rejected').reason.code,'REVISION_CONFLICT');
+  const missingDomains = await makeCandidate();
+  const productionDefault = new PostgresProductionInputLifecycle(database,(client,ctx,snapshot)=>createProductionInputValidationPorts(client,ctx,snapshot));
+  const unsupported = await productionDefault.validate(tenant,missingDomains.id,1,at);
+  assert.equal(unsupported.snapshot.state,'blocked'); assert.ok(unsupported.snapshot.findings.length>0);
+  assert.ok(unsupported.snapshot.findings.every(f=>f.code==='CAPABILITY_INCOMPATIBLE'));
+  await assert.rejects(productionDefault.freeze(tenant,missingDomains.id,unsupported.stateVersion,at),e=>e.code==='SNAPSHOT_NOT_READY');
   await scope(()=>breakdown.createScriptVersion(project.id,{rawText:'新空房'}));
   await assert.rejects(lifecycle.freeze(tenant,concurrent.id,3,at),e=>e.code==='REVISION_CONFLICT');
   assert.equal((await snapshots.get(tenant,candidate.id)).state,'frozen');
