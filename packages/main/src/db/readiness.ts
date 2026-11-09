@@ -37,3 +37,6 @@ export const MODEL_GENERATION_MIGRATIONS = ["047"] as const;
 
 /** Unified lineage read model (nodes/edges/gaps); derived projection only. */
 export const LINEAGE_MIGRATIONS = ["048"] as const;
+
+/** Unified append-only evaluation results, evidence, and layered metrics (#134). */
+export const EVALUATION_RESULTS_MIGRATIONS = ["049"] as const;

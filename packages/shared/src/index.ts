@@ -16,6 +16,7 @@ export * from './evaluation';
 export * from './data-event';
 export * from './lineage';
 export * from './evaluation-run';
+export * from './evaluator';
 export * from './novel-analysis';
 export * from './novel-domain';
 export * from './novel-checkpoint';
