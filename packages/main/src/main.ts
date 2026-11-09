@@ -80,7 +80,7 @@ import { PostgresProjectionStore } from './data/checkpoint';
 import { DataProjector } from './data/projector';
 import { DataDispatchJobPump, DataOutboxJobHandler } from './data/job-dispatcher';
 import { tenantExecutionScope } from './tenancy/scope';
-import { INFRA_OUTBOX_MIGRATIONS } from './db/readiness';
+import { INFRA_OUTBOX_MIGRATIONS, MODEL_GENERATION_MIGRATIONS } from './db/readiness';
 import {
   RedisLeaseLock, WorkerInstanceLeaseManager, WorkerRuntime, createRedisLeaseClientFromEnv,
   newOwnerInstanceId, readWorkerRuntimeOptions,
@@ -92,6 +92,15 @@ import {
   createRuntimeSmokeHandler, createStagingGcHandler,
 } from './production/outbox';
 import { createStorageDriverFromEnv } from './storage/runtime';
+import {
+  ProductionInputObjectVerifier,
+} from './production/input-object-verifier';
+import {
+  PostgresModelGenerationAudit,
+} from './production/model-generation-audit';
+import { createVideoGenerationWorkerHandler } from './production/video-worker-env';
+import { PostgresPaidGenerationInterceptor } from './budget/postgres-paid-generation';
+import type { ObjectStorage } from './infrastructure/object-storage';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -580,7 +589,17 @@ async function main() {
             database,
             store: outboxStore,
             tenantResolver: tenantResolver!,
-            handlers: [createRuntimeSmokeHandler(), createStagingGcHandler({ driver: storageDriver })],
+            handlers: [
+              createRuntimeSmokeHandler(),
+              createStagingGcHandler({ driver: storageDriver }),
+              // 视频生成 Worker（#127）：046 迁移就位后才注册，未迁移的部署不认领。
+              ...(await database.hasMigrations(MODEL_GENERATION_MIGRATIONS) && objectStorage
+                ? [createVideoGenerationWorkerHandler({
+                  database, objectStorage, driver: storageDriver,
+                  budget: new PostgresPaidGenerationInterceptor(database),
+                })]
+                : []),
+            ],
             ownerInstanceId,
             consumerName: 'main-worker',
             batchSize: runtimeOptions.outbox.batchSize,
