@@ -40,7 +40,7 @@
 | 待审 PR | 范围 | 当前台账处理 |
 | --- | --- | --- |
 | [#147](https://github.com/K80Tom/frame-shortdrama-agent/pull/147) | 内部对象版本、真实副本、认证 metadata API、Worker 恢复 | 未合入本快照；局部单元/PG/CI 不替代正式资产准入或完整生产 E2E |
-| 本分支 `feat/model-generation` | #127/#130 执行层：预算拦截器、ComfyUI 原生客户端与工作流校验、Kling/Jimeng/MiniMax 请求组装、TTS、FFmpeg 混音/Ducking/字幕烧录 | 未合入、未推送；定向 23 例与 `packages/main` 全量 835/833/2 skipped 通过；044 在本地克隆库实跑；字幕烧录用本机 FFmpeg 7.1.1 验证；尚未接生产编排、未调用真实供应商 |
+| 本分支 `feat/model-generation` | #127/#130 执行层：预算拦截器、ComfyUI 原生客户端与工作流校验、Kling/Jimeng/MiniMax 请求组装、TTS、FFmpeg 混音/Ducking/字幕烧录 | 未合入、未推送；定向 23 例与 `packages/main` 全量 835/833/2 skipped 通过；046 在本地克隆库实跑；字幕烧录用本机 FFmpeg 7.1.1 验证；尚未接生产编排、未调用真实供应商 |
 | [#132](https://github.com/K80Tom/frame-shortdrama-agent/pull/132) | Registry 租户隔离与未发布迁移 042 | 未合入；不能将 dev 正式 Canvas032 写成治理迁移，也不能改已应用迁移记录 |
 | [#145](https://github.com/K80Tom/frame-shortdrama-agent/pull/145) | 工具/MCP/方法包/Agent Runtime 候选 | 其他贡献者待审代码，不重复宣称已在 dev 运行；迁移编号需维护者协调 |
 | [#110](https://github.com/K80Tom/frame-shortdrama-agent/pull/110)、[#113](https://github.com/K80Tom/frame-shortdrama-agent/pull/113) | 统计 helper / 离线回归门禁 | 不等于评测流水线、生产质量或置信度 |
