@@ -1,3 +1,5 @@
+import { PlatformPreflightService } from './platform/preflight';
+import { createPlatformProbes } from './platform/probes';
 import { createApp } from './app';
 import { readConfig } from './config';
 import { createHash, randomBytes } from 'node:crypto';
@@ -576,7 +578,15 @@ async function main() {
     await stopRuntimeHeartbeat?.();
     await database?.close();
   };
+  const platformProbes = createPlatformProbes({
+    config, database, mediaRoot: productionMediaStore.root, mediaServiceReady: true,
+    productionRuntimeReady: Boolean(productionService), vectorConfigured: Boolean(assetVectorConfig), runner: mediaRunner,
+  });
+  platformProbes['production-runtime'] = async () => Boolean(productionService) && (await systemStatus.snapshot()).readiness === 'ready';
   const dependencies = {
+    platformPreflight: new PlatformPreflightService(platformProbes, {
+      frameAssessmentRequired: (process.env.Lyra_FRAME_ASSESSMENT ?? process.env.OHAO_FRAME_ASSESSMENT) !== '0',
+    }),
     breakdownService,
     stageRunner,
     storyboardService,

@@ -1,3 +1,5 @@
+import { PlatformPreflightService } from './platform/preflight';
+import { PlatformController, PLATFORM_PREFLIGHT } from './platform/controller';
 import 'reflect-metadata';
 import { Body, Catch, Controller, Get, HttpCode, HttpException, Inject, Injectable, Module, Param, Post, Query,
   type ArgumentsHost, type ExceptionFilter, type PipeTransform } from '@nestjs/common';
@@ -102,6 +104,7 @@ function clientAddress(request: { headers: Record<string, unknown>; ip: string }
 }
 
 export interface AppDependencies {
+  platformPreflight?: PlatformPreflightService;
   /** Omit this in model-only tests or before PostgreSQL has been migrated. */
   breakdownService?: BreakdownServicePort;
   stageRunner?: ExtractFactsStageRunner;
@@ -471,13 +474,14 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   if (config.authMode === 'session' && !dependencies.authService) {
     throw new Error('Session authentication requires a migrated AuthService');
   }
-  @Module({ controllers: [SystemController, AuthController, WorkspacesController,
+  @Module({ controllers: [PlatformController, SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, AssistantController, CanvasController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
+    { provide: PLATFORM_PREFLIGHT, useValue: dependencies.platformPreflight ?? new PlatformPreflightService({}) },
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
     { provide: SYSTEM_STATUS, useValue: systemStatus },
     { provide: AUTH_SERVICE, useValue: dependencies.authService ?? null },
@@ -507,7 +511,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
   adapter.getInstance().addHook('onRequest', async (request, reply) => {
     const path = requestPath(request.url);
-    if (request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
+    if (request.url.startsWith('/api/platform') || request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
