@@ -152,7 +152,7 @@ function parseBase64(value: unknown): Buffer {
   return bytes;
 }
 
-function audioShape(bytes: Buffer, requested: TtsAudioFormat): { mimeType: TtsSynthesisResult['mimeType']; codec: string } {
+function audioShape(bytes: Buffer, requested: TtsAudioFormat): { mimeType: AdapterTtsSynthesisResult['mimeType']; codec: string } {
   if (bytes.length >= 3 && bytes.subarray(0, 3).toString('latin1') === 'ID3') {
     return { mimeType: 'audio/mpeg', codec: 'mp3' };
   }
