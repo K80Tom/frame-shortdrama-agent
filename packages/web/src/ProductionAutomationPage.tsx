@@ -561,10 +561,10 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
   </div>;
 }
 
-export default function ProductionAutomationPage({ onUnsavedChange, initialScript }: {
-  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult;
+export default function ProductionAutomationPage({ onUnsavedChange, initialScript, initialProjectId }: {
+  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult; initialProjectId?: string;
 }) {
-  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? '' });
+  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? initialProjectId ?? '' });
   const pinnedScript = useRef(initialScript);
   const [projects, setProjects] = useState<ProjectOption[]>([]); const [versions, setVersions] = useState<ScriptVersionOption[]>([]);
   const [runs, setRuns] = useState<ProductionRun[]>([]); const [selectedRunId, setSelectedRunId] = useState('');

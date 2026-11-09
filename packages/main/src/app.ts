@@ -48,6 +48,9 @@ import type { ProductionMediaObjectService } from './production-media/object-wor
 import { ASSISTANT_SERVICE, AssistantController } from './assistant/controller';
 import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
+import { CANVAS_SERVICE, CanvasController } from './canvas/controller';
+import { CanvasError } from '@lyra/shared';
+import type { CanvasService } from './canvas/service';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
 import { EVALUATION_SERVICE, EvaluationController } from './evaluation/controller';
@@ -63,6 +66,7 @@ import { isIP } from 'node:net';
 import { AuthController, AUTH_SERVICE, WorkspacesController } from './auth/controller';
 import { AuthError, requestedWorkspace, type AuthenticatedRequest } from './auth/contracts';
 import type { AuthService } from './auth/service';
+import { LEGACY_WORKSPACE_ID } from './tenancy/context';
 import { tenantExecutionScope } from './tenancy/scope';
 import {
   RateLimiterUnavailableError,
@@ -111,12 +115,15 @@ export interface AppDependencies {
   productionMediaStore?: ProductionMediaStore;
   productionMediaObjectService?: ProductionMediaObjectService;
   assistantService?: AssistantService;
+  canvasService?: CanvasService;
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
   authService?: AuthService;
   systemStatus?: SystemStatusService;
   rateLimiter?: RequestRateLimiter;
+  /** Registration must use the distributed Redis limiter, never the local/noop fallback. */
+  registrationRateLimiter?: RequestRateLimiter;
   /** Lets main close the pg Pool when Nest/Fastify shuts down. */
   close?: () => Promise<void>;
 }
@@ -436,6 +443,10 @@ class SafeErrors implements ExceptionFilter {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message,
         details: error.details } });
     }
+    if (error instanceof CanvasError) {
+      return reply.status(error.status).send({ error: { code: error.code, message: error.message,
+        details: error.details } });
+    }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError) {
@@ -460,7 +471,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [PlatformController, SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, AssistantController,
+    ProductionController, ProductionMediaController, AssistantController, CanvasController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
@@ -483,6 +494,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
+    { provide: CANVAS_SERVICE, useValue: dependencies.canvasService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
@@ -525,8 +537,26 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     }
     if (request.method === 'OPTIONS') return reply.code(204).send();
     if (config.authMode === 'session' && request.url.startsWith('/api/')) {
-      const publicPath = path === '/api/auth/login' || path === '/api/system/status';
-      if (dependencies.rateLimiter && publicPath) {
+      const registrationPath = path === '/api/auth/register';
+      const publicPath = path === '/api/auth/login' || path === '/api/auth/config'
+        || registrationPath || path === '/api/system/status';
+      if (registrationPath) {
+        if (!dependencies.registrationRateLimiter) {
+          return reply.code(503).send({ error: { code: 'RATE_LIMIT_UNAVAILABLE',
+            message: '请求保护服务暂时不可用。' } });
+        }
+        try {
+          const decision = await dependencies.registrationRateLimiter.consume(
+            `register:${rateLimitIdentity(clientAddress(request))}`, 3, 3_600);
+          if (!decision.allowed) {
+            reply.header('Retry-After', String(decision.retryAfterSeconds));
+            return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后重试。' } });
+          }
+        } catch {
+          return reply.code(503).send({ error: { code: 'RATE_LIMIT_UNAVAILABLE',
+            message: '请求保护服务暂时不可用。' } });
+        }
+      } else if (dependencies.rateLimiter && publicPath) {
         try {
           const purpose = path === '/api/auth/login' ? 'login' : 'public-status';
           const decision = await dependencies.rateLimiter.consume(
@@ -566,8 +596,11 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
             if (auth.tenant.role === 'viewer' && path !== '/api/auth/logout') {
               throw new AuthError(403, 'AUTH_FORBIDDEN', '当前 workspace 角色没有写权限。');
             }
-            if (isModelConfigurationMutation(path) && !['owner', 'admin'].includes(auth.tenant.role)) {
-              throw new AuthError(403, 'AUTH_FORBIDDEN', '只有 workspace owner 或 admin 可以修改模型连接。');
+            if (isModelConfigurationMutation(path)
+              && (auth.tenant.workspaceId !== LEGACY_WORKSPACE_ID
+                || !['owner', 'admin'].includes(auth.tenant.role))) {
+              throw new AuthError(403, 'AUTH_FORBIDDEN',
+                '只有控制 workspace 的 owner 或 admin 可以修改部署级模型连接。');
             }
           }
         } catch (error) {

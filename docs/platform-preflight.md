@@ -1,7 +1,7 @@
 # 运行前本地能力检查（#74）
 
-日期：2026-11-06；适用 dev / 890cc36 / 0.1.0。Owner：@K80Tom（默认维护责任）。
-跟踪 [#74](https://github.com/K80Tom/frame-shortdrama-agent/issues/74)。API/CLI 增量 implemented，完整 #74 partial。
+日期：2026-11-09；适用 dev / b264844。Owner：@K80Tom（默认维护责任）。
+当前跟踪 [#124](https://github.com/K80Tom/frame-shortdrama-agent/issues/124)（原 #74）。API/CLI 增量 implemented，完整部署验收 partial。
 
 ## 实际入口
 
@@ -50,3 +50,11 @@ Web 创建 Run 界面已接入同一 shared 子入口/API，提供自动过期�
 API/Worker 分进程的实际 Worker 二进制能力仍需独立探测，本地 ffmpeg 或向量配置诊断不是 Stage 1 生产验收；系统状态的必需 Redis/Milvus/对象存储结论不能被可选词法提示替代。
 真实 Chrome 测试发现 shared 总入口带入 Node crypto，已改用无 Node 依赖的 platform-preflight 子入口，浏览器重测 ready/degraded/blocked/无效响应、刷新、零 POST、零页面异常通过。
 复验命令：先完整构建；设置 LYRA_BROWSER_EXECUTABLE 为可用 Chrome/Edge 路径（或安装 Playwright Chromium）；运行 node packages/web/scripts/test-platform-preflight-browser.mjs。默认 Web 套件增加 SSR/浏览器安全导入回归。
+
+## 2026-11-09 最新基线复验
+
+同步 dev b264844，保留 session/workspace/CSRF、Canvas 与冻结生产入口。迁移探测补上当前已合并的 032–039；逐个缺失均 blocked，不把旧 031 检查通过当作新能力已就绪。这是平台迁移检查的有意收紧，不新增/改写 SQL，也不依赖待审 040/042。
+
+全项目构建通过；预检定向 12/12（含真实 HTTP/编译 CLI、session 匿名401且probe零执行、迟到probe不改缓存）；Web136/136。真实 Chrome 复验 ready/degraded/blocked/无效响应、刷新、零POST、零页面异常通过，使用受控API响应，不是完整部署或供应商E2E。本轮未本地运行PostgreSQL或真实模型。
+
+最终后端完整单元集合结果见本PR验证记录；仍存在未合入 #111 的 Windows drawtext 字体失败，不将它记为本地全绿。探测超时只停止等待，不保证底层取消；API进程诊断不能证明独立Worker、所有迁移数据完整性或生产部署可用性。

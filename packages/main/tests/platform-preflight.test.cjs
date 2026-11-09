@@ -139,3 +139,45 @@ test('HTTP uses local guard/no-store, and real CLI doctor consumes the shared re
   });
   assert.equal(calls, 0);
 });
+
+
+test('current Canvas, frozen production and Assistant migrations cannot report ready when missing', async () => {
+  for (const missing of ['032', '033', '034', '035', '036', '037', '038', '039']) {
+    let received;
+    const probes = createPlatformProbes({ config: readConfig({}),
+      database: { async verifyConnection() {}, async hasMigrations(ids) { received = ids; return !ids.includes(missing); } },
+      mediaServiceReady: true, productionRuntimeReady: true, vectorConfigured: false,
+    });
+    // Only the migration probe is under test; no filesystem, provider or binary calls.
+    const report = await new PlatformPreflightService({ ...all(), migrations: probes.migrations }).check();
+    assert.ok(received.includes(missing), missing);
+    assert.equal(report.checks.find(c => c.id === 'migrations').status, 'blocked', missing);
+    assert.equal(report.status, 'blocked', missing);
+  }
+});
+
+test('a timed-out probe settling late cannot rewrite the cached diagnostic', { timeout: 5000 }, async () => {
+  let release;
+  const service = new PlatformPreflightService({ ...all(), database: () => new Promise(resolve => { release = resolve; }) },
+    { timeoutMs: 10, cacheMs: 1000 });
+  const report = await service.check();
+  assert.equal(report.checks.find(c => c.id === 'database').code, 'DATABASE_TIMEOUT');
+  release(true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(await service.check(), report);
+});
+
+
+test('session-mode preflight denies anonymous clients before running any probes', async t => {
+  const { AuthService } = require('../dist/auth/service');
+  let probes = 0;
+  const app = await createApp(readConfig({ LYRA_AUTH_MODE: 'session' }), async () => { throw new Error('no provider'); }, {
+    authService: new AuthService({}, { sessionTtlSeconds: 3600 }),
+    platformPreflight: new PlatformPreflightService(Object.fromEntries(PLATFORM_CHECK_IDS.map(id => [id, () => { probes++; return true; }]))),
+  });
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: '/api/platform/preflight', headers: { host: '127.0.0.1:8788' } });
+  assert.equal(response.statusCode, 401);
+  assert.equal(probes, 0);
+  assert.equal(response.json().checks, undefined);
+});

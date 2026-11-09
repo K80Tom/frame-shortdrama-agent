@@ -30,6 +30,8 @@ export function createPlatformProbes(deps: {
     database: async () => { if (!deps.database) return false; await deps.database.verifyConnection(); return true; },
     migrations: () => deps.database?.hasMigrations([
       ...BREAKDOWN_PERSISTENCE_MIGRATIONS, '009', '010', '014', '015', '016', '017', '024', '025', '026', '027', '028', '029', '030', '031',
+      // 当前平台的 Canvas、冻结输入/Run/DirectorScene 与 Assistant 持久化。
+      '032', '033', '034', '035', '036', '037', '038', '039',
     ]) ?? false,
     'media-directory': async () => {
       if (!deps.mediaRoot) return false;

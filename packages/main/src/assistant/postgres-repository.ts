@@ -2,7 +2,7 @@ import type { PostgresDatabase } from '../db/client';
 import {
   AssistantError, contextKeyOf, newAssistantId,
   type AssistantContext, type AssistantMessage, type AssistantQuote, type AssistantQuoteStatus,
-  type AssistantRepository, type AssistantSession,
+  type AssistantRepository, type AssistantSession, type AssistantTurn,
 } from '@lyra/agent';
 
 function requireSession(session: AssistantSession | undefined, id: string): AssistantSession {
@@ -12,7 +12,7 @@ function requireSession(session: AssistantSession | undefined, id: string): Assi
 
 interface SessionRow {
   id: string; context_key: string; context_json: AssistantContext; title: string;
-  created_at: Date | string; updated_at: Date | string;
+  created_at: Date | string; updated_at: Date | string; archived_at: Date | string | null;
 }
 interface ConversationVersionRow {
   conversation_version: string | number;
@@ -25,13 +25,22 @@ interface MessageRow {
 interface QuoteRow {
   id: string; session_id: string; kind: 'production_run'; request_json: Record<string, unknown>; summary: string;
   estimate_cost_micros: string | number; currency: string; status: AssistantQuoteStatus; submitted_run_id: string | null;
-  expires_at: Date | string; created_at: Date | string;
+  budget_micros: string | number | null; estimate_low_micros: string | number | null;
+  estimate_high_micros: string | number | null; price_revision: string | null;
+  assumptions_json: unknown; expires_at: Date | string; created_at: Date | string;
+}
+interface TurnRow {
+  id: string; session_id: string; agent_run_id: string; cursor: string | number;
+  status: AssistantTurn['status']; user_content: string; context_snapshot: Record<string, unknown> | null;
+  events_json: unknown; error_json: { code?: string; message?: string } | null;
+  started_at: Date | string; completed_at: Date | string | null;
 }
 
 const iso = (value: Date | string) => value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 const sessionOf = (row: SessionRow): AssistantSession => ({
   id: row.id, contextKey: row.context_key, context: row.context_json, title: row.title,
   createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  ...(row.archived_at ? { archivedAt: iso(row.archived_at) } : {}),
 });
 const messageOf = (row: MessageRow): AssistantMessage => ({
   id: row.id, sessionId: row.session_id, seq: Number(row.seq), role: row.role, content: row.content, thinking: row.thinking,
@@ -40,8 +49,28 @@ const messageOf = (row: MessageRow): AssistantMessage => ({
 });
 const quoteOf = (row: QuoteRow): AssistantQuote => ({
   id: row.id, sessionId: row.session_id, kind: row.kind, request: row.request_json, summary: row.summary,
-  estimateCostMicros: Number(row.estimate_cost_micros), currency: row.currency, status: row.status,
+  estimateCostMicros: Number(row.estimate_cost_micros),
+  ...(row.estimate_low_micros !== null && row.estimate_high_micros !== null ? {
+    estimateRangeMicros: {
+      lowMicros: Number(row.estimate_low_micros), highMicros: Number(row.estimate_high_micros),
+    },
+  } : {}),
+  ...(row.budget_micros !== null ? { budgetMicros: Number(row.budget_micros) } : {}),
+  ...(row.price_revision ? { priceRevision: row.price_revision } : {}),
+  ...(Array.isArray(row.assumptions_json)
+    ? { assumptions: row.assumptions_json.filter(item => typeof item === 'string') as string[] } : {}),
+  currency: row.currency, status: row.status,
   ...(row.submitted_run_id ? { submittedRunId: row.submitted_run_id } : {}), expiresAt: iso(row.expires_at), createdAt: iso(row.created_at),
+});
+const turnOf = (row: TurnRow): AssistantTurn => ({
+  id: row.id, sessionId: row.session_id, agentRunId: row.agent_run_id, cursor: Number(row.cursor),
+  status: row.status, userContent: row.user_content,
+  context: (row.context_snapshot ?? {}) as unknown as AssistantTurn['context'],
+  events: (Array.isArray(row.events_json) ? row.events_json : []) as AssistantTurn['events'],
+  startedAt: iso(row.started_at),
+  ...(row.completed_at ? { completedAt: iso(row.completed_at) } : {}),
+  ...(row.error_json?.code ? { error: { code: row.error_json.code,
+    message: row.error_json.message ?? '助手处理失败。' } } : {}),
 });
 
 export class PostgresAssistantRepository implements AssistantRepository {
@@ -60,6 +89,74 @@ export class PostgresAssistantRepository implements AssistantRepository {
   async getSession(id: string): Promise<AssistantSession> {
     const result = await this.database.query<SessionRow>(`SELECT * FROM assistant_sessions WHERE id = $1`, [id]);
     return requireSession(result.rows[0] ? sessionOf(result.rows[0]) : undefined, id);
+  }
+
+  async listSessions(query: { includeArchived?: boolean; limit?: number } = {}): Promise<AssistantSession[]> {
+    const limit = Math.max(1, Math.min(100, query.limit ?? 30));
+    const result = await this.database.query<SessionRow>(`
+      SELECT * FROM assistant_sessions
+      WHERE $1::boolean OR archived_at IS NULL
+      ORDER BY updated_at DESC, id COLLATE "C" DESC
+      LIMIT $2
+    `, [query.includeArchived === true, limit]);
+    return result.rows.map(sessionOf);
+  }
+
+  async updateSession(id: string, patch: { title?: string; archived?: boolean }): Promise<AssistantSession> {
+    const result = await this.database.query<SessionRow>(`
+      UPDATE assistant_sessions
+      SET title = COALESCE($2, title),
+          archived_at = CASE WHEN $3::boolean IS NULL THEN archived_at
+                             WHEN $3::boolean THEN COALESCE(archived_at, now())
+                             ELSE NULL END,
+          updated_at = now()
+      WHERE id = $1
+      RETURNING *
+    `, [id, patch.title ?? null, patch.archived === undefined ? null : patch.archived]);
+    return requireSession(result.rows[0] ? sessionOf(result.rows[0]) : undefined, id);
+  }
+
+  async createTurn(turn: AssistantTurn): Promise<AssistantTurn> {
+    return this.database.transaction(async client => {
+      const state = await client.query<{ last_turn_cursor: string | number }>(`
+        SELECT last_turn_cursor FROM assistant_sessions WHERE id = $1 FOR UPDATE
+      `, [turn.sessionId]);
+      const row = state.rows[0];
+      if (!row) throw new AssistantError(404, 'ASSISTANT_SESSION_NOT_FOUND', '助手会话不存在或已过期，请重新打开 AI 工作区。');
+      const cursor = Number(row.last_turn_cursor) + 1;
+      const result = await client.query<TurnRow>(`
+        INSERT INTO assistant_turns
+          (id, workspace_id, session_id, agent_run_id, cursor, status, user_content,
+           context_snapshot, events_json, error_json, started_at, completed_at)
+        VALUES ($1, (SELECT workspace_id FROM assistant_sessions WHERE id = $2), $2, $3, $4, $5, $6,
+                $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)
+        RETURNING *
+      `, [turn.id, turn.sessionId, turn.agentRunId, cursor, turn.status, turn.userContent,
+        JSON.stringify(turn.context), JSON.stringify(turn.events),
+        turn.error ? JSON.stringify(turn.error) : null, turn.startedAt, turn.completedAt ?? null]);
+      await client.query(`
+        UPDATE assistant_sessions SET last_turn_cursor = $2, updated_at = now() WHERE id = $1
+      `, [turn.sessionId, cursor]);
+      const stored = result.rows[0];
+      if (!stored) throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '对话轨迹写入失败，请重试。');
+      return turnOf(stored);
+    });
+  }
+
+  async listTurnsAfter(sessionId: string, cursor: number, limit = 20): Promise<AssistantTurn[]> {
+    await this.getSession(sessionId);
+    const result = await this.database.query<TurnRow>(`
+      SELECT * FROM assistant_turns WHERE session_id = $1 AND cursor > $2 ORDER BY cursor LIMIT $3
+    `, [sessionId, cursor, Math.max(1, Math.min(50, limit))]);
+    return result.rows.map(turnOf);
+  }
+
+  async lastTurnCursor(sessionId: string): Promise<number> {
+    await this.getSession(sessionId);
+    const result = await this.database.query<{ last_turn_cursor: string | number }>(`
+      SELECT last_turn_cursor FROM assistant_sessions WHERE id = $1
+    `, [sessionId]);
+    return Number(result.rows[0]?.last_turn_cursor ?? 0);
   }
 
   async listMessages(sessionId: string): Promise<AssistantMessage[]> {
@@ -148,10 +245,16 @@ export class PostgresAssistantRepository implements AssistantRepository {
 
   async createQuote(quote: Omit<AssistantQuote, 'createdAt'>): Promise<AssistantQuote> {
     const result = await this.database.query<QuoteRow>(
-      `INSERT INTO assistant_quotes (id, session_id, kind, request_json, summary, estimate_cost_micros, currency, status, expires_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO assistant_quotes
+         (id, session_id, kind, request_json, summary, estimate_cost_micros, currency, status, expires_at,
+          budget_micros, estimate_low_micros, estimate_high_micros, price_revision, assumptions_json)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+       RETURNING *`,
       [quote.id, quote.sessionId, quote.kind, JSON.stringify(quote.request), quote.summary,
-        quote.estimateCostMicros, quote.currency, quote.status, quote.expiresAt]);
+        quote.estimateCostMicros, quote.currency, quote.status, quote.expiresAt,
+        quote.budgetMicros ?? null, quote.estimateRangeMicros?.lowMicros ?? null,
+        quote.estimateRangeMicros?.highMicros ?? null, quote.priceRevision ?? null,
+        JSON.stringify(quote.assumptions ?? [])]);
     const row = result.rows[0];
     if (!row) throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '估价卡写入失败，请重试。');
     return quoteOf(row);
