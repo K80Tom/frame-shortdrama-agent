@@ -217,10 +217,10 @@ export class ProductionMediaIngestor {
     const unique = new Map<string, ResolvedAddress>();
     for (const value of addresses) {
       const family = value && typeof value.address === 'string' ? isIP(value.address) : 0;
-      const addressAllowed = this.allowIntranetMediaSources
+      const addressAllowed = (family === 4 || family === 6) && value.family === family && (this.allowIntranetMediaSources
         ? isNonLocalIntranetAddress(value.address, family)
-        : isPublicInternetAddress(value.address);
-      if ((family !== 4 && family !== 6) || value.family !== family || !addressAllowed) {
+        : isPublicInternetAddress(value.address));
+      if (!addressAllowed) {
         throw new ProductionMediaError(403, 'REMOTE_MEDIA_ADDRESS_FORBIDDEN', '远程视频地址指向私网、本机或保留网络。');
       }
       unique.set(`${family}:${value.address.toLowerCase()}`, { address: value.address, family });
@@ -253,6 +253,7 @@ function isNonLocalIntranetAddress(address: string, family: number): boolean {
   return !unspecified && !loopback && !linkLocal;
 }
 
+/** Project media-source filter; deliberately stricter than global routability. */
 export function isPublicInternetAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) {
@@ -274,10 +275,10 @@ export function isPublicInternetAddress(address: string): boolean {
   if (family !== 6 || address.includes('%')) return false;
   const value = ipv6ToBigInt(address);
   if (value === null || !matchesPrefix(value, ipv6ToBigInt('2000::')!, 3)) return false;
-  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 32)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:2::')!, 48)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:10::')!, 28)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:20::')!, 28)
+  // A conservative media-CDN policy, not an IANA routability oracle. Exclude
+  // IETF protocol assignments (including unassigned holes and special anycast/
+  // overlay identifiers) rather than treating the gaps as ordinary CDN hosts.
+  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 23)
     && !matchesPrefix(value, ipv6ToBigInt('2001:db8::')!, 32)
     && !matchesPrefix(value, ipv6ToBigInt('3fff::')!, 20)
     && !matchesPrefix(value, ipv6ToBigInt('2002::')!, 16);

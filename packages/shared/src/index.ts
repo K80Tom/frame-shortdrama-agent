@@ -6,6 +6,7 @@
  */
 export * from './models';
 export * from './production';
+export * from './canvas';
 export * from './prompt-packs';
 export * from './asset-retrieval';
 export * from './evolution';
@@ -18,3 +19,6 @@ export * from './novel-domain';
 export * from './novel-checkpoint';
 export * from './novel-registry';
 export * from './novel-adaptation';
+export * from './shot-spec';
+export * from './production-input-snapshot';
+export * from './director-scene';

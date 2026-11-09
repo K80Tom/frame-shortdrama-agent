@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Check, CircleAlert, LoaderCircle, Receipt, SendHorizonal, Wrench, X } from 'lucide-react';
 import {
-  assistantHistory, createAssistantSession, streamAssistantMessage, submitAssistantQuote,
-  type AssistantContext, type AssistantMessage, type AssistantQuote,
+  Archive, Bot, Check, CircleAlert, LoaderCircle, Receipt, SendHorizonal, Wrench, X,
+} from 'lucide-react';
+import {
+  assistantHistory, createAssistantSession, listAssistantSessions, resumeAssistantSession,
+  streamAssistantMessage, submitAssistantQuote, updateAssistantSession,
+  type AssistantContext, type AssistantMessage, type AssistantQuote, type AssistantSession,
 } from './api';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -26,6 +29,13 @@ function newLocalId(): string {
   return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function estimateText(quote: AssistantQuote): string {
+  const range = quote.estimateRangeMicros;
+  return range
+    ? `${yuan(quote.estimateCostMicros)}（区间 ${yuan(range.lowMicros)}–${yuan(range.highMicros)}）`
+    : yuan(quote.estimateCostMicros);
+}
+
 export default function AssistantPanel({ open, onClose, context, notify }: {
   open: boolean;
   onClose: () => void;
@@ -34,39 +44,76 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
 }) {
   const contextKey = contextKeyOf(context);
   const storageKey = `ohao_assistant_session:${contextKey}`;
+  const cursorKey = `ohao_assistant_cursor:${contextKey}`;
   const [sessionId, setSessionId] = useState('');
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [sessions, setSessions] = useState<AssistantSession[]>([]);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [quotes, setQuotes] = useState<AssistantQuote[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [lastInput, setLastInput] = useState('');
+  const [resumedNote, setResumedNote] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef('');
+  const cursorRef = useRef(0);
+
+  const rememberCursor = useCallback((cursor: number) => {
+    cursorRef.current = cursor;
+    window.sessionStorage.setItem(cursorKey, String(cursor));
+  }, [cursorKey]);
+
+  const loadSession = useCallback(async (id: string, active: () => boolean) => {
+    const result = await assistantHistory(id);
+    if (!active()) return;
+    setSessionId(result.session.id);
+    sessionRef.current = result.session.id;
+    setSessionTitle(result.session.title);
+    setMessages(result.items);
+    setQuotes(result.quotes);
+    const lastCursor = result.turns.reduce((max, turn) => Math.max(max, turn.cursor), 0);
+    // 断线恢复：只回放已落库的 turn，未完成的内容不会被伪造。
+    if (lastCursor > 0 && cursorRef.current < lastCursor) {
+      try {
+        const resumed = await resumeAssistantSession(result.session.id, cursorRef.current);
+        if (!active()) return;
+        if (resumed.events.length) {
+          const restored = resumed.turns.map(turn => ({
+            id: turn.id, sessionId: id, seq: turn.cursor, role: 'user' as const,
+            content: turn.userContent, thinking: '', status: 'complete' as const, createdAt: turn.startedAt,
+          }));
+          setMessages(current => current.length ? current : restored);
+          setResumedNote(`已从断点恢复 ${resumed.turns.length} 轮对话`);
+        }
+        rememberCursor(resumed.cursor);
+      } catch { /* 恢复失败不阻断当前会话 */ }
+    } else {
+      rememberCursor(lastCursor);
+    }
+  }, [rememberCursor]);
 
   useEffect(() => {
     if (!open) return;
     let active = true;
     const stored = window.sessionStorage.getItem(storageKey) ?? '';
+    cursorRef.current = Number(window.sessionStorage.getItem(cursorKey) ?? 0) || 0;
     setSessionId(stored);
     sessionRef.current = stored;
     setMessages([]);
     setQuotes([]);
     setError('');
+    setResumedNote('');
+    listAssistantSessions().then(list => { if (active) setSessions(list); }).catch(() => { /* 列表失败不影响当前会话 */ });
     if (stored) {
-      assistantHistory(stored).then(result => {
-        if (!active) return;
-        setMessages(result.items);
-        setQuotes(result.quotes);
-      }).catch(() => {
-        // 会话在后端已不存在：清掉本地引用，下一条消息会重新建会话。
+      loadSession(stored, () => active).catch(() => {
         window.sessionStorage.removeItem(storageKey);
         setSessionId('');
         sessionRef.current = '';
       });
     }
     return () => { active = false; };
-  }, [open, storageKey]);
+  }, [open, storageKey, loadSession]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -94,27 +141,44 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
     }]);
     try {
       let activeSession = sessionRef.current;
+      let sawModelDelta = false;
       if (!activeSession) {
         const created = await createAssistantSession(context);
         activeSession = created.id;
         sessionRef.current = activeSession;
         setSessionId(activeSession);
+        setSessionTitle(created.title);
         window.sessionStorage.setItem(storageKey, activeSession);
+        setSessions(current => [created, ...current]);
       }
       await streamAssistantMessage(activeSession, content, event => {
-        if (event.type === 'text_delta') {
+        if (event.type === 'model.delta') {
+          sawModelDelta = true;
           patchMessage(assistantId, message => ({ ...message, content: message.content + event.delta }));
+          return;
+        }
+        // 兼容旧事件名：与 model.delta 同时到达时忽略，避免文本重复拼接。
+        if (event.type === 'text_delta') {
+          if (!sawModelDelta) patchMessage(assistantId, message => ({ ...message, content: message.content + event.delta }));
           return;
         }
         if (event.type === 'thinking_delta') {
           patchMessage(assistantId, message => ({ ...message, thinking: message.thinking + event.delta }));
           return;
         }
-        if (event.type === 'tool_start') {
-          const toolId = newLocalId();
+        if (event.type === 'turn.started') {
+          const facts = event.context;
+          if (facts.projectTitle || facts.storyboardRevisionId) {
+            setResumedNote(`后端上下文：${facts.projectTitle ?? facts.projectId ?? ''}`);
+          }
+          return;
+        }
+        if (event.type === 'tool.proposed' || event.type === 'tool_start') {
+          const toolName = event.toolName;
+          const callId = 'callId' in event ? event.callId : undefined;
           setMessages(current => [...current, {
-            id: toolId, sessionId: activeSession, seq: 0, role: 'tool', content: '查询中…', thinking: '',
-            status: 'streaming', toolName: event.toolName, createdAt: new Date().toISOString(),
+            id: callId ? `tool_${callId}` : newLocalId(), sessionId: activeSession, seq: 0, role: 'tool',
+            content: '准备查询…', thinking: '', status: 'streaming', toolName, createdAt: new Date().toISOString(),
           }]);
           return;
         }
@@ -130,8 +194,13 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
           });
           return;
         }
-        if (event.type === 'generation_quote') {
+        if (event.type === 'generation_quote' || event.type === 'confirmation.required') {
           setQuotes(current => [...current.filter(quote => quote.id !== event.quote.id), event.quote]);
+          return;
+        }
+        if (event.type === 'turn.failed') {
+          setError(event.message);
+          patchMessage(assistantId, message => ({ ...message, status: 'failed' }));
           return;
         }
         if (event.type === 'error') {
@@ -141,15 +210,16 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
         }
         if (event.type === 'done') {
           patchMessage(assistantId, () => ({ ...event.message, id: assistantId }));
+          if (event.cursor) rememberCursor(event.cursor);
         }
-      });
+      }, undefined, cursorRef.current);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '助手这会儿没应答，请重试');
       patchMessage(assistantId, message => ({ ...message, status: 'failed' }));
     } finally {
       setBusy(false);
     }
-  }, [busy, context, input, patchMessage, storageKey]);
+  }, [busy, context, input, patchMessage, storageKey, rememberCursor]);
 
   const submit = useCallback(async (quote: AssistantQuote) => {
     if (busy || !sessionRef.current) return;
@@ -169,6 +239,31 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
     }
   }, [busy, notify]);
 
+  const rename = useCallback(async (title: string) => {
+    const trimmed = title.trim();
+    if (!sessionRef.current || !trimmed) return;
+    try {
+      const updated = await updateAssistantSession(sessionRef.current, { title: trimmed });
+      setSessionTitle(updated.title);
+      setSessions(current => current.map(item => item.id === updated.id ? updated : item));
+    } catch { /* 重命名失败保留原名 */ }
+  }, []);
+
+  const archive = useCallback(async () => {
+    if (!sessionRef.current) return;
+    try {
+      await updateAssistantSession(sessionRef.current, { archived: true });
+      window.sessionStorage.removeItem(storageKey);
+      window.sessionStorage.removeItem(cursorKey);
+      setSessions(current => current.filter(item => item.id !== sessionRef.current));
+      setSessionId(''); sessionRef.current = ''; setSessionTitle('');
+      setMessages([]); setQuotes([]); rememberCursor(0);
+      notify('当前会话已归档，下次发送会创建新会话。');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '归档失败，请重试');
+    }
+  }, [cursorKey, notify, rememberCursor, storageKey]);
+
   if (!open) return null;
   const pendingQuotes = quotes.filter(quote => quote.status === 'pending');
   const suggestions = context.projectId
@@ -181,6 +276,24 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
       <button className="icon-button" onClick={onClose} aria-label="收起 AI 工作区" title="收起（⌘J / Ctrl+J）"><X size={17} /></button>
     </header>
     <div className="assistant-context"><span>{context.label}</span><span className="assistant-context-key">{contextKey === 'global' ? '全局' : '已关联当前页面'}</span></div>
+
+    <div className="assistant-session-bar">
+      <input value={sessionTitle} placeholder="未命名会话"
+        onBlur={event => void rename(event.target.value)} aria-label="会话标题" />
+      {sessions.length > 0 && <select aria-label="切换会话" value={sessionId}
+        onChange={event => {
+          const next = event.target.value;
+          if (!next) return;
+          window.sessionStorage.setItem(storageKey, next);
+          rememberCursor(0);
+          loadSession(next, () => true).catch(() => setError('会话读取失败'));
+        }}>
+        <option value="">新会话</option>
+        {sessions.map(item => <option key={item.id} value={item.id}>{item.title || item.createdAt.slice(0, 16)}</option>)}
+      </select>}
+      {sessionId && <button className="assistant-archive" onClick={() => void archive()} aria-label="归档当前会话"><Archive size={14} /></button>}
+    </div>
+    {resumedNote && <p className="assistant-resume-note">{resumedNote}</p>}
 
     <div className="assistant-messages" ref={scrollRef}>
       {!messages.length && <div className="assistant-empty">
@@ -214,9 +327,16 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
       })}
 
       {pendingQuotes.map(quote => <div key={quote.id} className="assistant-quote">
-        <div className="assistant-quote-head"><Receipt size={15} /><strong>生成估价确认</strong><span>{yuan(quote.estimateCostMicros)}</span></div>
+        <div className="assistant-quote-head"><Receipt size={15} /><strong>生成估价确认</strong><span>预计 {estimateText(quote)}</span></div>
         <p>{quote.summary}</p>
-        <div className="assistant-quote-meta">预算上限 {yuan(quote.estimateCostMicros)} · {new Date(quote.expiresAt).toLocaleTimeString()} 前有效</div>
+        <div className="assistant-quote-meta">
+          预算上限 {quote.budgetMicros === undefined ? '未设置' : yuan(quote.budgetMicros)}
+          {quote.priceRevision ? ` · 价格版本 ${quote.priceRevision}` : ''}
+          {' · '}{new Date(quote.expiresAt).toLocaleTimeString()} 前有效
+        </div>
+        {quote.assumptions?.length ? <ul className="assistant-quote-assumptions">
+          {quote.assumptions.map(item => <li key={item}>{item}</li>)}
+        </ul> : null}
         <button className="assistant-quote-submit" disabled={busy || Date.now() > new Date(quote.expiresAt).getTime()}
           onClick={() => void submit(quote)}><Check size={15} />确认并提交生产</button>
       </div>)}
@@ -243,6 +363,6 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
         <SendHorizonal size={16} />
       </button>
     </div>
-    <footer className="assistant-footnote">助手不会自行扣费；付费生产必须你在估价卡上确认。</footer>
+    <footer className="assistant-footnote">助手不会自行扣费；付费生产必须你在估价卡上确认。预计花费与预算上限分开显示。</footer>
   </aside>;
 }

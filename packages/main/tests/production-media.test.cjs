@@ -902,7 +902,7 @@ test('explicit intranet opt-in still accepts mapped private IPv4 and unique-loca
   assert.equal(fetches, 4);
 });
 
-test('default public policy rejects IPv6 benchmark and documentation ranges with exact boundaries', async t => {
+test('public media policy rejects IPv6 benchmark/documentation and retains ordinary unicast', async t => {
   const f = await fixture(t);
   const blocked = ['2001:2::', '2001:2:0:ffff:ffff:ffff:ffff:ffff', '3fff::', '3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff'];
   let fetches = 0;
@@ -912,8 +912,33 @@ test('default public policy rejects IPv6 benchmark and documentation ranges with
       { fetch: async () => { fetches++; throw new Error('must not fetch'); } });
     await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
   }
-  for (const address of ['2001:2:1::1', '3fff:1000::1', '2606:4700:4700::1111', '2001:4860:4860::8888']) {
+  for (const address of ['2001:200::1', '3fff:1000::1', '2606:4700:4700::1111', '2001:4860:4860::8888']) {
     assert.equal(isPublicInternetAddress(address), true, address);
+  }
+  assert.equal(fetches, 0);
+});
+
+test('public media policy rejects protocol-assignment gaps, mixed DNS answers and malformed rows before fetch', async t => {
+  const f = await fixture(t);
+  const publicRow = { address: '2606:4700:4700::1111', family: 6 };
+  let fetches = 0;
+  const fetcher = { fetch: async () => { fetches++; throw new Error('must not fetch'); } };
+  for (const address of ['2001::', '2001:2:1::1', '2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff', '2001:1::1']) {
+    assert.equal(isPublicInternetAddress(address), false, address);
+    const bad = { address, family: 6 };
+    for (const answers of [[publicRow, bad], [bad, publicRow]]) {
+      const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => answers }, fetcher);
+      await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+    }
+  }
+  for (const allowIntranetMediaSources of [false, true]) {
+    for (const bad of [null, undefined, {}, { address: '127.0.0.1', family: 6 }, { address: 'invalid', family: 4 }]) {
+      const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [publicRow, bad] }, fetcher, { allowIntranetMediaSources });
+      await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+    }
+    const mappedLocal = { address: '::ffff:169.254.169.254', family: 6 };
+    const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [publicRow, mappedLocal] }, fetcher, { allowIntranetMediaSources });
+    await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
   }
   assert.equal(fetches, 0);
 });
