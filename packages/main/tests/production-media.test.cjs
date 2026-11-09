@@ -874,7 +874,7 @@ test('object storage runtime maps Stage 1 environment into a lazy MinIO SDK clie
 });
 
 
-for (const late of ['resolve', 'reject']) test('DNS deadline blocks late ' + late + ' without fetch or retry', async t => {
+for (const late of ['resolve', 'reject']) test('DNS deadline blocks late ' + late + ' without fetch or retry', { timeout: 5000 }, async t => {
   const f = await fixture(t);
   let complete, fail, lookups = 0, fetches = 0;
   const ingestor = new ProductionMediaIngestor(f.store, { resolve: () => {
@@ -919,7 +919,7 @@ test('DNS deadline rejects invalid and overflowing timer settings', async t => {
   }
 });
 
-for (const late of ['resolve', 'reject']) test('concurrent DNS deadlines isolate fast work and a later explicit request after late ' + late, async t => {
+for (const late of ['resolve', 'reject']) test('concurrent DNS deadlines isolate fast work and a later explicit request after late ' + late, { timeout: 5000 }, async t => {
   const f = await fixture(t);
   let complete, fail, slowLookups = 0, fastLookups = 0;
   const fetched = [];

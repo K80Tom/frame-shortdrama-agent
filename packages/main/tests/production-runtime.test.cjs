@@ -318,7 +318,7 @@ test('video localization retry reuses the completed provider run without another
   assert.equal(creates, 1); assert.equal(ingests, 2);
 });
 
-for (const late of ['resolve', 'reject']) test('real DNS deadline in video localization reuses the completed run after late ' + late, async () => {
+for (const late of ['resolve', 'reject']) test('real DNS deadline in video localization reuses the completed run after late ' + late, { timeout: 5000 }, async () => {
   const { ProductionMediaIngestor } = require('../dist/production-media');
   const f = videoFixture(); let creates = 0, lookups = 0, fetches = 0, stores = 0, complete, fail;
   const completed = { id: 'video_dns_done', status: 'completed', model: 'video-model', modelConnectionRevision: 'revision_1',
