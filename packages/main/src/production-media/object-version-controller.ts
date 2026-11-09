@@ -21,7 +21,7 @@ export class ObjectVersionController {
 
   private ready() {
     if (!this.versions) {
-      throw new ProductionError(503, 'OBJECT_VERSION_UNAVAILABLE', '对象版本服务尚未就绪，请先应用 040 迁移。');
+      throw new ProductionError(503, 'OBJECT_VERSION_UNAVAILABLE', '对象版本服务尚未就绪，请先应用 044 迁移。');
     }
     return this.versions;
   }

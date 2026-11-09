@@ -1,3 +1,5 @@
+import { PlatformPreflightService } from './platform/preflight';
+import { createPlatformProbes } from './platform/probes';
 import { createApp } from './app';
 import { readConfig } from './config';
 import { createHash, randomBytes } from 'node:crypto';
@@ -5,7 +7,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -37,8 +39,12 @@ import {
 } from './production-media';
 import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
-import { AssistantOrchestrator, type AssistantMessage } from '@lyra/agent';
-import { AssistantService } from '@lyra/agent';
+import {
+  AssistantOrchestrator, type AssistantMessage, AssistantService, createAssistantToolRegistry,
+  type AssistantToolPorts, attachProductionTools,
+} from '@lyra/agent';
+import { ProductionToolService, ToolRegistryViewService } from './tool-registry/service';
+import { McpManagementService } from './mcp-management/service';
 import {
   CanvasService, type CanvasReferenceResolver, type CanvasDomainPort, type CanvasStoryboardPort,
 } from './canvas/service';
@@ -67,12 +73,25 @@ import {
 import { startWorkerProcessLifetime } from './system/worker-lifetime';
 import { PostgresJobQueueRepository } from './jobs/repository';
 import { PostgresJobTenantResolver } from './jobs/tenant';
+import { createAgentTooling, type AgentTooling } from './agent-runtime/services';
 import { PersistentJobWorker, type JobHandler } from './jobs/worker';
 import { PostgresDataOutboxRepository } from './data/repository';
 import { PostgresProjectionStore } from './data/checkpoint';
 import { DataProjector } from './data/projector';
 import { DataDispatchJobPump, DataOutboxJobHandler } from './data/job-dispatcher';
 import { tenantExecutionScope } from './tenancy/scope';
+import { INFRA_OUTBOX_MIGRATIONS } from './db/readiness';
+import {
+  RedisLeaseLock, WorkerInstanceLeaseManager, WorkerRuntime, createRedisLeaseClientFromEnv,
+  newOwnerInstanceId, readWorkerRuntimeOptions,
+} from './runtime';
+import { PostgresWorkerLeaseStore } from './runtime/postgres-lease-store';
+import type { RedisLeaseHandle } from './runtime/redis-lease';
+import {
+  OutboxTaskConsumer, OutboxTaskService, PostgresOutboxTaskStore,
+  createRuntimeSmokeHandler, createStagingGcHandler,
+} from './production/outbox';
+import { createStorageDriverFromEnv } from './storage/runtime';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -170,6 +189,9 @@ async function main() {
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
   let canvasService: CanvasService | undefined;
+  let agentTooling: AgentTooling | undefined;
+  let toolRegistryView: ToolRegistryViewService | undefined;
+  const mcpManagement = new McpManagementService();
   let evolutionService: AssetEvolutionService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
@@ -184,6 +206,10 @@ async function main() {
   let stage1Jobs: PostgresJobQueueRepository | undefined;
   let tenantResolver: PostgresJobTenantResolver | undefined;
   let stage1RuntimeMigrated = false;
+  let outboxTaskService: OutboxTaskService | undefined;
+  let workerRuntime: WorkerRuntime | undefined;
+  let redisLease: RedisLeaseHandle | undefined;
+  let requestWorkerShutdown: (() => void) | undefined;
   const mediaRunner = new BoundedProcessRunner();
   const productionMediaStore = new ProductionMediaStore(
     resolve('outputs/private/production-media'),
@@ -341,22 +367,23 @@ async function main() {
         const breakdown = breakdownService;
         const production = productionService;
         const assets = assetService;
+        const assistantPorts: AssistantToolPorts = {
+          listProjects: breakdown
+            ? async () => (await breakdown.listProjects()).map(project => pickScalars(project, ['id', 'title', 'createdAt', 'updatedAt']))
+            : undefined,
+          listProductionRuns: production
+            ? async () => (await production.list()).runs.map(run => summarizeRun(run))
+            : undefined,
+          getProductionRun: production
+            ? async runId => summarizeRun(await production.get(runId))
+            : undefined,
+          listAssets: assets
+            ? async () => (await assets.list()).map(asset => pickScalars(asset, ['id', 'name', 'kind', 'type', 'status', 'createdAt']))
+            : undefined,
+        };
         const orchestrator = new AssistantOrchestrator(
           { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
-          {
-            listProjects: breakdown
-              ? async () => (await breakdown.listProjects()).map(project => pickScalars(project, ['id', 'title', 'createdAt', 'updatedAt']))
-              : undefined,
-            listProductionRuns: production
-              ? async () => (await production.list()).runs.map(run => summarizeRun(run))
-              : undefined,
-            getProductionRun: production
-              ? async runId => summarizeRun(await production.get(runId))
-              : undefined,
-            listAssets: assets
-              ? async () => (await assets.list()).map(asset => pickScalars(asset, ['id', 'name', 'kind', 'type', 'status', 'createdAt']))
-              : undefined,
-          },
+          assistantPorts,
           { createQuote: (_sessionId, quote) => assistantRepository.createQuote(quote) },
         );
         assistantService = new AssistantService(assistantRepository, orchestrator, productionService, undefined, {
@@ -383,6 +410,19 @@ async function main() {
             }
           },
         });
+        // #137：把助手四个只读工具映射为版本化 ToolDefinition，并由 main 注入
+        // Postgres Invocation/Budget 端口；agent 包仍然不接触数据库。
+        if (await database.hasMigrations(AGENT_PERSISTENCE_MIGRATIONS)) {
+          const registry = createAssistantToolRegistry(assistantPorts);
+          // #137：19 个生产 Tool 只发布不可变 manifest；真实读写端口按现有 Service 注入。
+          attachProductionTools(registry, new ProductionToolService({
+            projects: breakdown, productionRuns: production, assets,
+          }));
+          agentTooling = createAgentTooling(database, registry);
+          toolRegistryView = new ToolRegistryViewService(
+            () => registry.all(), definition => registry.publicView(definition),
+          );
+        }
       }
       // 生产画布：只引用正式对象；布局与领域事实分离；付费必须经报价与确认。
       if (await database.hasMigrations(['032']) && breakdownService instanceof BreakdownService && storyboardService) {
@@ -514,6 +554,49 @@ async function main() {
         }
         persistentJobWorker = new PersistentJobWorker(jobs,
           tenantResolver!, handlers);
+        // 基础设施异步 Outbox（037/038）：与业务事实同事务提交的 Worker 任务。
+        // 复用既有骨架：PersistentJobWorker 管 job 级租约，本模块提供实例级
+        // 租约（worker_leases，PG 权威 + Redis 快速互斥）与任务出件箱消费。
+        if (await database.hasMigrations(INFRA_OUTBOX_MIGRATIONS)) {
+          const runtimeOptions = readWorkerRuntimeOptions(process.env);
+          const ownerInstanceId = newOwnerInstanceId(randomBytes);
+          const outboxStore = new PostgresOutboxTaskStore(database);
+          outboxTaskService = new OutboxTaskService(outboxStore);
+          const storageDriver = createStorageDriverFromEnv(process.env);
+          redisLease = await createRedisLeaseClientFromEnv(process.env, {
+            onError: () => undefined,
+          });
+          const leaseManager = new WorkerInstanceLeaseManager({
+            ownerInstanceId,
+            role: config.runtimeRole,
+            leaseMs: runtimeOptions.leaseMs,
+            heartbeatIntervalMs: runtimeOptions.heartbeatIntervalMs,
+            store: new PostgresWorkerLeaseStore(database),
+            lock: redisLease
+              ? new RedisLeaseLock({ role: config.runtimeRole, client: redisLease.client })
+              : undefined,
+          });
+          const outboxConsumer = new OutboxTaskConsumer({
+            database,
+            store: outboxStore,
+            tenantResolver: tenantResolver!,
+            handlers: [createRuntimeSmokeHandler(), createStagingGcHandler({ driver: storageDriver })],
+            ownerInstanceId,
+            consumerName: 'main-worker',
+            batchSize: runtimeOptions.outbox.batchSize,
+            pollIntervalMs: runtimeOptions.outbox.pollIntervalMs,
+            retryBaseMs: runtimeOptions.outbox.retryBaseMs,
+            claimLeaseMs: runtimeOptions.leaseMs,
+          });
+          workerRuntime = new WorkerRuntime({
+            lease: leaseManager,
+            tasks: [outboxConsumer],
+            onLeaseLost: error => {
+              console.error(`[infra-outbox] 实例租约丢失（${error.code}）：停止任务消费，等待其他实例接管。`);
+              if (config.runtimeRole === 'worker') requestWorkerShutdown?.();
+            },
+          });
+        }
       }
     } catch (error) {
       await stopRuntimeHeartbeat?.();
@@ -570,11 +653,21 @@ async function main() {
     await Promise.all([desktopAssetService?.stop(), videoAutomationService?.stop(), productionService?.stop()]);
     await Promise.all([dataDispatchPump?.stop(), assetVectorReconciler?.stop()]);
     await Promise.all([productionMediaObjectWorker?.stop(), persistentJobWorker?.stop()]);
+    await workerRuntime?.stop().catch(() => undefined);
+    await redisLease?.close().catch(() => undefined);
     await conversationContext.close().catch(() => undefined);
     await stopRuntimeHeartbeat?.();
     await database?.close();
   };
+  const platformProbes = createPlatformProbes({
+    config, database, mediaRoot: productionMediaStore.root, mediaServiceReady: true,
+    productionRuntimeReady: Boolean(productionService), vectorConfigured: Boolean(assetVectorConfig), runner: mediaRunner,
+  });
+  platformProbes['production-runtime'] = async () => Boolean(productionService) && (await systemStatus.snapshot()).readiness === 'ready';
   const dependencies = {
+    platformPreflight: new PlatformPreflightService(platformProbes, {
+      frameAssessmentRequired: (process.env.Lyra_FRAME_ASSESSMENT ?? process.env.OHAO_FRAME_ASSESSMENT) !== '0',
+    }),
     breakdownService,
     stageRunner,
     storyboardService,
@@ -588,6 +681,10 @@ async function main() {
     objectVersions,
     assistantService,
     canvasService,
+    agentRuntime: agentTooling?.runtime,
+    agentToolKernel: agentTooling?.toolKernel,
+    toolRegistryView,
+    mcpManagement,
     evolutionService,
     evaluationService,
     promptPacksService,
@@ -595,6 +692,7 @@ async function main() {
     rateLimiter: conversationContext.rateLimiter,
     registrationRateLimiter: conversationContext.mode === 'redis'
       ? conversationContext.rateLimiter : undefined,
+    outboxTaskService,
     systemStatus,
     close: shutdown,
   };
@@ -612,6 +710,10 @@ async function main() {
       persistentJobWorker?.start();
       dataDispatchPump?.start();
       assetVectorReconciler?.start();
+      if (workerRuntime) {
+        // 实例租约互斥：同 role 已有存活实例时快速失败，避免双实例并发消费。
+        await workerRuntime.start();
+      }
       // Legacy schedulers predate tenant-aware jobs. Their timers inherit this
       // explicit audited system scope. ProductionService immediately narrows
       // each run to its real workspace before invoking any executor.
@@ -635,10 +737,14 @@ async function main() {
     const persistence = breakdownService instanceof BreakdownService ? 'PostgreSQL ready' : 'breakdown persistence unavailable';
     const extractFacts = stageRunner ? 'extract-facts ledger ready' : 'extract-facts ledger unavailable';
     const production = productionService ? 'production orchestration ready' : 'production orchestration unavailable';
+    const agent = agentTooling ? 'agent runtime/tool kernel ready' : 'agent runtime/tool kernel unavailable';
     const listenHost = config.host ?? '127.0.0.1';
     const endpoint = runApi ? `http://${listenHost}:${config.port}` : 'no HTTP listener';
-    console.log(`Lyra ${config.runtimeRole} ready: ${endpoint} (${persistence}, ${extractFacts}, ${production})`);
+    console.log(`Lyra ${config.runtimeRole} ready: ${endpoint} (${persistence}, ${extractFacts}, ${production}, ${agent})`);
     if (!runApi) {
+      requestWorkerShutdown = () => {
+        void shutdown().finally(() => process.exit(process.exitCode ?? 0));
+      };
       const lifetime = startWorkerProcessLifetime(shutdown);
       await lifetime.done;
     }
@@ -648,7 +754,10 @@ async function main() {
     throw error;
   }
 }
-main().catch(() => {
+main().catch(error => {
   console.error('本机后端启动失败：请检查 .env、本机 PostgreSQL 和端口占用。未输出凭据或原始错误。');
+  if (process.env.LYRA_DEBUG_STARTUP === '1') {
+    console.error('[LYRA_DEBUG_STARTUP]', error instanceof Error ? (error.stack ?? error.message) : error);
+  }
   process.exitCode = 1;
 });

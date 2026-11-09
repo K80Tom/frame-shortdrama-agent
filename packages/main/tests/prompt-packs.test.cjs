@@ -115,6 +115,7 @@ test('adaptation targets only adapted material, topic is browse-only, and select
   assert.deepEqual(await packs.freeze(), []);
   const adapted = await packs.freeze({ source: { kind: 'novelAdaptation' } });
   assert.equal(adapted.length, 1); assert.ok(adapted[0].excerpt.length <= 4000);
+  assert.match(adapted[0].versionId, /^prompt-pack:adapted@[a-f0-9]{64}$/);
   assert.equal(adapted[0].excerpt.isWellFormed(), true);
   await add('topic-only', ['topic']);
   await assert.rejects(packs.setState('topic-only', true), { code: 'PROMPT_PACK_NO_NODE' });

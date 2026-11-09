@@ -55,6 +55,6 @@ test('legacy local-token access cannot invent an authenticated tenant for object
 });
 test('object version runtime is migration gated and constructs the existing fenced handler without storage IO',async()=>{
  const queries=[],db={async hasMigrations(versions){queries.push(versions);return false;}};
- assert.equal(await createObjectVersionRuntime(db,{}),null);assert.deepEqual(queries,[['040']]);
+ assert.equal(await createObjectVersionRuntime(db,{}),null);assert.deepEqual(queries,[['044']]);
  db.hasMigrations=async()=>true;const runtime=await createObjectVersionRuntime(db,{});assert.equal(runtime.handler.kind,'object.version.materialize');assert.equal(runtime.handler.queueName,'object_versions');assert.equal(runtime.handler.settlement,'domain_transaction');assert.equal(typeof runtime.repository.request,'function');
 });

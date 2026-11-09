@@ -91,7 +91,7 @@ test('038 installs on empty historical scene refs and atomically rejects unprova
     }
   }finally{await client.end();}
 });
-test('040 never upgrades an unprovable provider selector into an internal object version',{
+test('044 never upgrades an unprovable provider selector into an internal object version',{
  skip:process.env.DATABASE_ADMIN_URL?false:'isolated DATABASE_ADMIN_URL required',
 },async()=>{
  const client=new Client({connectionString:process.env.DATABASE_ADMIN_URL});await client.connect();
@@ -112,7 +112,7 @@ test('040 never upgrades an unprovable provider selector into an internal object
    await client.query("INSERT INTO production_input_states VALUES($1,'snapshot_one','frozen')",[workspace]);
    await client.query("INSERT INTO production_input_shots VALUES($1,'snapshot_one','shotversion_one')",[workspace]);
    await client.query("INSERT INTO shot_spec_versions VALUES($1,'shotversion_one',$2)",[workspace,spec]);
-   const sql=migrationSqlForExecution('040_object_versions.sql',readFileSync(join(__dirname,'../migrations/040_object_versions.sql'),'utf8'));
+   const sql=migrationSqlForExecution('044_object_versions.sql',readFileSync(join(__dirname,'../migrations/044_object_versions.sql'),'utf8'));
    await client.query('SAVEPOINT object_upgrade');
    if(orphan){
     await assert.rejects(client.query(sql),e=>e.code==='55000');await client.query('ROLLBACK TO SAVEPOINT object_upgrade');

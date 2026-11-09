@@ -5,6 +5,7 @@
  * main / agent / cli / web 都从这里取同一套语言，避免各包自定义合同。
  */
 export * from './models';
+export * from './platform-preflight';
 export * from './production';
 export * from './canvas';
 export * from './prompt-packs';
@@ -19,7 +20,15 @@ export * from './novel-domain';
 export * from './novel-checkpoint';
 export * from './novel-registry';
 export * from './novel-adaptation';
+
+export * from './evaluation-statistics';
 export * from './shot-spec';
 export * from './production-input-snapshot';
 export * from './director-scene';
 export * from './object-version';
+export * from './video-control';
+export * from './audio-production';
+export * from './agent/contracts';
+export * from './agent/runtime';
+export * from './agent/skills';
+export * from './agent/mcp';

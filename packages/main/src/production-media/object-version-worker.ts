@@ -6,7 +6,7 @@ import type {PostgresDatabase} from '../db/client';
 
 /** Shares main's configured storage and database. Construction neither enqueues nor copies bytes. */
 export async function createObjectVersionRuntime(database:PostgresDatabase,objects:ObjectStorage){
-  if(!await database.hasMigrations(['040']))return null;
+  if(!await database.hasMigrations(['044']))return null;
   const repository=new PostgresObjectVersionRepository(database);
   return {repository,handler:new ObjectVersionJobHandler(repository,objects)};
 }

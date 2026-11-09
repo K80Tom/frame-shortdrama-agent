@@ -217,10 +217,10 @@ export class ProductionMediaIngestor {
     const unique = new Map<string, ResolvedAddress>();
     for (const value of addresses) {
       const family = value && typeof value.address === 'string' ? isIP(value.address) : 0;
-      const addressAllowed = this.allowIntranetMediaSources
+      const addressAllowed = (family === 4 || family === 6) && value.family === family && (this.allowIntranetMediaSources
         ? isNonLocalIntranetAddress(value.address, family)
-        : isPublicInternetAddress(value.address);
-      if ((family !== 4 && family !== 6) || value.family !== family || !addressAllowed) {
+        : isPublicInternetAddress(value.address));
+      if (!addressAllowed) {
         throw new ProductionMediaError(403, 'REMOTE_MEDIA_ADDRESS_FORBIDDEN', '远程视频地址指向私网、本机或保留网络。');
       }
       unique.set(`${family}:${value.address.toLowerCase()}`, { address: value.address, family });
@@ -235,18 +235,25 @@ function isNonLocalIntranetAddress(address: string, family: number): boolean {
     const parts = address.split('.').map(Number);
     if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
     const [a, b] = parts as [number, number, number, number];
-    return !(a === 0 || a === 127 || (a === 169 && b === 254));
+    return !(a === 0 || a === 127 || a >= 224 || (a === 169 && b === 254));
   }
   if (family !== 6) return false;
   const value = ipv6ToBigInt(address);
   if (value === null) return false;
+  // IPv4-mapped IPv6 must obey the same local-target rules as plain IPv4.
+  if (matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96)) {
+    const bytes = [24n, 16n, 8n, 0n].map(shift => Number((value >> shift) & 255n));
+    return isNonLocalIntranetAddress(bytes.join('.'), 4);
+  }
+  // Deprecated IPv4-compatible and multicast addresses are not CDN unicast targets.
+  if (matchesPrefix(value, 0n, 96) || matchesPrefix(value, ipv6ToBigInt('ff00::')!, 8)) return false;
   const unspecified = value === 0n;
   const loopback = value === 1n;
-  const ipv4MappedLoopback = matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96) && (value & 0xff000000n) === (0x7fn << 24n);
   const linkLocal = matchesPrefix(value, ipv6ToBigInt('fe80::')!, 10);
-  return !unspecified && !loopback && !ipv4MappedLoopback && !linkLocal;
+  return !unspecified && !loopback && !linkLocal;
 }
 
+/** Project media-source filter; deliberately stricter than global routability. */
 export function isPublicInternetAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) {
@@ -268,10 +275,12 @@ export function isPublicInternetAddress(address: string): boolean {
   if (family !== 6 || address.includes('%')) return false;
   const value = ipv6ToBigInt(address);
   if (value === null || !matchesPrefix(value, ipv6ToBigInt('2000::')!, 3)) return false;
-  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 32)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:10::')!, 28)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:20::')!, 28)
+  // A conservative media-CDN policy, not an IANA routability oracle. Exclude
+  // IETF protocol assignments (including unassigned holes and special anycast/
+  // overlay identifiers) rather than treating the gaps as ordinary CDN hosts.
+  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 23)
     && !matchesPrefix(value, ipv6ToBigInt('2001:db8::')!, 32)
+    && !matchesPrefix(value, ipv6ToBigInt('3fff::')!, 20)
     && !matchesPrefix(value, ipv6ToBigInt('2002::')!, 16);
 }
 

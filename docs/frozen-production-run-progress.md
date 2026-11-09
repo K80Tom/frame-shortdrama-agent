@@ -33,4 +33,4 @@
 
 ## 对象版本后续（更新早期 HEAD-only 边界）
 
-已增加 040 内部对象版本、既有 Worker/任务/Outbox 原子结算与真实受控字节副本；冻结验真改为实际 GET/SHA，不接受原型 provider-only ID。详见 [对象版本输入](object-version-inputs.md)。这不代表 AssetPack/媒体 owner 或完整生产链完成；最新 DB 测试为 7/7（4 应用角色集成 + 3 管理员迁移），真实云互通仍未验证。
+已增加 044 内部对象版本、既有 Worker/任务/Outbox 原子结算与真实受控字节副本；冻结验真改为实际 GET/SHA，不接受原型 provider-only ID。详见 [对象版本输入](object-version-inputs.md)。这不代表 AssetPack/媒体 owner 或完整生产链完成；最新 DB 测试为 7/7（4 应用角色集成 + 3 管理员迁移），真实云互通仍未验证。
