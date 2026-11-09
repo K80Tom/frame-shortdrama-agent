@@ -42,11 +42,14 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
     catch { return { state: 'blocked', code: 'VIDEO_MODEL_NOT_CONFIGURED', message: '生视频连接未完整配置，未调用模型。' }; }
     const references = await this.referenceImages(run);
     if (references.state === 'blocked') return references;
+    const controls = await this.controlFrames(run);
+    if (controls.state === 'blocked') return controls;
     // Keep the exact client for result queries even if settings change mid-run.
     this.clients.set(run.id, client);
     try {
       return { state: 'submitted', task: await client.submit({ prompt: run.prompt, ratio: run.ratio,
         duration: run.duration, resolution: run.resolution, generateAudio: run.generateAudio,
+        firstFrameUrl: controls.firstFrameUrl ?? undefined, lastFrameUrl: controls.lastFrameUrl ?? undefined,
         referenceImageUrls: references.sources, watermark: false }) };
     } catch (error) {
       if (error instanceof ModelError && error.code === 'INVALID_MEDIA_REQUEST') {
@@ -71,22 +74,48 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
       message: '当前视频执行器未连接资产库，未调用模型。' };
     const sources: string[] = [];
     try {
-      for (const id of ids) {
-        const asset = await this.assets.get(id);
-        if (asset.id !== id) throw new AssetError(409, 'ASSET_REFERENCE_MISMATCH', '资产返回标识不匹配。');
-        if (asset.resourceUrl === localAssetUrl(id)) {
-          const media = await this.assets.content(id);
-          sources.push(`data:${media.mimeType};base64,${media.bytes.toString('base64')}`);
-        } else {
-          sources.push(asset.resourceUrl);
-        }
-      }
+      for (const id of ids) sources.push(await this.assetSource(id));
     } catch (error) {
       const code = error instanceof AssetError ? error.code : 'ASSET_REFERENCE_UNAVAILABLE';
       return { state: 'blocked', code: 'VIDEO_REFERENCE_ASSET_UNAVAILABLE',
         message: `无法读取已绑定的视频参考资产（${code}），未调用模型。` };
     }
     return { state: 'ready', sources };
+  }
+
+  /**
+   * Resolve retired first/last frame assets at submit time. Persisted runs only
+   * keep asset IDs; no signed URL is written to PostgreSQL.
+   */
+  private async controlFrames(run: StoredVideoRun): Promise<{ state: 'ready'; firstFrameUrl: string | null; lastFrameUrl: string | null }
+    | { state: 'blocked'; code: string; message: string }> {
+    const first = run.firstFrameAssetId; const last = run.lastFrameAssetId;
+    if (first === undefined && last === undefined) return { state: 'ready', firstFrameUrl: null, lastFrameUrl: null };
+    if (first === undefined || last !== undefined && first === last
+      || [first, last].some(id => id !== undefined && (!/^asset_[a-f0-9]{32}$/u.test(id) || (run.referenceAssetIds ?? []).includes(id)))) {
+      return { state: 'blocked', code: 'VIDEO_CONTROL_FRAME_INVALID',
+        message: '视频首尾帧引用无效，未调用模型。' };
+    }
+    if (!this.assets) return { state: 'blocked', code: 'VIDEO_CONTROL_FRAME_UNAVAILABLE',
+      message: '当前视频执行器未连接资产库，无法签发首尾帧。' };
+    try {
+      return { state: 'ready', firstFrameUrl: await this.assetSource(first),
+        lastFrameUrl: last === undefined ? null : await this.assetSource(last) };
+    } catch (error) {
+      const code = error instanceof AssetError ? error.code : 'ASSET_REFERENCE_UNAVAILABLE';
+      return { state: 'blocked', code: 'VIDEO_CONTROL_FRAME_UNAVAILABLE',
+        message: `无法读取已采用的首尾帧资产（${code}），未调用模型。` };
+    }
+  }
+
+  private async assetSource(id: string): Promise<string> {
+    const asset = await this.assets!.get(id);
+    if (asset.id !== id) throw new AssetError(409, 'ASSET_REFERENCE_MISMATCH', '资产返回标识不匹配。');
+    if (asset.resourceUrl === localAssetUrl(id)) {
+      const media = await this.assets!.content(id);
+      return `data:${media.mimeType};base64,${media.bytes.toString('base64')}`;
+    }
+    return asset.resourceUrl;
   }
   async query(run: StoredVideoRun): Promise<SeedanceTask> {
     if (!run.providerTaskId) throw new VideoAutomationError(409, 'VIDEO_TASK_ID_UNKNOWN', '尚无供应商任务 ID，不能安全查询或重发。');

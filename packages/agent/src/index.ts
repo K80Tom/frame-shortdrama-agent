@@ -15,3 +15,5 @@ export * from './kernel/index';
 export * from './mcp/index';
 export * from './skills/index';
 export * from './agent-runtime/index';
+export * from './production-tools/catalog';
+export * from './production-tools/registry';
