@@ -1,12 +1,20 @@
 import type { DataOutboxRepository } from './repository';
 import type { StoredDataEvent } from './outbox';
-import type { DataProjector } from './projector';
+import type { TenantDataEvent } from './tenant-event';
 import type { JobQueueRepository } from '../jobs/contracts';
 import type { JobHandler, JobHandlerContext } from '../jobs/worker';
 import { tenantExecutionScope, type TenantExecutionScope } from '../tenancy/scope';
 
 export const DATA_PROJECTION_QUEUE = 'projection';
 export const DATA_PROJECTION_JOB_KIND = 'data.outbox.project';
+
+/** 一个 Outbox 事件可同时投递给多个幂等投影器；任一 gap/quarantine 都会阻断 ack。 */
+export interface DataEventProjector {
+  deliver(event: TenantDataEvent): Promise<{
+    status: 'projected' | 'duplicate' | 'gap' | 'quarantined';
+    reason?: string;
+  }>;
+}
 
 function unref(timer: ReturnType<typeof setTimeout>): void { timer.unref?.(); }
 function eventOf(stored: StoredDataEvent) { return stored.event; }
@@ -129,7 +137,7 @@ export class DataOutboxJobHandler implements JobHandler {
   readonly queueName = DATA_PROJECTION_QUEUE;
   readonly kind = DATA_PROJECTION_JOB_KIND;
 
-  constructor(private readonly outbox: DataOutboxRepository, private readonly projector: DataProjector,
+  constructor(private readonly outbox: DataOutboxRepository, private readonly projector: DataEventProjector,
     private readonly options: { maxAttempts?: number; retryBaseMs?: number; now?: () => Date } = {}) {}
 
   async handle(context: JobHandlerContext): Promise<void> {
@@ -141,7 +149,7 @@ export class DataOutboxJobHandler implements JobHandler {
     if (!stored || stored.workspaceId !== context.lease.job.workspaceId) {
       throw new Error('投影任务引用的 Outbox 事件不存在或工作区不匹配。');
     }
-    let result: Awaited<ReturnType<DataProjector['deliver']>>;
+    let result: Awaited<ReturnType<DataEventProjector['deliver']>>;
     try {
       result = await this.projector.deliver(eventOf(stored));
       if (result.status === 'gap') throw new Error(result.reason ?? 'DATA_OUTBOX_ORDER_GAP');

@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS, LINEAGE_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -78,7 +78,12 @@ import { PersistentJobWorker, type JobHandler } from './jobs/worker';
 import { PostgresDataOutboxRepository } from './data/repository';
 import { PostgresProjectionStore } from './data/checkpoint';
 import { DataProjector } from './data/projector';
-import { DataDispatchJobPump, DataOutboxJobHandler } from './data/job-dispatcher';
+import { DataDispatchJobPump, DataOutboxJobHandler, type DataEventProjector } from './data/job-dispatcher';
+import { CompositeDataProjector } from './data/composite-projector';
+import { LineageDataProjector } from './lineage/data-projector';
+import { LineageProjector } from './lineage/projector';
+import { PostgresLineageStore } from './lineage/store';
+import { PostgresSourceLineageReader } from './lineage/postgres-source-reader';
 import { tenantExecutionScope } from './tenancy/scope';
 import { INFRA_OUTBOX_MIGRATIONS, MODEL_GENERATION_MIGRATIONS } from './db/readiness';
 import {
@@ -565,9 +570,20 @@ async function main() {
       if (stage1RuntimeMigrated) {
         const jobs = stage1Jobs!;
         const outbox = new PostgresDataOutboxRepository(database);
+        const projectors: DataEventProjector[] = [
+          new DataProjector('stage1-data-projection-v2', new PostgresProjectionStore(database)),
+        ];
+        // 血缘投影与通用投影共用 data_outbox_events（024 V2 租户事件）；046 未应用时
+        // 不启动血缘 consumer，避免 stage1 基线数据库因可选能力缺失而整体不可用。
+        if (await database.hasMigrations(LINEAGE_MIGRATIONS)) {
+          projectors.push(new LineageDataProjector(new LineageProjector(
+            'lineage-projection-v2',
+            new PostgresLineageStore(database),
+            new PostgresSourceLineageReader(database),
+          )));
+        }
         const handlers: JobHandler[] = [
-          new DataOutboxJobHandler(outbox,
-            new DataProjector('stage1-data-projection-v2', new PostgresProjectionStore(database))),
+          new DataOutboxJobHandler(outbox, new CompositeDataProjector(projectors)),
         ];
         const objectVersionRuntime = await createObjectVersionRuntime(database, objectStorage);
         if (objectVersionRuntime) {

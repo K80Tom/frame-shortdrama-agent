@@ -16,7 +16,9 @@ if (!process.env.DATABASE_URL) {
     'tests/production-media-object-projection.db.test.cjs',
     'tests/agent-runtime-persistence.db.test.cjs',
     'tests/agent-budget-concurrency.db.test.cjs',
-    'tests/infra-outbox.db.test.cjs'], {
+    'tests/infra-outbox.db.test.cjs',
+    'tests/lineage-persistence.db.test.cjs',
+    'tests/lineage-source-reader.db.test.cjs'], {
     stdio: 'inherit',
     env: process.env,
   });

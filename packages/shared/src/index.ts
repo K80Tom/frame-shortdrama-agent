@@ -14,6 +14,7 @@ export * from './evolution';
 export * from './assets';
 export * from './evaluation';
 export * from './data-event';
+export * from './lineage';
 export * from './evaluation-run';
 export * from './evaluator';
 export * from './novel-analysis';

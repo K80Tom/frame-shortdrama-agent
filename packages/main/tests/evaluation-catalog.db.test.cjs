@@ -41,10 +41,21 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  await database.query(`TRUNCATE TABLE evaluation_lifecycle_events, evaluation_revision_usage,
-    evaluation_cases, evaluation_dataset_revisions, evaluation_datasets,
-    evaluation_rubric_dimensions, evaluation_rubric_revisions, evaluation_rubrics
-    RESTART IDENTITY CASCADE`);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await database.query(`TRUNCATE TABLE evaluation_lifecycle_events, evaluation_revision_usage,
+        evaluation_cases, evaluation_dataset_revisions, evaluation_datasets,
+        evaluation_rubric_dimensions, evaluation_rubric_revisions, evaluation_rubrics
+        RESTART IDENTITY CASCADE`);
+      break;
+    } catch (err) {
+      if (err.code === '40P01' && attempt < 2) {
+        await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
 });
 
 after(async () => { await database?.close(); });
