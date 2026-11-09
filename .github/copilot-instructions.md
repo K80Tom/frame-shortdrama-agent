@@ -21,7 +21,7 @@
 - Validate all external input and provider output. Keep errors bounded and sanitized; never expose secrets, raw upstream payloads, or local paths.
 - Maintain deterministic identifiers, immutable revisions, compare-and-swap behavior, and retry boundaries in production orchestration.
 - Preserve the distinction between source facts, user requirements, AI design suggestions, technical validation, and human acceptance.
-- Frontend changes must keep the Lyra dark, restrained visual system, responsive layouts, accessible labels, and honest loading/error/empty states.
+- Frontend changes must follow current Lyra components and design tokens, responsive layouts, accessible labels, and honest loading/error/empty states.
 - Update directly related documentation, examples, schemas, and tests whenever behavior or contracts change.
 
 ## Verification

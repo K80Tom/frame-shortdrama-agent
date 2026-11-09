@@ -1,74 +1,88 @@
-# 功能状态与证据（单一真源）
+# 功能状态与证据（单一入口）
 
-盘点日期：2026-11-08。适用分支：`dev`；代码盘点基线：`0622a35`（0.1.0）。
-总入口：[产品 Epic #5](https://github.com/K80Tom/frame-shortdrama-agent/issues/5)；治理需求：[#80](https://github.com/K80Tom/frame-shortdrama-agent/issues/80)。
+盘点日期：2026-11-09。适用代码快照：`dev b264844`（v0.2.0），加本 PR 的文档增量；不是部署或发布验收。Owner 为 CODEOWNERS 默认维护责任 `@K80Tom / @255308153`，不是个人贡献归属或验收背书。
 
-## 判定规则
+## 判定与证据规则
 
-- `not-started`：目标能力未发现实现证据；不以目录存在推断能力。
-- `partial`：存在相关实现，但 Issue 验收尚不完整或未核验。下面的代码/测试是排查入口，不代表全部范围已实现。
-- `implemented`：目标范围代码和离线验收齐备，必须附准确命令、提交、结果与限制。
-- `verified`：在 implemented 基础上，另附真实环境/供应商验证记录（日期、提交、模型版本、输入、脱敏产物、预算与真人结论）。不外推到其他版本或供应商。
+- `not-started`：当前快照未发现该目标能力的正式实现入口，不以目录或依赖存在推断能力。
+- `partial`：有实现，但整项 Issue 的契约、权限、异常恢复或 E2E 尚不完整/未核验。
+- `implemented`：只对明确限定的范围，附适用提交、实际命令、结果及限制；不由 Issue 关闭或 PR 绿灯推断。
+- `verified`：另有真实目标环境/供应商记录，包含日期、提交/模型版本、脱敏产物、预算与真人结论。离线桩不能替代。
 
-实现状态、离线执行结果、真实供应商验证是三个独立字段。测试文件存在≠已通过；离线桩通过≠真实生成成功。
-本次只做源码/测试入口盘点，不执行模型、数据库或产品测试；没有任何条目因此升级为 verified。
-所有行 owner 为 `@K80Tom`（按 CODEOWNERS 默认维护责任，非个人实现或验收背书；可在后续 PR 委派）。
+源码入口、测试文件、实际执行、真实环境验证是不同字段。以下能力均未因此升级为 `verified`；本 PR 本地只做文档/治理静态校验，未重跑产品、数据库、模型或浏览器测试。引用合并 PR 的既有测试入口/记录时，只是证据导航，不冒称本轮独立复验。
 
-## 能力台账
+## 当前 15 项 Issue 台账
 
-各行均适用上述基线；“未运行/未核验”不是失败，也不是通过。
+各行适用上述快照；源码是已合入入口，待审代码另列。默认 owner 同上。无独立执行记录的项目写“本轮未重跑”，不代表失败，也不是通过。
 
-| ID / 能力 | 跟踪 Issue | owner | 状态 | 代码入口 | 测试入口 | 离线执行 | 真实供应商记录 | 限制 / 下一步 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| <a id="novel"></a>小说分片、实体合并与改编 | [#7](https://github.com/K80Tom/frame-shortdrama-agent/issues/7) [#8](https://github.com/K80Tom/frame-shortdrama-agent/issues/8) [#6](https://github.com/K80Tom/frame-shortdrama-agent/issues/6) | @K80Tom | partial | [源码](../packages/main/src/novel/) | [测试](../packages/main/tests/novel-workflow.test.cjs) | 未运行 | 未核验 | 检查点、合并传播与歧义采用仍需逐项验收 |
-| <a id="script"></a>版本化剧本工作区 | [#9](https://github.com/K80Tom/frame-shortdrama-agent/issues/9) | @K80Tom | partial | [源码](../packages/main/src/breakdown/) | [测试](../packages/main/tests/breakdown-persistence.test.cjs) | 未运行 | 未核验 | 完整编辑、比较、按场重做尚未闭环 |
-| <a id="repair"></a>字段级修复 | [#10](https://github.com/K80Tom/frame-shortdrama-agent/issues/10) | @K80Tom | partial | [源码](../packages/main/src/breakdown/) | [测试](../packages/main/tests/extract-facts-execution.test.cjs) | 未运行 | 未核验 | 最小修复计划与局部重验仍需验收 |
-| <a id="assets"></a>资产适配与授权 | [#11](https://github.com/K80Tom/frame-shortdrama-agent/issues/11) | @K80Tom | partial | [源码](../packages/main/src/assets/) | [测试](../packages/main/tests/assets.test.cjs) | 未运行 | 未核验 | 授权门禁与缺失资产决策未完整闭环 |
-| <a id="previs"></a>3D 预演 | [#12](https://github.com/K80Tom/frame-shortdrama-agent/issues/12) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/storyboard.test.cjs) | 未运行 | 未核验 | prompt-only，不证明渲染参考或几何检查完成 |
-| <a id="review"></a>视觉与连续性审核 | [#13](https://github.com/K80Tom/frame-shortdrama-agent/issues/13) | @K80Tom | partial | [源码](../packages/main/src/review/) | [测试](../packages/main/tests/production-media.test.cjs) | 未运行 | 未核验 | 技术检查不等于语义、表演或跨镜头连续性审核 |
-| <a id="audio"></a>声音与字幕 | [#14](https://github.com/K80Tom/frame-shortdrama-agent/issues/14) | @K80Tom | partial | [源码](../packages/main/src/production-media/) | [测试](../packages/main/tests/production-finalization.test.cjs) | 未运行 | 未核验 | 依赖供应商原生音轨；独立配音、口型、混音、字幕未形成子图 |
-| <a id="reconcile"></a>未知付费调用对账 | [#15](https://github.com/K80Tom/frame-shortdrama-agent/issues/15) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/production-orchestration.test.cjs) | 未运行 | 未核验 | unknown 不代表可安全重提；供应商对账证据仍缺 |
-| <a id="editing"></a>时间线与交付 | [#16](https://github.com/K80Tom/frame-shortdrama-agent/issues/16) | @K80Tom | partial | [源码](../packages/main/src/production-media/) | [测试](../packages/main/tests/production-finalization.test.cjs) | 未运行 | 未核验 | 尚缺版本化整集编辑与可复现交付完整闭环 |
-| <a id="evaluation"></a>评测中台 | [#17](https://github.com/K80Tom/frame-shortdrama-agent/issues/17) | @K80Tom | partial | [源码](../packages/main/src/evaluation-run/) | [测试](../packages/main/tests/evaluation-run.test.cjs) | 未运行 | 未核验 | 已有运行契约；人工裁决、质量回归、账单和首批套件仍待完成 |
-| <a id="data"></a>数据中台 | [#47](https://github.com/K80Tom/frame-shortdrama-agent/issues/47) | @K80Tom | partial | [源码](../packages/main/src/data/) | [测试](../packages/main/tests/data-pipeline.test.cjs) | 未运行 | 未核验 | 已有事件/投影底座；血缘、指标、成本与只读 API 仍待完成 |
-| <a id="runtime"></a>调度恢复 | [#73](https://github.com/K80Tom/frame-shortdrama-agent/issues/73) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/production-runtime.test.cjs) | 未运行 | 未核验 | 单机运行不等于租约、心跳与崩溃恢复完成 |
-| <a id="preflight"></a>运行前预检 | [#74](https://github.com/K80Tom/frame-shortdrama-agent/issues/74) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/production-runtime.test.cjs) | 未运行 | 未核验 | 现有节点检查不等于完整能力预检与可行动诊断 |
-| <a id="contract"></a>公共 HTTP 契约 | [#75](https://github.com/K80Tom/frame-shortdrama-agent/issues/75) | @K80Tom | partial | [源码](../packages/main/src/assistant/) | [测试](../packages/main/tests/assistant.test.cjs) | 未运行 | 未核验 | shared 类型存在不代表所有 HTTP 边界已有运行时校验 |
-| <a id="e2e"></a>离线失败恢复端到端 | [#76](https://github.com/K80Tom/frame-shortdrama-agent/issues/76) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/production-orchestration.test.cjs) | 未运行 | 未核验 | 另有 production-e2e.db.test.cjs；此处未运行 PostgreSQL 用例 |
-| <a id="observability"></a>关联日志与诊断 | [#77](https://github.com/K80Tom/frame-shortdrama-agent/issues/77) | @K80Tom | partial | [源码](../packages/main/src/production/) | [测试](../packages/main/tests/production-http.test.cjs) | 未运行 | 未核验 | 运行状态不等于结构化日志、诊断包与完整脱敏 |
-| <a id="security"></a>媒体/模型安全 | [#78](https://github.com/K80Tom/frame-shortdrama-agent/issues/78) | @K80Tom | partial | [源码](../packages/main/src/production-media/) | [测试](../packages/main/tests/media-client.test.cjs) | 未运行 | 未核验 | 既有媒体测试不证明统一 SSRF、DNS rebinding 与资源上限门禁 |
-| <a id="backup"></a>项目备份与恢复 | [#79](https://github.com/K80Tom/frame-shortdrama-agent/issues/79) | @K80Tom | not-started | [源码](../packages/main/src/db/) | [测试](../packages/main/tests/migration-checksums.test.cjs) | 未运行 | 未核验 | 仅数据库底座；未建立版本化备份、可验证导出和原子导入 |
-
-## 横向能力
-
-| 能力 | owner / 状态 | 代码与测试 | 离线 / 真实验证 | 限制 |
+| Issue / 能力 | 状态 | 已合入源码 / 测试入口 | 执行与真实验证 | 缺口与启用边界 |
 | --- | --- | --- | --- | --- |
-| AI 工作区 | @K80Tom / partial | [agent](../packages/agent/) / [assistant 测试](../packages/main/tests/assistant.test.cjs) | 未运行 / 未核验 | SSE、估价和只读工具不证明真实供应商质量 |
-| 资产自进化 | @K80Tom / partial | [evolution](../packages/main/src/evolution/) / [测试](../packages/main/tests/asset-evolution.test.cjs) | 未运行 / 未核验 | 仅资产 RAG 策略；不自动改写资产或证明画质提升 |
-| 方法包 | @K80Tom / partial | [prompt-packs](../packages/main/src/prompt-packs/) / [测试](../packages/main/tests/prompt-packs.test.cjs) | 未运行 / 未核验 | 冻结提示参考不代表模型质量提升 |
-| 功能证据治理 #80 | @K80Tom / implemented | [文档目录](documentation-index.md) / [PR 模板](../.github/PULL_REQUEST_TEMPLATE.md) | 本次仅文档链接与 diff 校验 / 不适用 | 模板提醒不是强制 CI；后续实现必须持续更新 |
+| [#123 主流程冻结](https://github.com/K80Tom/frame-shortdrama-agent/issues/123) | partial | [ShotSpec/快照/Run](../packages/main/src/production/)；[冻结测试](../packages/main/tests/production-frozen-run.test.cjs)、[PG 生命周期](../packages/main/tests/production-input-lifecycle.db.test.cjs) | [#144 合并切片记录](production-input-snapshot-progress.md)、[Run 边界](frozen-production-run-progress.md)、[导演场景](director-scene-versions.md)；本轮未重跑/未验真实模型 | 已有不可变版本、双 CAS、冻结与绑定，以及部分精确消费；不是全部默认 V2。正式 AssetPack/控制图、Assets/Video 等消费与灰度/E2E 尚未齐；#147 对象版本待审 |
+| [#124 部署底座](https://github.com/K80Tom/frame-shortdrama-agent/issues/124) | partial | [启动](../packages/main/src/main.ts)、[jobs](../packages/main/src/jobs/)、[部署](../deploy/README.md)；[Worker](../packages/main/tests/stage1-worker-runtime.test.cjs)、[租户 PG](../packages/main/tests/stage1-tenant-isolation.db.test.cjs) | 本轮未重跑/未验目标环境 | API/Worker、会话/RLS、Redis/Milvus/对象投影有实现；旧调度全面接管、云签名权限、GC、备份恢复、SLO 与故障演练未全部验收；asset_media BYTEA 仍是例外 |
+| [#125 AI 工作区](https://github.com/K80Tom/frame-shortdrama-agent/issues/125) | partial | [agent](../packages/agent/src/assistant/)、[HTTP](../packages/main/src/assistant/controller.ts)；[测试](../packages/main/tests/assistant.test.cjs) | #146 已合并 turn/resume/quote 入口；本轮未重跑/未验真实供应商 | 有会话、SSE、只读工具与确认卡；不能据此宣称任意领域执行、可恢复 Agent Runtime 或完整预算授权 E2E 已完成 |
+| [#126 资产与检索](https://github.com/K80Tom/frame-shortdrama-agent/issues/126) | partial | [资产](../packages/main/src/assets/)、[向量](../packages/main/src/assets/vector/)；[测试](../packages/main/tests/asset-vector-rag.test.cjs) | 本轮未重跑/未验真实 Milvus 或召回质量 | 扁平目录、词法/可选语义与租户投影存在；正式多角度 AssetPackVersion、license/project/usage 授权、采用、对象化与全量索引生命周期尚未齐 |
+| [#127 视频与强约束](https://github.com/K80Tom/frame-shortdrama-agent/issues/127) | partial | [执行器](../packages/main/src/production/executors/)、[视频](../packages/main/src/video-automation/)；[运行测试](../packages/main/tests/production-runtime.test.cjs) | 本轮未重跑/未验视觉质量 | 现有参考图/提示词路径不等于首尾帧、depth/pose/3D 原生强约束或跨镜动作连续性；冻结输入消费仍需适配 |
+| [#128 检索策略治理](https://github.com/K80Tom/frame-shortdrama-agent/issues/128) | partial | [evolution](../packages/main/src/evolution/)；[测试](../packages/main/tests/asset-evolution.test.cjs) | 本轮未重跑/无真实 shadow probe | 固定离线候选/Probe、人工采用/回滚存在；Registry 租户修复 #132/042 待审，真实遥测、授权集、canary 与生产门槛未完成 |
+| [#129 生产画布](https://github.com/K80Tom/frame-shortdrama-agent/issues/129) | partial | [后端](../packages/main/src/canvas/)、[前端](../packages/web/src/canvas/)；[测试](../packages/web/tests/canvas.test.mjs) | #146 已合并；本轮未重跑/未做浏览器或完整 E2E 验收 | 有后端版本事实、commands、比较/采用/报价/运行入口；未装配领域 Service 的命令明确拒绝。画布 intent 不等于领域执行成功或 ShotSpec 全链已冻结 |
+| [#130 声音与字幕](https://github.com/K80Tom/frame-shortdrama-agent/issues/130) | partial | [媒体](../packages/main/src/production-media/)；[交付测试](../packages/main/tests/production-finalization.test.cjs) | 本轮未重跑/未验听觉质量 | 现有供应商原生音轨与合片不是独立配音、口型、音效、配乐、混音、字幕生产子图 |
+| [#131 方法包](https://github.com/K80Tom/frame-shortdrama-agent/issues/131) | partial | [prompt-packs](../packages/main/src/prompt-packs/)；[测试](../packages/main/tests/prompt-packs.test.cjs) | 本轮未重跑/未验生成质量 | 提示参考、导入与部分运行冻结存在；工作区准入/项目配置/正式不可变方法包治理与完整装配未全部完成；#145 待审 |
+| [#133 数据中台](https://github.com/K80Tom/frame-shortdrama-agent/issues/133) | partial | [data](../packages/main/src/data/)；[流水线](../packages/main/tests/data-pipeline.test.cjs)、[Worker](../packages/main/tests/stage1-worker-runtime.test.cjs) | 本轮未重跑/未验目标部署 | 已有统一 Outbox、租户 V2、pump/Projector/checkpoint；全业务统一事实、血缘/成本、可重放证据链及 API/运维仍需逐项验收 |
+| [#134 评测中台](https://github.com/K80Tom/frame-shortdrama-agent/issues/134) | partial | [evaluation](../packages/main/src/evaluation/)、[run](../packages/main/src/evaluation-run/)；[测试](../packages/main/tests/evaluation-run.test.cjs) | 本轮未重跑/无真实质量回归证据 | 已有运行/契约基础；同条件评测、正式评估器、预算化评审、人工裁决与 E2E 未齐。#110 统计、#113 离线门禁待审，不能当成已装配 |
+| [#135 自进化](https://github.com/K80Tom/frame-shortdrama-agent/issues/135) | partial | [evolution](../packages/main/src/evolution/)；[测试](../packages/main/tests/asset-evolution.test.cjs) | 本轮未重跑/无真实灰度质量记录 | 现有资产策略固定离线 Probe/人工采用不等于通用评测门禁、在线灰度、自动回滚或真实改善 |
+| [#136 Agent 架构](https://github.com/K80Tom/frame-shortdrama-agent/issues/136) | partial | [assistant](../packages/agent/src/assistant/)；[测试](../packages/main/tests/assistant.test.cjs) | 本轮未重跑/未验领域协作恢复 | 已有纯逻辑编排/持久对话入口；正式领域 Agent 的恢复、权限、协作协议与生产状态闭环未全部实现；#145 待审 |
+| [#137 Tool Registry](https://github.com/K80Tom/frame-shortdrama-agent/issues/137) | partial | [工具编排](../packages/agent/src/assistant/orchestrator.ts)；[测试](../packages/main/tests/assistant.test.cjs) | 本轮未重跑/未验正式 Registry 执行 | 固定只读工具白名单存在，不等于正式版本化 ToolDefinition、领域执行/恢复与审计；#145 待审 |
+| [#138 MCP](https://github.com/K80Tom/frame-shortdrama-agent/issues/138) | not-started | [agent 源码范围](../packages/agent/src/)、[main 源码范围](../packages/main/src/) | 当前快照源码检索未发现正式 MCP 接入实现；无专用验收记录 | #145 含候选实现但尚未合入，不能把待审文件计入 dev，也不能据依赖/网络可达宣称受控互操作闭环 |
 
-## 更新与验证记录约定
+## 已合入切片与待审 PR 必须分开
 
-功能 PR 必须更新对应行：owner、状态、适用提交/版本、代码、测试、执行结果与限制。无变化时在 PR 解释原因。
-验证记录必须分列离线和真实供应商，记录命令、环境、日期、commit、结果；缺失项写“未运行/未核验”，不得填推测结果。
-真实验证只收脱敏摘要及可审计产物，不提交密钥、个人路径、原始供应商响应或敏感业务数据。
-历史材料的有效性见[文档目录](documentation-index.md)，不得用旧演示或历史单次成功升级状态。
+截至本次 GitHub 盘点，#144（冻结输入/Run/导演场景）与 #146（画布/Assistant）已由维护者合并；合并不意味着其关联大 Issue 全部验收。本 PR 不自行批准或合并任何 PR。
 
-## Epic 反向导航维护
+| 待审 PR | 范围 | 当前台账处理 |
+| --- | --- | --- |
+| [#147](https://github.com/K80Tom/frame-shortdrama-agent/pull/147) | 内部对象版本、真实副本、认证 metadata API、Worker 恢复 | 未合入本快照；局部单元/PG/CI 不替代正式资产准入或完整生产 E2E |
+| [#132](https://github.com/K80Tom/frame-shortdrama-agent/pull/132) | Registry 租户隔离与未发布迁移 042 | 未合入；不能将 dev 正式 Canvas032 写成治理迁移，也不能改已应用迁移记录 |
+| [#145](https://github.com/K80Tom/frame-shortdrama-agent/pull/145) | 工具/MCP/方法包/Agent Runtime 候选 | 其他贡献者待审代码，不重复宣称已在 dev 运行；迁移编号需维护者协调 |
+| [#110](https://github.com/K80Tom/frame-shortdrama-agent/pull/110)、[#113](https://github.com/K80Tom/frame-shortdrama-agent/pull/113) | 统计 helper / 离线回归门禁 | 不等于评测流水线、生产质量或置信度 |
+| [#112](https://github.com/K80Tom/frame-shortdrama-agent/pull/112) | ID-only 生产拒绝诊断 | 不是全仓错误/持久化 UI 脱敏、诊断包或日志基础设施 |
+| [#111](https://github.com/K80Tom/frame-shortdrama-agent/pull/111)、[#114](https://github.com/K80Tom/frame-shortdrama-agent/pull/114)、[#121](https://github.com/K80Tom/frame-shortdrama-agent/pull/121)、[#122](https://github.com/K80Tom/frame-shortdrama-agent/pull/122) | Windows 字体、预检、安全修复 | 均未合入；按对应当前 head 的测试和真人审核单独验收 |
+| [#109 本 PR](https://github.com/K80Tom/frame-shortdrama-agent/pull/109) | 文档/证据入口与协作路径修正 | 只是静态治理增量，模板提醒不是强制 CI、分支保护或真人批准的替代 |
 
-上表链接 #5 下的全部生产与平台 Epic；本 PR 正文引用本文件及 #5、#9、#12、#13、#14、#16、#17、#47，合并前在这些 Issue 中建立反向入口。
-新增 Epic 时同时更新本表和 #5 的依赖列表；关闭子任务不自动升级整个 Epic。
+## 旧 Issue 与稳定导航锚点
 
-## 2026-11-08 Stage 1 增量盘点
+旧 Issue 的关闭状态不是新需求验收；保留原导航，具体范围按上表及关联 Issue 验证。
 
-Owner 沿用 @K80Tom，状态均为 partial；本 PR 不将设计定稿等同于生产验收。
+| 锚点 / 历史能力 | 当前入口与边界 |
+| --- | --- |
+| <a id="novel"></a>小说 | [novel](../packages/main/src/novel/)、[测试](../packages/main/tests/novel-workflow.test.cjs)；本轮未重跑，原文/采用/跨章传播不可由单测存在推定完整 |
+| <a id="script"></a>剧本 | [breakdown](../packages/main/src/breakdown/)、[测试](../packages/main/tests/breakdown-persistence.test.cjs)；完整编辑/比较/按场重做须实测 |
+| <a id="repair"></a>字段修复 | [执行测试](../packages/main/tests/extract-facts-execution.test.cjs)；局部修复不能静默改原文事实 |
+| <a id="assets"></a>资产 | 见 #126/#128，不以单图或向量命中当资产包准入 |
+| <a id="previs"></a>预演 | 见 #123/#127；prompt-only 与正式版本存储均不证明强约束生成 |
+| <a id="review"></a>视觉复核 | [review](../packages/main/src/review/)；技术复核不是视觉语义/连续性验收 |
+| <a id="audio"></a>声音字幕 | 见 #130 |
+| <a id="reconcile"></a>付费核对 | [编排测试](../packages/main/tests/production-orchestration.test.cjs)；unknown 不可重复提交，需查询原外部任务 |
+| <a id="editing"></a>时间线交付 | [交付测试](../packages/main/tests/production-finalization.test.cjs)；不代表可复现整集版本编辑全部完成 |
+| <a id="evaluation"></a>评测 | 见 #134 |
+| <a id="data"></a>数据 | 见 #133 |
+| <a id="runtime"></a>调度 | 见 #124/#136；部分 jobs 底座不等于旧业务全部接管 |
+| <a id="preflight"></a>预检 | [执行器](../packages/main/src/production/executor.ts)；#114 尚待审 |
+| <a id="contract"></a>HTTP | [shared](../packages/shared/src/)；类型存在不代表所有 HTTP 边界已运行时闭合 |
+| <a id="e2e"></a>E2E | 必须区分离线、真实 PG、真实存储、真实模型与目标部署，不能跨层外推 |
+| <a id="observability"></a>诊断 | #112 尚待审；日志不是权威业务事件 |
+| <a id="security"></a>安全 | #121/#122 尚待审；已有 DNS/媒体测试不证明所有地址和资源上限已覆盖 |
+| <a id="backup"></a>备份 | [数据库](../packages/main/src/db/)；目标级备份/PITR/组合恢复没有本轮验证记录 |
 
-| 能力 | 状态 | 代码 | 测试入口 | 执行/真实验证 | 限制 |
-| --- | --- | --- | --- | --- | --- |
-| 会话/workspace 租户边界 | partial | [auth](../packages/main/src/auth/) / [tenancy](../packages/main/src/tenancy/) | [后端测试目录](../packages/main/tests/) | 本 PR 未重新运行产品测试 / 未验证真实环境 | 不由 schema 或 RLS 存在推断 SaaS 已验收 |
-| 持久化 jobs 与 API/Worker | partial | [jobs](../packages/main/src/jobs/) / [启动编排](../packages/main/src/main.ts) | [后端测试目录](../packages/main/tests/) | 同上 | 目标环境租约/心跳/恢复和故障演练仍需按 #73 验收 |
-| 对象存储与投影 | partial | [ObjectStorage](../packages/main/src/production-media/object-storage.ts) / [数据基础设施](../packages/main/src/infrastructure/) | [后端测试目录](../packages/main/tests/) | 同上 | 媒体对象化、签名权限、历史 BYTEA 例外和端到端回滚不能被配置/健康探针替代 |
+## 更新与验证记录
 
-架构目标与当前实现边界以[生产路线](production-architecture-roadmap.md)为准。本轮同步保留 README 的 Stage 1 部署和架构内容，不将其回退为旧单机说明。
-现有 #110–#114、#121–#122 仍是待审核 PR，不当作已合入的实现证据；后续合并时更新对应行的提交、测试与限制。
+功能 PR 更新适用提交、owner、代码/测试、实际命令、结果与限制；未变化时在 PR 说明原因。真实验证只收脱敏摘要与可审计产物，不提交凭据、私有 URL、个人路径或原始供应商响应。每次更新需检查本地链接、锚点、声明命令是否存在，以及待审/已合入快照边界；日期不是验收结论。
+
+本轮文档静态校验结果与当前 head CI 在本 PR 正文记录；[文档有效性目录](documentation-index.md)区分当前规范、目标规范、范围记录和历史参考。新增 Issue 必须登记本表；关闭旧任务不自动升级新 Epic。治理 Issue #80 的历史关闭状态不等于强制自动验证或产品验收。
+
+
+### 2026-11-09 本轮静态校验记录
+
+针对本 PR 的 9 个 Markdown 文件，检查 135 个本地链接、7 个链接锚点、18 个原有导航锚点保留、4 份 YAML frontmatter、10 个实际匹配的 applyTo glob、35 条文档 Git 最后修改元数据，全部通过。声明的 npm scripts 在对应 package.json 中存在，但本轮没有运行这些产品命令。
+
+同时对照 GitHub 当前列表核对 15 个开放 Issue 与 11 个开放 PR，确认 #144/#146 的合并提交在本基线祖先链中；未把待审分支写入已合入源码列。CODEOWNERS 原有 owner 成员与 /.github/ 保护不变，仅把旧产品路径替换为 /packages/；根 AGENTS.md 与 workflows 无 diff。git diff --check 通过。
+
+这些是一次性只读静态校验，不是新增强制 CI 检查器、真人审批或产品/数据库/真实模型验收。当前 head 的 GitHub CI 结果须独立记录在 PR，不能引用旧 head 的通过。
