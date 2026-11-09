@@ -69,11 +69,13 @@ export function buildAssetRunEvidence(run: StoredProductionRun, createdAt: strin
   };
 }
 
-export function buildDeterministicProposals(evidence: AssetRunEvidence): AssetImprovementProposal[] {
+export function buildDeterministicProposals(evidence: AssetRunEvidence, workspaceId?: string): AssetImprovementProposal[] {
   return evidence.openIssues.map(({ issue, failureSignature: signature }) => {
     const family = classifyIssue(issue);
     const scope = `${issue.stage}:${issue.scope.kind}`;
-    const key = canonicalDigest({ family, failureSignature: signature, scope });
+    // Signatures remain comparable, but persistent IDs must not collide across
+    // tenants with identical failures. Omitted workspace preserves legacy IDs.
+    const key = canonicalDigest({ family, failureSignature: signature, scope, ...(workspaceId ? { workspaceId } : {}) });
     const common = {
       schemaVersion: ASSET_PROPOSAL_RULE_VERSION,
       id: `eproposal_${key.slice(0, 32)}`, key, family, failureSignature: signature, scope,

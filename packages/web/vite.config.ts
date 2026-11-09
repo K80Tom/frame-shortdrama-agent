@@ -6,4 +6,7 @@ export default defineConfig({
   server: { host: '127.0.0.1', port: 5173, strictPort: true,
     proxy: { '/api': { target: 'http://127.0.0.1:8788', changeOrigin: true } } },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },
+  ssr: {
+    external: ['@lyra/shared', '@lyra/shared/dist/platform-preflight'],
+  },
 });

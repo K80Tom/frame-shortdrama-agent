@@ -187,6 +187,14 @@ export async function readMigrations(directory: string): Promise<Migration[]> {
     };
   }));
   if (migrations.length === 0) throw new Error("No migrations found");
+  const versions = new Map<string, string>();
+  for (const migration of migrations) {
+    const previous = versions.get(migration.version);
+    if (previous) {
+      throw new Error(`迁移版本 ${migration.version} 重复：${previous} 与 ${migration.fileName}；请为未发布迁移分配唯一编号，不要改写已应用历史。`);
+    }
+    versions.set(migration.version, migration.fileName);
+  }
   return migrations;
 }
 

@@ -16,8 +16,11 @@ function failure(error: unknown): never {
 function conflict(code: string, message: string): never { throw new ProductionError(409, code, message); }
 function notFound(code: string, message: string): never { throw new ProductionError(404, code, message); }
 const DEFAULT_DIGEST = assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY);
+// Legacy/system utilities remain contained in the reserved workspace. Request
+// scope comes from authenticated transaction settings, never a request body.
+const REGISTRY_WORKSPACE = "COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')";
 
-/** PostgreSQL implementation; adoption and rollback serialize on one advisory lock. */
+/** PostgreSQL implementation; adoption/rollback serialize per workspace. */
 export class PostgresEvolutionRepository implements EvolutionRepository {
   constructor(private readonly database: PostgresDatabase) {}
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -28,20 +31,20 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
   }
   private async registry(client: PoolClient, lock = false): Promise<AssetPolicyRegistry | null> {
     const row = await this.one<{ policy_json: AssetPolicyRegistry['policy']; updated_at: string; reason: string }>(client,
-      `SELECT policy_json, updated_at::text, reason FROM evolution_registry WHERE domain = 'AssetRetrievalPolicy'${lock ? ' FOR UPDATE' : ''}`);
+      `SELECT policy_json, updated_at::text, reason FROM evolution_registry WHERE workspace_id = ${REGISTRY_WORKSPACE} AND domain = 'AssetRetrievalPolicy'${lock ? ' FOR UPDATE' : ''}`);
     return row ? { domain: 'AssetRetrievalPolicy', revision: row.policy_json.registryRevision,
       policy: row.policy_json, updatedAt: new Date(row.updated_at).toISOString(), reason: row.reason } : null;
   }
   private async lockRegistry(client: PoolClient) {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('lyra:evolution:AssetRetrievalPolicy'))");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended('lyra:evolution:AssetRetrievalPolicy:' || ${REGISTRY_WORKSPACE}, 0))`);
   }
 
   async getEvidenceByRun(runId: string): Promise<AssetRunEvidence | null> {
-    try { const result = await this.database.query('SELECT evidence_json FROM evolution_evidence WHERE run_id = $1', [runId]);
+    try { const result = await this.database.query(`SELECT evidence_json FROM evolution_evidence WHERE run_id = $1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [runId]);
       return result.rows[0]?.evidence_json ? clone(result.rows[0].evidence_json) : null; } catch (error) { return failure(error); }
   }
   async listEvidence(): Promise<AssetRunEvidence[]> {
-    try { const result = await this.database.query('SELECT evidence_json FROM evolution_evidence ORDER BY created_at DESC, id DESC');
+    try { const result = await this.database.query(`SELECT evidence_json FROM evolution_evidence WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY created_at DESC, id DESC`);
       return result.rows.map(row => clone(row.evidence_json)); } catch (error) { return failure(error); }
   }
   async recordEvidence(evidence: AssetRunEvidence, proposals: AssetImprovementProposal[]): Promise<void> {
@@ -51,7 +54,7 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
       for (const proposal of proposals) {
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lyra:proposal:${proposal.key}`]);
         const current = await this.one<{ proposal_json: AssetImprovementProposal }>(client,
-          'SELECT proposal_json FROM evolution_proposals WHERE key = $1 FOR UPDATE', [proposal.key]);
+          `SELECT proposal_json FROM evolution_proposals WHERE key = $1 AND workspace_id = ${REGISTRY_WORKSPACE} FOR UPDATE`, [proposal.key]);
         if (!current) await client.query(`INSERT INTO evolution_proposals (id,key,proposal_json,updated_at)
           VALUES ($1,$2,$3::jsonb,$4)`, [proposal.id, proposal.key, proposal, proposal.updatedAt]);
         else {
@@ -59,32 +62,32 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
             evidenceIds: [...new Set([...current.proposal_json.evidenceIds, ...proposal.evidenceIds])].sort(),
             sourceRunIds: [...new Set([...current.proposal_json.sourceRunIds, ...proposal.sourceRunIds])].sort(),
             updatedAt: proposal.updatedAt };
-          await client.query('UPDATE evolution_proposals SET proposal_json=$2::jsonb,updated_at=$3 WHERE key=$1',
+          await client.query(`UPDATE evolution_proposals SET proposal_json=$2::jsonb,updated_at=$3 WHERE key=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`,
             [proposal.key, merged, proposal.updatedAt]);
         }
       }
     });
   }
   async getProposal(id: string): Promise<AssetImprovementProposal | null> {
-    try { const result = await this.database.query('SELECT proposal_json FROM evolution_proposals WHERE id=$1', [id]);
+    try { const result = await this.database.query(`SELECT proposal_json FROM evolution_proposals WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [id]);
       return result.rows[0]?.proposal_json ? clone(result.rows[0].proposal_json) : null; } catch (error) { return failure(error); }
   }
   async listProposals(): Promise<AssetImprovementProposal[]> {
-    try { const result = await this.database.query('SELECT proposal_json FROM evolution_proposals ORDER BY updated_at DESC,id DESC');
+    try { const result = await this.database.query(`SELECT proposal_json FROM evolution_proposals WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY updated_at DESC,id DESC`);
       return result.rows.map(row => clone(row.proposal_json)); } catch (error) { return failure(error); }
   }
   async getCandidate(id: string): Promise<AssetRetrievalCandidate | null> {
-    try { const result = await this.database.query('SELECT candidate_json FROM evolution_candidates WHERE id=$1', [id]);
+    try { const result = await this.database.query(`SELECT candidate_json FROM evolution_candidates WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [id]);
       return result.rows[0]?.candidate_json ? clone(result.rows[0].candidate_json) : null; } catch (error) { return failure(error); }
   }
   async listCandidates(): Promise<AssetRetrievalCandidate[]> {
-    try { const result = await this.database.query('SELECT candidate_json FROM evolution_candidates ORDER BY created_at DESC,id DESC');
+    try { const result = await this.database.query(`SELECT candidate_json FROM evolution_candidates WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY created_at DESC,id DESC`);
       return result.rows.map(row => clone(row.candidate_json)); } catch (error) { return failure(error); }
   }
   async createCandidate(candidate: AssetRetrievalCandidate): Promise<AssetRetrievalCandidate> {
     return this.transaction(async client => {
       const existing = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-        `SELECT candidate_json FROM evolution_candidates WHERE proposal_id=$1 AND base_policy_digest=$2 AND policy_digest=$3`,
+        `SELECT candidate_json FROM evolution_candidates WHERE proposal_id=$1 AND base_policy_digest=$2 AND policy_digest=$3 AND workspace_id = ${REGISTRY_WORKSPACE}`,
         [candidate.proposalId, candidate.basePolicyDigest, candidate.policyDigest]);
       if (existing) return existing.candidate_json;
       await client.query(`INSERT INTO evolution_candidates
@@ -95,22 +98,22 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
     });
   }
   async listProbes(): Promise<AssetProbeReport[]> {
-    try { const result = await this.database.query('SELECT probe_json FROM evolution_probes ORDER BY created_at DESC,id DESC');
+    try { const result = await this.database.query(`SELECT probe_json FROM evolution_probes WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY created_at DESC,id DESC`);
       return result.rows.map(row => clone(row.probe_json)); } catch (error) { return failure(error); }
   }
   async recordProbe(probe: AssetProbeReport): Promise<AssetProbeReport> {
     return this.transaction(async client => {
-      const existing = await this.one<{ probe_json: AssetProbeReport }>(client, 'SELECT probe_json FROM evolution_probes WHERE id=$1', [probe.id]);
+      const existing = await this.one<{ probe_json: AssetProbeReport }>(client, `SELECT probe_json FROM evolution_probes WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [probe.id]);
       if (existing) return existing.probe_json;
       const candidate = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-        'SELECT candidate_json FROM evolution_candidates WHERE id=$1 FOR UPDATE', [probe.candidateId]);
+        `SELECT candidate_json FROM evolution_candidates WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE} FOR UPDATE`, [probe.candidateId]);
       if (!candidate) return notFound('EVOLUTION_CANDIDATE_NOT_FOUND', '检索策略候选不存在。');
       await client.query(`INSERT INTO evolution_probes (id,candidate_id,probe_json,created_at)
         VALUES ($1,$2,$3::jsonb,$4)`, [probe.id, probe.candidateId, probe, probe.createdAt]);
       if (candidate.candidate_json.status !== 'adopted') {
         const status = probe.verdict === 'pass' ? 'probed' : 'failed';
         candidate.candidate_json.status = status;
-        await client.query('UPDATE evolution_candidates SET status=$2,candidate_json=$3::jsonb WHERE id=$1',
+        await client.query(`UPDATE evolution_candidates SET status=$2,candidate_json=$3::jsonb WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`,
           [probe.candidateId, status, candidate.candidate_json]);
       }
       return probe;
@@ -120,14 +123,14 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
     return this.transaction(client => this.registry(client));
   }
   async listRegistryEvents(): Promise<AssetRegistryEvent[]> {
-    try { const result = await this.database.query('SELECT event_json FROM evolution_registry_events ORDER BY created_at,id');
+    try { const result = await this.database.query(`SELECT event_json FROM evolution_registry_events WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY revision,id`);
       return result.rows.map(row => clone(row.event_json)); } catch (error) { return failure(error); }
   }
   async adopt(candidateId: string, expectedPolicyDigest: string, reason: string, at: string): Promise<AssetPolicyRegistry> {
     return this.transaction(async client => {
       await this.lockRegistry(client);
       const candidate = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-        'SELECT candidate_json FROM evolution_candidates WHERE id=$1 FOR UPDATE', [candidateId]);
+        `SELECT candidate_json FROM evolution_candidates WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE} FOR UPDATE`, [candidateId]);
       if (!candidate) return notFound('EVOLUTION_CANDIDATE_NOT_FOUND', '检索策略候选不存在。');
       const current = await this.registry(client, true) ?? baselineRegistry();
       if (current.policy.policyDigest !== expectedPolicyDigest
@@ -135,18 +138,18 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
         return conflict('EVOLUTION_REGISTRY_STALE', '候选不是从当前基线创建，或基线已变化；请重新创建并回放。');
       }
       const probe = await this.one<{ probe_json: AssetProbeReport }>(client,
-        'SELECT probe_json FROM evolution_probes WHERE candidate_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1', [candidateId]);
+        `SELECT probe_json FROM evolution_probes WHERE candidate_id=$1 AND workspace_id = ${REGISTRY_WORKSPACE} ORDER BY created_at DESC,id DESC LIMIT 1`, [candidateId]);
       if (!probe || probe.probe_json.verdict !== 'pass'
         || probe.probe_json.baselinePolicyDigest !== candidate.candidate_json.basePolicyDigest
         || probe.probe_json.candidatePolicyDigest !== candidate.candidate_json.policyDigest) {
         return conflict('EVOLUTION_PROBE_REQUIRED', '采用前必须有当前候选与基线的通过回放。');
       }
-      await client.query("UPDATE evolution_candidates SET status='rolledBack',candidate_json=jsonb_set(candidate_json,'{status}','\"rolledBack\"') WHERE status='adopted'");
+      await client.query(`UPDATE evolution_candidates SET status='rolledBack',candidate_json=jsonb_set(candidate_json,'{status}','"rolledBack"') WHERE status='adopted' AND workspace_id = ${REGISTRY_WORKSPACE}`);
       const revision = current.revision + 1;
       const registry: AssetPolicyRegistry = { domain: 'AssetRetrievalPolicy', revision,
         policy: freezeAssetRetrievalPolicy(candidate.candidate_json.policy, revision, candidateId), updatedAt: at, reason };
       candidate.candidate_json.status = 'adopted';
-      await client.query("UPDATE evolution_candidates SET status='adopted',candidate_json=$2::jsonb WHERE id=$1", [candidateId, candidate.candidate_json]);
+      await client.query(`UPDATE evolution_candidates SET status='adopted',candidate_json=$2::jsonb WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [candidateId, candidate.candidate_json]);
       await this.saveRegistry(client, registry);
       const event: AssetRegistryEvent = { id: productionId('eveevent'), domain: 'AssetRetrievalPolicy', revision,
         action: 'adopt', candidateId, fromPolicyDigest: current.policy.policyDigest,
@@ -162,19 +165,19 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
       const current = await this.registry(client, true) ?? baselineRegistry();
       if (current.policy.policyDigest !== expectedPolicyDigest) return conflict('EVOLUTION_REGISTRY_STALE', '当前 Registry 已变化，请刷新后再回滚。');
       const latest = await this.one<{ event_json: AssetRegistryEvent }>(client,
-        'SELECT event_json FROM evolution_registry_events ORDER BY revision DESC LIMIT 1');
+        `SELECT event_json FROM evolution_registry_events WHERE workspace_id = ${REGISTRY_WORKSPACE} ORDER BY revision DESC LIMIT 1`);
       if (!latest || latest.event_json.action !== 'adopt' || latest.event_json.toPolicyDigest !== current.policy.policyDigest) {
         return conflict('EVOLUTION_ROLLBACK_UNAVAILABLE', '当前版本没有可回滚的上一次采用记录。');
       }
       let target = DEFAULT_ASSET_RETRIEVAL_POLICY; let sourceCandidateId: string | null = null;
       if (latest.event_json.fromPolicyDigest !== DEFAULT_DIGEST) {
         const previous = await this.one<{ candidate_json: AssetRetrievalCandidate }>(client,
-          'SELECT candidate_json FROM evolution_candidates WHERE policy_digest=$1 ORDER BY created_at DESC LIMIT 1', [latest.event_json.fromPolicyDigest]);
+          `SELECT candidate_json FROM evolution_candidates WHERE policy_digest=$1 AND workspace_id = ${REGISTRY_WORKSPACE} ORDER BY created_at DESC LIMIT 1`, [latest.event_json.fromPolicyDigest]);
         if (!previous) return conflict('EVOLUTION_ROLLBACK_TARGET_MISSING', '上一版本策略内容不可用，不能安全回滚。');
         target = previous.candidate_json.policy; sourceCandidateId = previous.candidate_json.id;
       }
-      await client.query("UPDATE evolution_candidates SET status='rolledBack',candidate_json=jsonb_set(candidate_json,'{status}','\"rolledBack\"') WHERE status='adopted'");
-      if (sourceCandidateId) await client.query("UPDATE evolution_candidates SET status='adopted',candidate_json=jsonb_set(candidate_json,'{status}','\"adopted\"') WHERE id=$1", [sourceCandidateId]);
+      await client.query(`UPDATE evolution_candidates SET status='rolledBack',candidate_json=jsonb_set(candidate_json,'{status}','"rolledBack"') WHERE status='adopted' AND workspace_id = ${REGISTRY_WORKSPACE}`);
+      if (sourceCandidateId) await client.query(`UPDATE evolution_candidates SET status='adopted',candidate_json=jsonb_set(candidate_json,'{status}','"adopted"') WHERE id=$1 AND workspace_id = ${REGISTRY_WORKSPACE}`, [sourceCandidateId]);
       const revision = current.revision + 1;
       const registry: AssetPolicyRegistry = { domain: 'AssetRetrievalPolicy', revision,
         policy: freezeAssetRetrievalPolicy(target, revision, sourceCandidateId), updatedAt: at, reason };
@@ -189,7 +192,7 @@ export class PostgresEvolutionRepository implements EvolutionRepository {
   }
   private async saveRegistry(client: PoolClient, registry: AssetPolicyRegistry) {
     await client.query(`INSERT INTO evolution_registry (domain,policy_json,updated_at,reason)
-      VALUES ($1,$2::jsonb,$3,$4) ON CONFLICT(domain) DO UPDATE
+      VALUES ($1,$2::jsonb,$3,$4) ON CONFLICT(workspace_id,domain) DO UPDATE
       SET policy_json=EXCLUDED.policy_json,updated_at=EXCLUDED.updated_at,reason=EXCLUDED.reason`,
     [registry.domain, registry.policy, registry.updatedAt, registry.reason]);
   }
