@@ -78,6 +78,7 @@ export class ProductionService {
     const input = parseCreateProductionRun(value);
     const existing = await this.repository.getByClientRequestId(input.clientRequestId);
     if (existing) {
+      if (existing.inputSnapshot) conflict('PRODUCTION_REQUEST_REUSED', '此请求标识已用于冻结输入运行，不能改用旧创建入口。');
       if (!sameProductionRequest(existing, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
       return publicProductionRun(existing);
     }
@@ -126,6 +127,7 @@ export class ProductionService {
       return publicProductionRun(await this.save(run, 'production.run.resumed', {}));
     }
     if (action.type === 'raiseBudget') {
+      if (run.inputSnapshot) conflict('FROZEN_BUDGET_REQUIRES_NEW_SNAPSHOT', '冻结预算不可原地修改，请创建新快照。');
       if (action.budgetMicros <= run.budgetMicros) {
         conflict('PRODUCTION_BUDGET_NOT_RAISED', '新预算必须高于当前预算。');
       }
@@ -332,6 +334,8 @@ export class ProductionService {
   }
 
   private async execute(run: StoredProductionRun, task: ProductionTask, executor: ProductionExecutor) {
+    // Until adapters explicitly consume FrozenProductionInput, NEVER fall through to current-project readers.
+    if (run.inputSnapshot) return this.blockPrepare(run,task);
     // Upstream invalidation can make an interrupted downstream task ready again.
     // Its original external submission must be settled before another attempt.
     if (this.activeOperation(run, task.id)) { await this.reconcile(run, task); return; }
@@ -458,6 +462,7 @@ export class ProductionService {
   }
 
   private async reconcile(run: StoredProductionRun, task: ProductionTask) {
+    if (run.inputSnapshot) return this.blockPrepare(run,task);
     const operation = this.activeOperation(run, task.id); const executor = this.executors.get(task.stage);
     if (!operation || !executor?.reconcile || !operation.providerTaskId) {
       if (task.status !== 'waitingHuman') {

@@ -5,6 +5,17 @@ export const PRODUCTION_INPUT_ERROR_CODES = ['REVISION_CONFLICT', 'REFERENCE_NOT
   'DIGEST_MISMATCH', 'SNAPSHOT_NOT_READY', 'SCHEMA_UNSUPPORTED', 'CAPABILITY_INCOMPATIBLE'] as const;
 export type ProductionInputErrorCode = typeof PRODUCTION_INPUT_ERROR_CODES[number];
 export interface ProductionInputFinding { code: ProductionInputErrorCode; referenceId: string | null }
+export interface ProductionExecutionPolicy {
+  ratio: '9:16' | '16:9'; visualStyle: string; targetDurationSec: number;
+  qualityPreset: 'fast' | 'balanced' | 'quality'; directorPolicy: 'auto' | 'always' | 'never';
+}
+export interface ProductionInputBinding {
+  schemaVersion: 'lyra-production-binding/1'; workspaceId: string; episodeId: string;
+  snapshotId: string; snapshotDigest: string;
+}
+export interface CreateSnapshotProductionRun {
+  snapshotId: string; snapshotDigest: string; clientRequestId: string; allowPaid: true;
+}
 export interface ProductionInputSnapshot {
   schemaVersion: typeof PRODUCTION_INPUT_SCHEMA_VERSION;
   id: string; workspaceId: string; projectId: string; episodeId: string; baseProjectRevision: string;
@@ -18,6 +29,8 @@ export interface ProductionInputSnapshot {
   budgetPolicy: { version: InputVersionRef; limitMicros: number; currency: string; allowPaid: boolean };
   candidatePolicy: { mode: 'direct' | 'gacha'; limit: number };
   automationMode: 'auto' | 'checkpoints' | 'coDirector';
+  /** Missing in earlier snapshots: readable as history, NOT sufficient to create a frozen-input Run. */
+  executionPolicy?: ProductionExecutionPolicy;
   findings: ProductionInputFinding[];
   createdBy: string; createdAt: string; reason: string;
   /** Hash of normalized frozen inputs, independent of validation state and audit metadata. */
@@ -60,7 +73,10 @@ function parse(value: unknown, sealed: boolean): ProductionInputSnapshot {
     'script', 'plan', 'storyboard', 'assetPacks', 'directorScenes', 'controls', 'methodPacks', 'promptPacks',
     'modelConnections', 'retrievalPolicy', 'qualityGates', 'budgetPolicy', 'candidatePolicy', 'automationMode',
     'findings', 'createdBy', 'createdAt', 'reason'];
-  const r = object(copyBoundedProductionInput(value), sealed ? [...fields, 'snapshotDigest'] : fields);
+  const copied = copyBoundedProductionInput(value);
+  const hasExecutionPolicy = !!copied && typeof copied === 'object' && Object.hasOwn(copied, 'executionPolicy');
+  if (hasExecutionPolicy) fields.push('executionPolicy');
+  const r = object(copied, sealed ? [...fields, 'snapshotDigest'] : fields);
   if (r.schemaVersion !== PRODUCTION_INPUT_SCHEMA_VERSION || typeof r.workspaceId !== 'string'
     || r.workspaceId.length !== 35 || !/^ws_[a-f0-9]{32}$/u.test(r.workspaceId)) bad();
   if (typeof r.baseProjectRevision !== 'string' || r.baseProjectRevision.length > 19
@@ -96,7 +112,29 @@ function parse(value: unknown, sealed: boolean): ProductionInputSnapshot {
     }, m => m.role), retrievalPolicy: ref(r.retrievalPolicy), qualityGates: refs(r.qualityGates),
     budgetPolicy: { version: ref(budget.version), limitMicros: budget.limitMicros as number, currency: budget.currency, allowPaid: budget.allowPaid },
     candidatePolicy: { mode, limit: policy.limit as number }, automationMode: choice(r.automationMode, ['auto', 'checkpoints', 'coDirector'] as const),
+    ...(hasExecutionPolicy ? { executionPolicy: parseExecutionPolicy(r.executionPolicy) } : {}),
     findings, createdBy: id(r.createdBy), createdAt: r.createdAt, reason: r.reason, snapshotDigest: sealed ? digest(r.snapshotDigest) : '0'.repeat(64) };
+}
+function parseExecutionPolicy(value: unknown): ProductionExecutionPolicy {
+  const p = object(value, ['ratio','visualStyle','targetDurationSec','qualityPreset','directorPolicy']);
+  if (typeof p.visualStyle !== 'string' || !p.visualStyle.trim() || Array.from(p.visualStyle).length > 1000
+    || /[\x00-\x1f\x7f]/u.test(p.visualStyle) || Array.from(p.visualStyle).some(c => { const n=c.codePointAt(0)!; return n>=0xd800 && n<=0xdfff; })
+    || !Number.isInteger(p.targetDurationSec) || Number(p.targetDurationSec)<15 || Number(p.targetDurationSec)>900) bad();
+  return { ratio: choice(p.ratio,['9:16','16:9'] as const), visualStyle:p.visualStyle.trim(),
+    targetDurationSec:p.targetDurationSec as number, qualityPreset:choice(p.qualityPreset,['fast','balanced','quality'] as const),
+    directorPolicy:choice(p.directorPolicy,['auto','always','never'] as const) };
+}
+export function parseCreateSnapshotProductionRun(value: unknown): CreateSnapshotProductionRun {
+  const r = object(copyBoundedProductionInput(value), ['snapshotId','snapshotDigest','clientRequestId','allowPaid']);
+  if (r.allowPaid !== true || typeof r.clientRequestId !== 'string' || r.clientRequestId.length>100
+    || /[\r\n]/u.test(r.clientRequestId) || !/^[A-Za-z0-9_-]+$/u.test(r.clientRequestId)) bad();
+  return {snapshotId:id(r.snapshotId),snapshotDigest:digest(r.snapshotDigest),clientRequestId:r.clientRequestId,allowPaid:true};
+}
+export function parseProductionInputBinding(value: unknown): ProductionInputBinding {
+  const r=object(copyBoundedProductionInput(value),['schemaVersion','workspaceId','episodeId','snapshotId','snapshotDigest']);
+  if (r.schemaVersion!=='lyra-production-binding/1' || typeof r.workspaceId!=='string' || r.workspaceId.length!==35
+    || !/^ws_[a-f0-9]{32}$/u.test(r.workspaceId)) bad();
+  return {schemaVersion:r.schemaVersion,workspaceId:r.workspaceId,episodeId:id(r.episodeId),snapshotId:id(r.snapshotId),snapshotDigest:digest(r.snapshotDigest)};
 }
 /** Structural only: a ready flag is not an authorization or validation certificate. */
 export function parseProductionInputSnapshot(value: unknown): ProductionInputSnapshot {

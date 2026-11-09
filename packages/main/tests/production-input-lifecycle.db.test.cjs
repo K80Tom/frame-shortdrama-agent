@@ -17,6 +17,10 @@ const { PostgresProductionInputSnapshotRepository } = require('../dist/productio
 const { PostgresProductionInputLifecycle } = require('../dist/production/input-lifecycle');
 const { createProductionInputValidationPorts } = require('../dist/production/input-validation-ports');
 const { PostgresFrozenProductionInputReader } = require('../dist/production/frozen-input-reader');
+const { compileFrozenProductionRun } = require('../dist/production/frozen-run');
+const { PostgresProductionRepository } = require('../dist/production/repository');
+const { PostgresRunFrozenInputReader } = require('../dist/production/run-frozen-input-reader');
+const { DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY, productionId, TENANT_DATA_EVENT_SCHEMA_VERSION } = require('@lyra/shared');
 const token = () => randomBytes(16).toString('hex');
 test('real adopted source chain compiles, validates, blocks revoked policy and freezes transactionally', {
   skip: process.env.DATABASE_URL && process.env.DATABASE_ADMIN_URL ? false : 'isolated application/admin database URLs required',
@@ -71,7 +75,9 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   });
   const compiler = new ProductionInputCandidateCompiler(reader), snapshots = new PostgresProductionInputSnapshotRepository(database);
   const profile = {id:'snapshot_' + token(),createdAt:at,reason:'Lifecycle test',modelConnections:[{role:'video',connection:ref('model-one'),capability:ref('capability-one')}],
-    retrievalPolicy:ref('retrieval-one'),qualityGates:[ref('gate-one')],budgetPolicy:{version:ref('budget-one'),limitMicros:0,currency:'CNY',allowPaid:false},
+    retrievalPolicy:{...ref('retrieval-one'),digest:DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY.policyDigest},qualityGates:[ref('gate-one')],
+    budgetPolicy:{version:ref('budget-one'),limitMicros:0,currency:'CNY',allowPaid:true},
+    executionPolicy:{ratio:'9:16',visualStyle:'offline',targetDurationSec:15,qualityPreset:'balanced',directorPolicy:'never'},
     candidatePolicy:{mode:'direct',limit:1},automationMode:'auto'};
   const makeCandidate = async () => {
     const result = await compiler.compile(tenant,project.id,episodeId,{...profile,id:'snapshot_' + token()});
@@ -135,5 +141,37 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
     assert.equal(recovered.snapshot.script.versionId,script.id);
     assert.equal(recovered.snapshot.storyboard.versionId,board.id);
     assert.deepEqual(recovered.shots,loaded.shots);
+    // Run creation is intentionally not HTTP enabled yet. Real PG proves physical frozen binding, not paid execution.
+    const production = new PostgresProductionRepository(recoveredDatabase);
+    const request={snapshotId:candidate.id,snapshotDigest:candidate.snapshotDigest,clientRequestId:'frozen_'+token(),allowPaid:true};
+    const compiled=compileFrozenProductionRun(tenant,request,{input:recovered,assetRetrievalPolicy:DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY,methodPacks:[]},at);
+    const scoped=work=>recoveredDatabase.runWithTenant(tenant,work);
+    const saved=await scoped(()=>production.create(compiled));
+    assert.equal(saved.inputSnapshot.snapshotDigest,candidate.snapshotDigest);
+    const row=(await scoped(()=>recoveredDatabase.query('SELECT input_snapshot_id,input_snapshot_digest FROM production_runs WHERE id=$1',[saved.id]))).rows[0];
+    assert.equal(row.input_snapshot_id,candidate.id);assert.equal(row.input_snapshot_digest,candidate.snapshotDigest);
+    const runInputs=await new PostgresRunFrozenInputReader(recoveredDatabase).load(tenant,saved.id);
+    assert.equal(runInputs.sources.scriptText,rawText);assert.deepEqual(runInputs.shots,recovered.shots);
+    const runEvents=await scoped(()=>recoveredDatabase.query('SELECT workspace_id,schema_version FROM data_outbox_events WHERE aggregate_id=$1',[saved.id]));
+    assert.equal(runEvents.rowCount,1);assert.equal(runEvents.rows[0].workspace_id,tenant.workspaceId);
+    assert.equal(runEvents.rows[0].schema_version,TENANT_DATA_EVENT_SCHEMA_VERSION);
+    const same=await scoped(()=>production.create({...compiled,id:productionId('production')}));assert.equal(same.id,saved.id);
+    assert.equal((await scoped(()=>production.get(saved.id))).scriptVersionId,script.id,'new current script must not change persisted run');
+    for (const [path,value] of [[['inputSnapshot','snapshotId'],'forged_snapshot'],[['budgetMicros'],1],[['assetRetrievalPolicy','threshold'],0.3]]) {
+      await assert.rejects(scoped(()=>recoveredDatabase.query('UPDATE production_runs SET run_json=jsonb_set(run_json,$2,$3) WHERE id=$1',
+        [saved.id,path,JSON.stringify(value)])),e=>e.code==='55000');
+    }
+    const invalid={...compiled,id:productionId('production'),clientRequestId:'frozen_'+token(),budgetMicros:1};
+    await assert.rejects(scoped(()=>recoveredDatabase.query(`INSERT INTO production_runs
+      (id,client_request_id,project_id,script_version_id,status,version,run_json,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)`,[invalid.id,invalid.clientRequestId,invalid.projectId,invalid.scriptVersionId,invalid.status,0,invalid,at])),
+      e=>e.code==='23514');
+    const wrongState={...compiled,id:productionId('production'),clientRequestId:'frozen_'+token(),inputSnapshot:{...compiled.inputSnapshot,snapshotId:fault.id}};
+    await assert.rejects(scoped(()=>recoveredDatabase.query(`INSERT INTO production_runs
+      (id,client_request_id,project_id,script_version_id,status,version,run_json,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)`,[wrongState.id,wrongState.clientRequestId,wrongState.projectId,wrongState.scriptVersionId,wrongState.status,0,wrongState,at])),
+      e=>e.code==='23514');
+    const changed={...saved,updatedAt:'2026-11-09T09:00:00.000Z'};
+    assert.equal((await scoped(()=>production.replace(changed,0))).version,1);
   } finally { await recoveredDatabase.close(); }
 });

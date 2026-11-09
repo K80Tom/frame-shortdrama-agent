@@ -8,7 +8,7 @@ import { sealProductionInputSnapshot } from './input-snapshot';
 
 /** Resolved by main's versioned policy/model services, never accepted verbatim from an HTTP client. */
 export type ProductionInputCompileProfile = Pick<ProductionInputSnapshotDraft, 'id' | 'createdAt' | 'reason' | 'modelConnections'
-  | 'retrievalPolicy' | 'qualityGates' | 'budgetPolicy' | 'candidatePolicy' | 'automationMode'>;
+  | 'retrievalPolicy' | 'qualityGates' | 'budgetPolicy' | 'candidatePolicy' | 'automationMode' | 'executionPolicy'>;
 function refs(values: InputVersionRef[]): InputVersionRef[] {
   const unique = new Map<string, InputVersionRef>();
   for (const value of values) {
