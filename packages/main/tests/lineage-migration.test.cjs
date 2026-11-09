@@ -4,8 +4,8 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { LINEAGE_MIGRATIONS } = require('../dist/db/readiness');
 
-test('046 建立租户化血缘节点/边/事件台账、唯一约束与双向索引，且不动 024/evaluator', () => {
-  const sql = readFileSync(join(__dirname, '../migrations/046_unified_lineage.sql'), 'utf8');
+test('048 建立租户化血缘节点/边/事件台账、唯一约束与双向索引，且不动 024/evaluator', () => {
+  const sql = readFileSync(join(__dirname, '../migrations/048_unified_lineage.sql'), 'utf8');
   for (const table of ['lineage_nodes', 'lineage_edges', 'lineage_events']) {
     assert.match(sql, new RegExp(`CREATE TABLE ${table}`));
   }
@@ -27,7 +27,7 @@ test('046 建立租户化血缘节点/边/事件台账、唯一约束与双向�
   }
   // 不复制正文：节点只有引用/摘要，不出现 content/raw_text/media_bytes 列。
   assert.doesNotMatch(sql, /\b(raw_text|content|media_bytes|prompt_snapshot)\b/u);
-  assert.deepEqual([...LINEAGE_MIGRATIONS], ['046']);
+  assert.deepEqual([...LINEAGE_MIGRATIONS], ['048']);
   // 租户化四件套：workspace 列、复合幂等键、scope guard 与 FORCE RLS 隔离策略。
   for (const table of ['lineage_nodes', 'lineage_edges', 'lineage_events']) {
     assert.match(sql, new RegExp(`ALTER TABLE ${table}\\n  ADD COLUMN workspace_id`));

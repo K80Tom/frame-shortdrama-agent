@@ -141,6 +141,19 @@ export class CanvasController {
     return this.ready().createRun(canvasId, revisionId, body, actorOf(request));
   }
 
+  /**
+   * 节点驱动：分镜节点一键异步生成。仍需 quoteId 证明估价卡已确认，
+   * 同一 revision 已有运行时直接复用，不重复扣费。
+   */
+  @Post('api/canvases/:canvasId/revisions/:revisionId/nodes/:nodeId/generate')
+  @HttpCode(202)
+  generateNode(
+    @Param('canvasId') canvasId: string, @Param('revisionId') revisionId: string,
+    @Param('nodeId') nodeId: string, @Body() body: unknown, @Req() request: AuthedRequest,
+  ) {
+    return this.ready().generateNode(canvasId, revisionId, nodeId, body, actorOf(request));
+  }
+
   @Get('api/canvases/:canvasId/runtime-view')
   runtime(
     @Param('canvasId') canvasId: string,

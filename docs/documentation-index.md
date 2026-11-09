@@ -16,7 +16,7 @@
 | [docs/documentation-index.md](documentation-index.md) | 2026-11-09 / 本 PR 新增 | dev b264844 + 本 PR 文档增量 | 本文档有效性与 Git 元数据目录；日期不是验收日期 |
 | [docs/evaluation-data-governance.md](evaluation-data-governance.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [docs/evaluation-run-contract.md](evaluation-run-contract.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
-| [docs/feature-status.md](feature-status.md) | 2026-11-09 / 本 PR 新增 | dev b264844 + 本 PR 文档增量 | 本 PR 更新的能力快照/证据入口；待审 PR 不算已合入 |
+| [docs/feature-status.md](feature-status.md) | 2026-11-10 / 本 PR 新增 | dev ddd33d3 + 本 PR 文档增量 | 本 PR 更新的能力快照/证据入口；待审 PR 不算已合入 |
 | [docs/frozen-production-run-progress.md](frozen-production-run-progress.md) | 2026-11-09 / bc9cc42 | dev b264844 + 本 PR 文档增量 | 已合并切片的进度/边界记录；文中测试/fixture 需按其适用提交理解，本轮未重跑 |
 | [docs/production-architecture-roadmap.md](production-architecture-roadmap.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前目标架构规范；Stage 1–3 的目标不等于已经实现 |
 | [docs/production-input-snapshot-progress.md](production-input-snapshot-progress.md) | 2026-11-09 / c7a86ef | dev b264844 + 本 PR 文档增量 | 已合并切片的进度/边界记录；文中测试/fixture 需按其适用提交理解，本轮未重跑 |

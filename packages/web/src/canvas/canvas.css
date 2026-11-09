@@ -73,3 +73,58 @@
   .canvas-body { grid-template-columns: 1fr; }
   .canvas-page { padding: 16px; }
 }
+
+/* 节点运行事实：排队/进度/成片，全部来自后端 runtime-view。 */
+.canvas-node-status {
+  fill: #94a3b8;
+  font-size: 11px;
+}
+.canvas-node-progress {
+  fill: #38bdf8;
+  opacity: 0.9;
+}
+.canvas-run-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+  color: #cbd5e1;
+  font-size: 12px;
+}
+.canvas-node-message {
+  margin: 6px 0 10px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+.canvas-generate {
+  width: 100%;
+  margin-bottom: 10px;
+}
+.canvas-artifact {
+  margin: 10px 0 14px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(2, 6, 23, 0.45);
+}
+.canvas-artifact h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+.canvas-artifact video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+.canvas-artifact a {
+  display: inline-block;
+  margin-top: 6px;
+  color: #7dd3fc;
+  font-size: 12px;
+}

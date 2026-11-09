@@ -828,6 +828,14 @@ export function compareCanvasGraphs(before: CanvasGraph, after: CanvasGraph): Ca
 
 export type CanvasRuntimeState = 'unknown' | 'pending' | 'running' | 'waitingHuman' | 'failed' | 'succeeded' | 'reconciling';
 
+export interface CanvasNodeArtifact {
+  id: string;
+  kind: string;
+  title: string;
+  /** 来自 Main 的受控媒体路由（例如 /api/production-media/:id），不是第三方签名 URL。 */
+  uri: string;
+}
+
 export interface CanvasNodeRuntime {
   nodeId: string;
   state: CanvasRuntimeState;
@@ -835,6 +843,24 @@ export interface CanvasNodeRuntime {
   sourceAggregateId: string | null;
   sourceRevision: number | null;
   observedAt: string;
+  /** 该镜头当前所处生产阶段（video/candidates/review…）；非镜头节点为 null。 */
+  stage?: string | null;
+  /** 该镜头已完成阶段占全部阶段的比例（0–100），仅作展示。 */
+  progressPercent?: number | null;
+  /** 在 Worker 队列中的 1-based 位置；不在排队时为 null。 */
+  queuePosition?: number | null;
+  /** 该镜头已产出的成片/候选，前端可直接渲染。 */
+  artifact?: CanvasNodeArtifact | null;
+  /** 整片运行状态，便于画布显示“排队/执行/等待人工”。 */
+  runStatus?: string | null;
+}
+
+export interface CanvasRunQueue {
+  pending: number;
+  ready: number;
+  running: number;
+  waitingHuman: number;
+  failed: number;
 }
 
 export interface CanvasRuntimeView {
@@ -843,6 +869,15 @@ export interface CanvasRuntimeView {
   cursor: string | null;
   nodes: CanvasNodeRuntime[];
   generatedAt: string;
+  /** 当前 revision 绑定的生产运行摘要；没有运行时为 null。 */
+  run?: {
+    id: string;
+    status: string;
+    queue: CanvasRunQueue;
+    stages: Array<{ key: string; state: string; completed: number; total: number }>;
+    /** 整集成片（deliver 阶段产物）；尚未产出时为 null。 */
+    delivery?: { id: string; title: string; uri: string } | null;
+  } | null;
 }
 
 export interface CanvasQuote {

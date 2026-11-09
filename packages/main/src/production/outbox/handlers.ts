@@ -3,7 +3,7 @@ import { OutboxTaskError } from './contracts';
 import type { OutboxTaskHandler } from './consumer';
 
 /** 平台任务类型白名单：API 只接受这里的类型，未知类型一律拒绝。 */
-export const OUTBOX_TASK_TYPE_WHITELIST = ['runtime.smoke', 'storage.staging_gc'] as const;
+export const OUTBOX_TASK_TYPE_WHITELIST = ['runtime.smoke', 'storage.staging_gc', 'video.generate'] as const;
 export type WhitelistedOutboxTaskType = (typeof OUTBOX_TASK_TYPE_WHITELIST)[number];
 
 export function isWhitelistedOutboxTaskType(value: unknown): value is WhitelistedOutboxTaskType {

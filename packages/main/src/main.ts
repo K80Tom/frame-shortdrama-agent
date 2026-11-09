@@ -85,7 +85,7 @@ import { LineageProjector } from './lineage/projector';
 import { PostgresLineageStore } from './lineage/store';
 import { PostgresSourceLineageReader } from './lineage/postgres-source-reader';
 import { tenantExecutionScope } from './tenancy/scope';
-import { INFRA_OUTBOX_MIGRATIONS } from './db/readiness';
+import { INFRA_OUTBOX_MIGRATIONS, MODEL_GENERATION_MIGRATIONS } from './db/readiness';
 import {
   RedisLeaseLock, WorkerInstanceLeaseManager, WorkerRuntime, createRedisLeaseClientFromEnv,
   newOwnerInstanceId, readWorkerRuntimeOptions,
@@ -97,6 +97,15 @@ import {
   createRuntimeSmokeHandler, createStagingGcHandler,
 } from './production/outbox';
 import { createStorageDriverFromEnv } from './storage/runtime';
+import {
+  ProductionInputObjectVerifier,
+} from './production/input-object-verifier';
+import {
+  PostgresModelGenerationAudit,
+} from './production/model-generation-audit';
+import { createVideoGenerationWorkerHandler } from './production/video-worker-env';
+import { PostgresPaidGenerationInterceptor } from './budget/postgres-paid-generation';
+import type { ObjectStorage } from './infrastructure/object-storage';
 
 /** 助手工具只输出标量白名单字段，避免把提示词、原文或供应商负载带回对话。 */
 function pickScalars(value: unknown, fields: string[]): Record<string, unknown> {
@@ -365,7 +374,7 @@ async function main() {
       }
       // AI 工作区：旧平台「全局 AI 工作区」的本地等价实现。
       // 模型只负责决策与解释；真实数据来自白名单工具，付费只走估价卡确认。
-      if (await database.hasMigrations(['018', '029'])) {
+      if (await database.hasMigrations(['018', '029', '039', '046'])) {
         const assistantRepository = new CachedAssistantRepository(
           new PostgresAssistantRepository(database), conversationContext.cache,
         );
@@ -512,12 +521,44 @@ async function main() {
                 async getRun(runId: string) {
                   try {
                     const run = await production.get(runId);
+                    const shotQueue = run.tasks
+                      .filter(task => task.scope.kind === 'shot' && (task.status === 'pending' || task.status === 'ready'))
+                      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+                    const queuePositions: Record<string, number> = {};
+                    shotQueue.forEach((task, index) => {
+                      if (task.scope.kind !== 'shot') return;
+                      if (queuePositions[task.scope.id] === undefined) queuePositions[task.scope.id] = index + 1;
+                    });
+                    const artifacts = run.artifacts
+                      .filter(artifact => artifact.status === 'current' && artifact.uri
+                        && (artifact.kind === 'video' || artifact.kind === 'delivery'))
+                      .map(artifact => {
+                        const task = run.tasks.find(item => item.id === artifact.taskId);
+                        return { id: artifact.id, kind: artifact.kind, title: artifact.title, uri: artifact.uri as string,
+                          shotId: task?.scope.kind === 'shot' ? task.scope.id : null };
+                      });
+                    const delivered = run.delivery
+                      ? run.artifacts.find(artifact => artifact.id === run.delivery!.artifactId)
+                      : null;
                     return {
                       id: run.id, status: run.status, updatedAt: run.updatedAt,
                       shotMatrix: run.shotMatrix.flatMap(shot => shot.shotId === null ? [] : [{
                         shotId: shot.shotId, completed: shot.completed,
                         stages: shot.stages as Record<string, string | null>,
                       }]),
+                      queue: {
+                        pending: run.tasks.filter(task => task.status === 'pending').length,
+                        ready: run.tasks.filter(task => task.status === 'ready').length,
+                        running: run.tasks.filter(task => ['running', 'waitingExternal', 'validating', 'retryWait'].includes(task.status)).length,
+                        waitingHuman: run.tasks.filter(task => task.status === 'waitingHuman').length,
+                        failed: run.tasks.filter(task => task.status === 'failed').length,
+                      },
+                      stages: run.stages.map(stage => ({ key: stage.key, state: stage.state, completed: stage.completed, total: stage.total })),
+                      artifacts,
+                      delivery: run.delivery && delivered?.uri
+                        ? { id: run.delivery.id, status: run.delivery.status, title: '最终成片', uri: delivered.uri }
+                        : null,
+                      queuePositions,
                     };
                   } catch { return null; }
                 },
@@ -596,7 +637,17 @@ async function main() {
             database,
             store: outboxStore,
             tenantResolver: tenantResolver!,
-            handlers: [createRuntimeSmokeHandler(), createStagingGcHandler({ driver: storageDriver })],
+            handlers: [
+              createRuntimeSmokeHandler(),
+              createStagingGcHandler({ driver: storageDriver }),
+              // 视频生成 Worker（#127）：046 迁移就位后才注册，未迁移的部署不认领。
+              ...(await database.hasMigrations(MODEL_GENERATION_MIGRATIONS) && objectStorage
+                ? [createVideoGenerationWorkerHandler({
+                  database, objectStorage, driver: storageDriver,
+                  budget: new PostgresPaidGenerationInterceptor(database),
+                })]
+                : []),
+            ],
             ownerInstanceId,
             consumerName: 'main-worker',
             batchSize: runtimeOptions.outbox.batchSize,
