@@ -16,6 +16,7 @@ export interface ObjectDescriptor {
   bucket: string;
   /** Logical key. Adapters add the workspace prefix and never expose a cross-tenant physical key. */
   key: string;
+  /** Actual backend selector (or null), never an internal ObjectVersion ID. */
   versionId: string | null;
   etag: string | null;
   sha256: string;
@@ -37,6 +38,8 @@ export interface ReadObjectRequest {
   key: string;
   maxBytes: number;
   expectedSha256?: string;
+  /** Real provider selector only, NEVER an internal objver_ ID or an ETag. */
+  providerVersionId?: string;
 }
 
 export interface ObjectReadResult {
@@ -65,6 +68,7 @@ export interface PresignedGetRequest {
   key: string;
   expiresInSeconds: number;
   expectedSha256?: string;
+  providerVersionId?: string;
 }
 
 export interface PresignedGet {
@@ -81,7 +85,7 @@ export interface ObjectStorage {
   probe(): Promise<void>;
   put(request: PutObjectRequest): Promise<ObjectDescriptor>;
   get(request: ReadObjectRequest): Promise<ObjectReadResult>;
-  head(scope: ObjectStorageScope, key: string): Promise<ObjectDescriptor | null>;
+  head(scope: ObjectStorageScope, key: string, options?: {providerVersionId?: string}): Promise<ObjectDescriptor | null>;
   delete(scope: ObjectStorageScope, key: string): Promise<void>;
   createPresignedPut?(request: PresignedPutRequest): Promise<PresignedPut>;
   createPresignedGet?(request: PresignedGetRequest): Promise<PresignedGet>;
@@ -123,4 +127,10 @@ export function validateMaxBytes(value: unknown): number {
     throw new ObjectStorageError('OBJECT_LIMIT_INVALID', '对象读取上限无效。');
   }
   return value as number;
+}
+export function validateProviderVersionId(value:unknown):string|undefined{
+  if(value===undefined)return undefined;
+  if(typeof value!=='string'||!value||value.length>512||/[\x00-\x1f\x7f]/u.test(value))
+    throw new ObjectStorageError('OBJECT_VERSION_INVALID','供应商对象版本无效。');
+  return value;
 }

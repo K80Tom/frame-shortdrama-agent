@@ -24,7 +24,7 @@ export type ProductionInputDomainValidatorsFactory = (client: PoolClient, tenant
 
 /** Production wiring: all PostgreSQL reads share the lifecycle transaction; absent domain support is blocked. */
 export async function createProductionInputValidationPorts(client: PoolClient, tenantValue: unknown, snapshotValue: unknown,
-  objects?: Pick<ObjectStorage,'provider'|'bucket'|'head'>, domainsFactory?: ProductionInputDomainValidatorsFactory): Promise<ProductionInputValidationPorts> {
+  objects?: Pick<ObjectStorage,'provider'|'bucket'|'get'>, domainsFactory?: ProductionInputDomainValidatorsFactory): Promise<ProductionInputValidationPorts> {
   const tenant = parseTenantContext(tenantValue), snapshot = verifyProductionInputSnapshot(snapshotValue);
   const denied = (): never => { throw new ProductionError(404,'REFERENCE_NOT_FOUND','生产输入资源不存在。'); };
   if (snapshot.workspaceId !== tenant.workspaceId) denied();

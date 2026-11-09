@@ -22,3 +22,4 @@ export * from './novel-adaptation';
 export * from './shot-spec';
 export * from './production-input-snapshot';
 export * from './director-scene';
+export * from './object-version';

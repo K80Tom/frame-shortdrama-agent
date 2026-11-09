@@ -86,6 +86,23 @@ test('non-retryable worker failures become terminal queue failures', async () =>
   assert.equal(failed.retryable, false);
   assert.equal(failed.error, 'invalid projection');
 });
+test('domain-transaction handlers must prove durable settlement and cannot be double-completed by the worker',async()=>{
+ for(const state of ['succeeded','queued','running']){
+  let automatic=0,failed;const repository={async claim(){return lease('test.domain');},async heartbeat(){return job();},
+    async get(){return {...job(),state};},async complete(){automatic++;},async fail(input){failed=input;return {...job(),state:'failed'};}};
+  const resolver={async resolve(){return {userId,workspaceId,role:'owner',requestId:'worker:'+jobId};}};
+  const worker=new PersistentJobWorker(repository,resolver,[{queueName:'projection',kind:'test.domain',settlement:'domain_transaction',
+    async handle(ctx){assert.equal(ctx.tenant.workspaceId,workspaceId);}}],{workerId:'worker-test',now:()=>new Date(now)});
+  await worker.runOnce('projection');assert.equal(automatic,0);
+  if(state==='running')assert.equal(failed.retryable,false);else assert.equal(failed,undefined);
+ }
+});
+test('a resolver cannot substitute another workspace before a handler receives authority',async()=>{
+ let handled=0,failed;const repository={async claim(){return lease('test.tenant');},async fail(input){failed=input;return {...job(),state:'failed'};}};
+ const resolver={async resolve(){return {userId,workspaceId:'ws_'+'f'.repeat(32),role:'owner',requestId:'worker:'+jobId};}};
+ const worker=new PersistentJobWorker(repository,resolver,[{queueName:'projection',kind:'test.tenant',async handle(){handled++;}}],{workerId:'worker-test',now:()=>new Date(now)});
+ await worker.runOnce('projection');assert.equal(handled,0);assert.equal(failed.workspaceId,workspaceId);
+});
 
 test('dispatcher pump converts a pending outbox record into one durable projection job', async () => {
   const enqueued = [];
