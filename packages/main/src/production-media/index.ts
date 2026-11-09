@@ -7,3 +7,4 @@ export * from './frame-assessment';
 export * from './object-storage';
 export * from './object-records';
 export * from './object-worker';
+export * from './audio';
