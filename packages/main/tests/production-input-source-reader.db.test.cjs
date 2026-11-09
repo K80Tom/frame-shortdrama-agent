@@ -8,6 +8,7 @@ const { PostgresShotSpecRepository } = require('../dist/production/shot-spec-rep
 const { sealShotSpecV2 } = require('../dist/production/shot-spec');
 const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
 const { ProductionInputObjectVerifier } = require('../dist/production/input-object-verifier');
+const { PostgresProductionInputReferenceReader } = require('../dist/production/input-reference-reader');
 const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
 const token = () => randomBytes(16).toString('hex');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -43,6 +44,19 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   assert.equal(await reader.readCurrentProjectInputs(b, projectId), null);
   const ref = { scriptVersionId: scriptId, start: 1, end: 2, quote: '😀' };
   assert.equal(await reader.checkSource(a, projectId, ref), null);
+  await db.runWithTenant(a, () => db.transaction(async client => {
+    const references = new PostgresProductionInputReferenceReader(client, a, projectId);
+    assert.equal(await references.authorizeProject(), true);
+    assert.equal(await references.checkVersion('script', { id: scriptId, versionId: scriptId, digest: hash(raw) }), null);
+    for (const kind of ['plan', 'storyboard']) assert.equal(await references.checkVersion(kind,
+      { id: 'revision_missing', versionId: 'revision_missing', digest: 'a'.repeat(64) }), 'REFERENCE_NOT_FOUND');
+    assert.equal(await references.checkSource(ref), null);
+  }));
+  await db.runWithTenant(b, () => db.transaction(async client => {
+    const references = new PostgresProductionInputReferenceReader(client, b, projectId);
+    assert.equal(await references.authorizeProject(), false);
+    assert.equal(await references.checkVersion('script', { id: scriptId, versionId: scriptId, digest: hash(raw) }), 'REFERENCE_NOT_FOUND');
+  }));
   assert.equal(await reader.checkSource(b, projectId, ref), 'REFERENCE_NOT_FOUND');
   assert.equal(await reader.checkSource(a, 'project_' + token(), ref), 'REFERENCE_NOT_FOUND');
   assert.equal(await reader.checkSource(a, projectId, { ...ref, end: 3 }), 'DIGEST_MISMATCH');

@@ -65,3 +65,11 @@ projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboa
 当前路径严格要求存储真实 versionId；versionless local/未启用版本的对象明确返回 CAPABILITY_INCOMPATIBLE，不伪造 provider version（不拿 ETag/路径/可变行号代替）。这意味着尚未具备显式不可变对象版本契约的后端不能由此宣称可生产使用；必须与 #124 的存储版本能力对齐，不能把本适配当作所有本地/云后端支持已完成。
 
 相关31/31；真实PG test:rls2/2额外证明 workspace metadata 隔离、FOR SHARE 查询、versionless阻断。这里 HEAD 为明确的 ObjectStorage 服务桩，**未验证真实 S3/OSS/COS/MinIO**。真实对象服务端到端和正式能力/包/配置版本适配仍待完成；完整候选验证、采用API和运行冻结仍未接通。
+
+## 同事务正式来源版本适配检查点
+
+新增 PostgresProductionInputReferenceReader，显式使用采用/冻结事务的 client，不另开不相关连接。复用现有项目、不可变剧本/计划/分镜和采用记录：精确 workspace/project/version 查询并 FOR SHARE；原文字节 SHA、Unicode 引用与计划/分镜内容摘要复核；从未采用的计划/分镜不能仅凭 hash 通过。历史采用记录允许历史版本被验证，不强迫历史运行改读当前指针。未知资源域明确返回 CAPABILITY_INCOMPATIBLE，不把模型、Prompt、资产等尚未接通的版本域伪装为通过。
+
+原 reader 的 checkSource 已复用该适配，消除两套原文校验实现。main 构建通过，相关34/34；真实非特权 PG test:rls2/2新增同事务 project/script/source 检查、跨租户拒绝与 plan/board 缺失查询。plan/board 的已采用成功/未采用阻断分支当前为明确的 SQL row 夹具测试，不是完整真实计划采用 E2E。对象 HEAD 和其他未实现资源域仍未完成真实外部验收。
+
+尚未发布 PR：需要统一组装正式验证 ports、解析缺失领域的服务端版本，完成 Snapshot 持久化/冻结/API/客户端和 Run/Executor 切换。不得在 #123 平行重建 #126/#131/#134/#135 所拥有的资产包、方法准入或治理状态机。

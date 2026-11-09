@@ -3,6 +3,7 @@ import { canonicalDigest, ProductionError } from '@lyra/shared';
 import type { ShotSourceRef } from '@lyra/shared/dist/shot-spec';
 import type { PostgresDatabase } from '../db/client';
 import { parseTenantContext } from '../tenancy/context';
+import { PostgresProductionInputReferenceReader } from './input-reference-reader';
 
 const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 function unavailable(): never { throw new ProductionError(503, 'PRODUCTION_INPUT_SOURCE_UNAVAILABLE', '生产输入来源暂不可用。'); }
@@ -55,17 +56,7 @@ export class PostgresProductionInputSourceReader {
   /** Historical exact script, not current project state. Unicode offsets are code points. */
   async checkSource(tenantValue: unknown, projectId: string, ref: ShotSourceRef) {
     const tenant = parseTenantContext(tenantValue);
-    return this.database.runWithTenant(tenant, async () => {
-      try {
-        const row = (await this.database.query(`SELECT raw_text,content_sha256 FROM script_versions
-          WHERE id=$1 AND project_id=$2 AND workspace_id=$3`, [ref.scriptVersionId, projectId, tenant.workspaceId])).rows[0];
-        if (!row) return 'REFERENCE_NOT_FOUND' as const;
-        if (typeof row.raw_text !== 'string' || sha(row.raw_text) !== row.content_sha256) return 'DIGEST_MISMATCH' as const;
-        const points = Array.from(row.raw_text);
-        if (!Number.isSafeInteger(ref.start) || !Number.isSafeInteger(ref.end) || ref.start < 0 || ref.end <= ref.start
-          || ref.end > points.length || points.slice(ref.start, ref.end).join('') !== ref.quote) return 'DIGEST_MISMATCH' as const;
-        return null;
-      } catch { return 'REFERENCE_NOT_FOUND' as const; }
-    });
+    return this.database.runWithTenant(tenant, () => this.database.transaction(client =>
+      new PostgresProductionInputReferenceReader(client, tenant, projectId).checkSource(ref)));
   }
 }
