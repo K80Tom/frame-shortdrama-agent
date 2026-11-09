@@ -1,4 +1,4 @@
-import { copyBoundedProductionInput, type InputVersionRef } from './shot-spec';
+import { copyBoundedProductionInput, type InputVersionRef, type ShotSpecV2 } from './shot-spec';
 
 export const PRODUCTION_INPUT_SCHEMA_VERSION = 'lyra-production-input/1' as const;
 export const PRODUCTION_INPUT_ERROR_CODES = ['REVISION_CONFLICT', 'REFERENCE_NOT_FOUND', 'REFERENCE_FORBIDDEN',
@@ -24,6 +24,8 @@ export interface ProductionInputSnapshot {
   snapshotDigest: string;
 }
 export type ProductionInputSnapshotDraft = Omit<ProductionInputSnapshot, 'snapshotDigest'>;
+/** Runtime input bundle, not a statement that today's permissions/capabilities still authorize a paid submission. */
+export interface FrozenProductionInput { snapshot: ProductionInputSnapshot; shots: ShotSpecV2[] }
 export interface AdoptProductionInput { expectedCurrentRevision: string | null; snapshotId: string }
 export class ProductionInputContractError extends Error {
   readonly status = 400;

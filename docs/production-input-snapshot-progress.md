@@ -107,3 +107,11 @@ main 构建通过；真实非特权 PG test:rls2/2 新增证明：即便 Snapsho
 Lifecycle 正向集成已改用此生产工厂，只有尚未完成领域 owner 仍是明确 oracle；另实际用不带任何 oracle 的默认生产工厂验证同一真实 PG 来源候选，结果 blocked 且全为 CAPABILITY_INCOMPATIBLE，不能 freeze。这样不会把“仅有合法剧本和镜头”误标成所有生产能力已就绪。真实非特权RLS3/3、相关37/37、main构建通过；无真实供应商请求。
 
 正式领域适配、可用的服务器版本 profile 解析、HTTP/客户端和 Run 消费仍待接通；默认阻断是安全边界，不是整个 #123 完成，更不是所有领域能力都已实现。
+
+## 冻结输入恢复读取检查点
+
+新增 PostgresFrozenProductionInputReader：单条租户化 MVCC SQL 只读取 snapshot 中的精确版本及有序不可变镜头关联，不读取 projects 的 current/active 指针、不依赖浏览器；只允许 frozen 状态，复核 snapshotDigest、ShotSpec 摘要和归属、实际 script/plan/board 内容摘要与血缘，并逐项核验原文码点引用。返回 main 内部消费用的冻结事实副本，不把这个读取动作当作“今日仍具付费授权/模型能力”的凭证。
+
+真实 PG lifecycle 测试新增：expectedDigest 错误拒绝、跨租户拒绝、draft 拒绝；项目后来切换新剧本后，使用全新 PostgreSQL client 仍恢复原 script/board/ShotSpec 内容。RLS3/3、相关37/37、shared/main构建通过。这里只证明 Reader 的新连接恢复，不宣称已经完成真实 Worker 进程杀死/重启演练，或所有执行器都已切换。
+
+下一步需要 Run 创建保存并保护 snapshot ID/digest、Worker/Director/资产/视频执行器实际消费，以及显式 V1 CompatibilityReader。另需补 legacy script/plan/board 的快照引用保留约束（当前 JSON 指针缺少完整物理 FK），避免旧资源清理破坏历史；读取器发现丢失会阻断，但“阻断”不等于保留问题已解决。正式资源域与版本 profile 仍需完成。

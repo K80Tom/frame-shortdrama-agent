@@ -16,6 +16,7 @@ const { ProductionInputCandidateCompiler } = require('../dist/production/input-c
 const { PostgresProductionInputSnapshotRepository } = require('../dist/production/input-snapshot-repository');
 const { PostgresProductionInputLifecycle } = require('../dist/production/input-lifecycle');
 const { createProductionInputValidationPorts } = require('../dist/production/input-validation-ports');
+const { PostgresFrozenProductionInputReader } = require('../dist/production/frozen-input-reader');
 const token = () => randomBytes(16).toString('hex');
 test('real adopted source chain compiles, validates, blocks revoked policy and freezes transactionally', {
   skip: process.env.DATABASE_URL && process.env.DATABASE_ADMIN_URL ? false : 'isolated application/admin database URLs required',
@@ -91,6 +92,11 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   revoked = false;
   const revalidated = await lifecycle.validate(tenant,candidate.id,5,at); assert.equal(revalidated.stateVersion,7);
   const frozen = await lifecycle.freeze(tenant,candidate.id,7,at); assert.equal(frozen.snapshot.state,'frozen'); assert.equal(frozen.stateVersion,10);
+  const frozenReader = new PostgresFrozenProductionInputReader(database);
+  const loaded = await frozenReader.load(tenant,candidate.id,candidate.snapshotDigest);
+  assert.equal(loaded.shots[0].revisionId,spec.revisionId); assert.equal(loaded.sources.scriptText,rawText);
+  await assert.rejects(frozenReader.load(tenant,candidate.id,'0'.repeat(64)),e=>e.code==='DIGEST_MISMATCH');
+  await assert.rejects(frozenReader.load({...tenant,workspaceId:'ws_'+token()},candidate.id),e=>e.code==='REFERENCE_NOT_FOUND');
   const beforeRetry = factories; assert.equal((await lifecycle.freeze(tenant,candidate.id,10,at)).stateVersion,10); assert.equal(factories,beforeRetry);
   const events = await admin.query('SELECT aggregate_version,event_type FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2 ORDER BY aggregate_version',[tenant.workspaceId,candidate.id]);
   assert.deepEqual(events.rows.map(e=>e.aggregate_version),[1,2,3,4,5,6,7,8,9,10]);
@@ -99,6 +105,7 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   const broken = new PostgresProductionInputLifecycle(database,()=>{throw new Error('test factory failure');});
   await assert.rejects(broken.validate(tenant,fault.id,1,at));
   assert.equal((await snapshots.get(tenant,fault.id)).state,'draft');
+  await assert.rejects(frozenReader.load(tenant,fault.id),e=>e.code==='SNAPSHOT_NOT_READY');
   assert.equal((await admin.query('SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2',[tenant.workspaceId,fault.id])).rowCount,1);
   const concurrent = await makeCandidate();
   const races = await Promise.allSettled([0,1].map(()=>lifecycle.validate(tenant,concurrent.id,1,at)));
@@ -113,4 +120,13 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   await assert.rejects(lifecycle.freeze(tenant,concurrent.id,3,at),e=>e.code==='REVISION_CONFLICT');
   assert.equal((await snapshots.get(tenant,candidate.id)).state,'frozen');
   assert.equal(await reader.checkSource(tenant,project.id,sourceRef),null); assert.equal(modelStubs,1);
+  // Fresh database client simulates recovery without any previously held project/browser objects.
+  const recoveredDatabase = new PostgresDatabase({connectionString:process.env.DATABASE_URL},{unscopedAccess:'deny'});
+  try {
+    const recovered = await new PostgresFrozenProductionInputReader(recoveredDatabase).load(tenant,candidate.id,candidate.snapshotDigest);
+    assert.equal(recovered.sources.scriptText,rawText);
+    assert.equal(recovered.snapshot.script.versionId,script.id);
+    assert.equal(recovered.snapshot.storyboard.versionId,board.id);
+    assert.deepEqual(recovered.shots,loaded.shots);
+  } finally { await recoveredDatabase.close(); }
 });
