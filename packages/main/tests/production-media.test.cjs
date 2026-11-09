@@ -428,7 +428,9 @@ test('auto edit adds title and end cards with crossfades and keeps a determinist
     await writeFile(args.at(-1), 'edited');
     return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   } };
-  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const fontPath = join(f.base, 'fixture-font.ttf');
+  await writeFile(fontPath, 'font fixture for stub runner');
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z'), fontCandidates: [fontPath] });
   const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
     edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
       endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
@@ -459,7 +461,7 @@ test('auto edit adds title and end cards with crossfades and keeps a determinist
   assert.equal(calls.length, 1, 'saved auto-edit timeline must not rerun ffmpeg');
 });
 
-test('auto edit degrades to textless cards when the ffmpeg build lacks drawtext', async t => {
+for (const hasDrawtext of [false, true]) test(`auto edit keeps textless cards when drawtext=${hasDrawtext} but no font exists`, async t => {
   const f = await fixture(t, {
     'clip-a': probe({ durationSeconds: 1, width: 721, height: 1279 }),
     'clip-b': probe({ durationSeconds: 2, width: 1080, height: 1920 }),
@@ -470,14 +472,14 @@ test('auto edit degrades to textless cards when the ffmpeg build lacks drawtext'
   const calls = [];
   const runner = { run: async (command, args) => {
     if (args.includes('-filters')) {
-      return { stdout: Buffer.from(' Filters:\n TSC scale             V->V       Scale the input video size.\n'),
+      return { stdout: Buffer.from(hasDrawtext ? ' TSC drawtext V->V Draw text\n' : ' TSC scale V->V Scale video\n'),
         stderr: Buffer.alloc(0) };
     }
     calls.push([...args]);
     await writeFile(args.at(-1), 'edited');
     return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   } };
-  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z'), fontCandidates: [] });
   const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
     edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
       endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
@@ -705,6 +707,103 @@ test('frame assessment does not keep a pass the dimension scores do not support'
   assert.equal(unknown.advice.action, 'keep');
 });
 
+
+const { timelineFontCandidates, findTimelineFont, timelineFontFilterPath } =
+  require('../dist/production-media/timeline-fonts');
+
+test('timeline fonts use Windows system root and preserve Unix fallbacks', () => {
+  assert.deepEqual(timelineFontCandidates('win32', 'D:\\Windows'), [
+    'D:/Windows/Fonts/msyh.ttc', 'D:/Windows/Fonts/simhei.ttf', 'D:/Windows/Fonts/arial.ttf',
+  ]);
+  assert.equal(timelineFontCandidates('win32', 'D:/系统目录')[0], 'D:/系统目录/Fonts/msyh.ttc');
+  for (const root of ['relative', '//server/share', '\\\\server\\share', "C:/Windows';evil", 'C:/Windows;evil', 'C:/Windows\n']) {
+    assert.equal(timelineFontCandidates('win32', root)[0], 'C:/Windows/Fonts/msyh.ttc');
+  }
+  assert.ok(timelineFontCandidates('linux').includes('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'));
+  assert.ok(timelineFontCandidates('darwin').includes('/System/Library/Fonts/PingFang.ttc'));
+  assert.equal(timelineFontCandidates('linux').some(path => path.includes('Windows')), false);
+});
+
+test('timeline font lookup tries missing fonts in order and returns null without a readable font', async () => {
+  const visited = [];
+  assert.equal(await findTimelineFont(['missing', 'valid', 'unused'], async path => {
+    visited.push(path); return path === 'valid';
+  }), 'valid');
+  assert.deepEqual(visited, ['missing', 'valid']);
+  assert.equal(await findTimelineFont(['missing'], async () => false), null);
+  assert.equal(await findTimelineFont([], async () => { throw new Error('must not read'); }), null);
+});
+
+test('drawtext font paths normalize Windows separators and escape drive colons', () => {
+  assert.equal(timelineFontFilterPath('C:\\Windows\\Fonts\\msyh.ttc'), 'C\\:/Windows/Fonts/msyh.ttc');
+  assert.equal(timelineFontFilterPath('/System/Library/Fonts/Hiragino Sans GB.ttc'),
+    '/System/Library/Fonts/Hiragino Sans GB.ttc');
+  for (const path of ["C:/font'bad.ttf", '/font;evil.ttf', '/font,evil.ttf', '/font[evil].ttf', 'relative.ttf', '/font.ttf\n',
+    '//server/share/font.ttf', '\\\\server\\share\\font.ttf', '\\\\.\\pipe\\font.ttf']) {
+    assert.throws(() => timelineFontFilterPath(path), TypeError);
+  }
+});
+
+
+test('real FFmpeg smoke: local font and actual composer produce visible title/end pixels', {
+  skip: process.env.LYRA_TEST_FFMPEG !== '1',
+}, async t => {
+  const { spawnSync } = require('node:child_process');
+  const font = await findTimelineFont(timelineFontCandidates());
+  assert.ok(font, 'local integration environment must provide a readable system font');
+  const filter = `drawtext=fontfile='${timelineFontFilterPath(font)}':text='中文测试':fontcolor=white:fontsize=32:x=10:y=10`;
+  const result = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:s=320x180:d=0.1', '-vf', filter, '-frames:v', '1', '-f', 'rawvideo',
+    '-pix_fmt', 'rgb24', 'pipe:1'], { maxBuffer: 1024 * 1024, timeout: 30_000 });
+  assert.equal(result.status, 0, result.stderr?.toString());
+  assert.equal(result.stdout.length, 320 * 180 * 3);
+  assert.ok(result.stdout.some(channel => channel > 128), 'text must change the black frame');
+
+  // Exercise the actual composer-generated filter, not only a handwritten
+  // drawtext string. All media is generated locally; no provider is called.
+  const base = resolve(tmpdir());
+  const root = await mkdtemp(join(base, 'lyra-timeline-font-'));
+  t.after(async () => {
+    const child = relative(base, resolve(root));
+    if (isAbsolute(child) || child.includes(sep) || !child.startsWith('lyra-timeline-font-')) {
+      throw new Error('测试目录越界，拒绝清理。');
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const { FfprobeVideoProber } = require('../dist/production-media');
+  const runner = new BoundedProcessRunner();
+  const store = new ProductionMediaStore(root, new FfprobeVideoProber(runner));
+  const work = await store.createWorkDirectory('font-smoke');
+  const sourcePath = join(work, 'black.mp4');
+  await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:s=320x180:r=30:d=1', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sourcePath], { timeoutMs: 30_000 });
+  const video = await store.importOwnedVideo(sourcePath);
+  let compositions = 0;
+  const composer = new TimelineComposer(store, { run(command, args, options) {
+    if (args.includes('-filter_complex')) compositions++;
+    return runner.run(command, args, options);
+  } });
+  const request = { videoIds: [video.id], title: '本地字体回归', edit: {
+    titleCardText: '中文片头', endCardText: '中文片尾', transitionSeconds: 0.4,
+  } };
+  const manifest = await composer.compose(request);
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  assert.ok(Math.abs(manifest.output.probe.durationSeconds - manifest.composition.expectedDurationSeconds) < 0.15);
+  assert.equal(manifest.output.probe.width, 320);
+  assert.equal(manifest.output.probe.height, 180);
+  assert.ok(!JSON.stringify(manifest).includes(font), 'private font path is not a delivery manifest field');
+  const output = await store.getVideo(manifest.output.id);
+  for (const seconds of [1, manifest.composition.expectedDurationSeconds - 1]) {
+    const frame = await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(seconds),
+      '-i', output.absolutePath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+    { timeoutMs: 30_000, maxOutputBytes: 1024 * 1024 });
+    assert.equal(frame.stdout.length, 320 * 180 * 3);
+    assert.ok(frame.stdout.some(channel => channel > 180), `card at ${seconds}s must contain visible light glyph pixels`);
+  }
+  assert.equal(compositions, 1);
+  assert.deepEqual(await composer.compose(request), manifest);
+  assert.equal(compositions, 1, 'saved composition must not invoke FFmpeg again');
+});
 test('object storage scopes immutable local bytes by workspace and explicitly projects verified media', async t => {
   const f = await fixture(t, { clip: probe() });
   const objects = new LocalObjectStorage(join(f.base, 'object-store'));
