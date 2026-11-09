@@ -33,4 +33,7 @@ export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;
 export const INFRA_OUTBOX_MIGRATIONS = ["042", "043"] as const;
 
 /** 模型生成执行层（#127/#130）：预算账本、ComfyUI 工作流版本、调用台账。 */
-export const MODEL_GENERATION_MIGRATIONS = ["046"] as const;
+export const MODEL_GENERATION_MIGRATIONS = ["047"] as const;
+
+/** Unified lineage read model (nodes/edges/gaps); derived projection only. */
+export const LINEAGE_MIGRATIONS = ["048"] as const;
