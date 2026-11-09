@@ -91,3 +91,11 @@ Repository 只能保存 draft，要求 Actor/workspace 一致、真实项目 rev
 main 构建通过；真实非特权 PG test:rls2/2 新增证明：即便 Snapshot hash 正确，来源指针不匹配也在调用验证工厂之前拒绝；跨租户与 viewer 操作拒绝、没有验证事件副作用。相关34/34。**这些只是新增生命周期的负向/隔离证据，不证明成功验证/冻结 E2E 已通过。**
 
 下一轮必须使用真实 BreakdownService/StoryboardService 的固定桩模型建立并采用完整来源，再覆盖生命周期的正向 ready→重验证→frozen、验证后撤权/失效转 blocked、并发 state CAS、工厂异常全事务回滚及 Outbox 次数；不得把旧测试里直接 SQL 改状态冒充该服务成功路径。
+
+## 生命周期真实来源正向链路检查点
+
+新增独立 PostgreSQL lifecycle 集成测试：实际调用 BreakdownService 创建项目/原文/候选计划、确定性检查与采用；实际调用 StoryboardService 生成并采用分镜（仅固定本地 transport 桩，不连接真实模型）；实际采用 ShotSpec、从单MVCC来源编译快照并保存，再走 Lifecycle validate/freeze，而不是直接 SQL 改状态。
+
+源 script/plan/board、采用记录、sourceRef 和 ShotSpec 验证使用真实事务 Reader。尚未落地的策略/Prompt/模型能力等域使用明确的测试 oracle，这些域通过不能作为正式授权证明。测试覆盖：ready3 → 撤权后 freeze 变 blocked5（无 frozen 事件）→ 重新验证 ready7 → 重新验证后 frozen10；事件版本1–10连续、只有一次 frozen；同 frozen 请求无新验证/事件；工厂异常回滚到 draft1 并且只有创建事件；并发同状态CAS只有一个成功；项目后来切换原文导致未冻候选冲突，而已冻快照与精确历史原文保持不变。
+
+真实非特权 test:rls3/3，既有数据库矩阵27/27，构建通过。最初夹具因缺 synopsis 被正式质量门禁拒绝，现补上来自原文的 synopsis，未跳过或放宽质量断言。整个 #123 仍缺正式资源域适配/HTTP/客户端及 Run/Executor 消费，不能把这条带 oracle 的测试链称为完整生产验收。
