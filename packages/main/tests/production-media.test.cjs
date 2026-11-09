@@ -973,6 +973,87 @@ test('object storage runtime maps Stage 1 environment into a lazy MinIO SDK clie
 });
 
 
+for (const late of ['resolve', 'reject']) test('DNS deadline blocks late ' + late + ' without fetch or retry', { timeout: 5000 }, async t => {
+  const f = await fixture(t);
+  let complete, fail, lookups = 0, fetches = 0;
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve: () => {
+    lookups++; return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+  } }, { fetch: async () => { fetches++; throw new Error('must not fetch'); } }, { dnsTimeoutMs: 10 });
+  await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_TIMEOUT');
+    assert.equal(error.status, 504);
+    assert.equal(error.message.includes('cdn.provider.example'), false);
+    return true;
+  });
+  if (late === 'resolve') complete([{ address: '93.184.216.34', family: 4 }]);
+  else fail(new Error('private resolver payload with token'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 0);
+});
+
+test('DNS immediate failure stays sanitized and fast DNS/literal success still ingests once', async t => {
+  const f = await fixture(t);
+  const bad = new ProductionMediaIngestor(f.store, { resolve: async () => { throw new Error('private token'); } },
+    { fetch: async () => { throw new Error('must not fetch'); } }, { dnsTimeoutMs: 20 });
+  await assert.rejects(bad.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_FAILED');
+    assert.equal(error.message.includes('private token'), false); return true;
+  });
+  let lookups = 0, fetches = 0;
+  const good = new ProductionMediaIngestor(f.store, { resolve: async () => { lookups++; return [{ address: '93.184.216.34', family: 4 }]; } },
+    { fetch: async () => { fetches++; return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') }; } },
+    { dnsTimeoutMs: 100 });
+  await good.ingestProviderUrl('https://cdn.provider.example/video.mp4');
+  await good.ingestProviderUrl('https://93.184.216.34/video.mp4');
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 2);
+});
+
+test('DNS deadline rejects invalid and overflowing timer settings', async t => {
+  const f = await fixture(t);
+  for (const dnsTimeoutMs of [0, -1, 1.5, NaN, Infinity, 30001, 2147483648]) {
+    assert.throws(() => new ProductionMediaIngestor(f.store, undefined, undefined, { dnsTimeoutMs }),
+      rejectsCode('REMOTE_MEDIA_INGEST_CONFIG_INVALID'));
+  }
+});
+
+for (const late of ['resolve', 'reject']) test('concurrent DNS deadlines isolate fast work and a later explicit request after late ' + late, { timeout: 5000 }, async t => {
+  const f = await fixture(t);
+  let complete, fail, slowLookups = 0, fastLookups = 0;
+  const fetched = [];
+  const addresses = [{ address: '93.184.216.34', family: 4 }];
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve(hostname) {
+    if (hostname === 'slow.provider.example' && ++slowLookups === 1) {
+      return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+    }
+    if (hostname === 'fast.provider.example') fastLookups++;
+    return Promise.resolve(addresses);
+  } }, { async fetch(url, options) {
+    fetched.push(url.hostname);
+    assert.deepEqual(options.addresses, addresses);
+    return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') };
+  } }, { dnsTimeoutMs: 20 });
+  // Attach the rejection observer immediately; the independent fast request
+  // must neither clear nor consume the pending request's deadline.
+  const timedOut = assert.rejects(ingestor.ingestProviderUrl('https://slow.provider.example/one.mp4'), rejectsCode('REMOTE_MEDIA_DNS_TIMEOUT'));
+  const fast = await ingestor.ingestProviderUrl('https://fast.provider.example/two.mp4');
+  assert.equal(fast.sourceKind, 'providerDownload');
+  await timedOut;
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  assert.equal(slowLookups, 1);
+  assert.equal(fastLookups, 1);
+  if (late === 'resolve') complete(addresses);
+  else fail(new Error('private late DNS result must not escape'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  // This is an explicit new call, not an automatic retry or model submission.
+  const recovered = await ingestor.ingestProviderUrl('https://slow.provider.example/three.mp4');
+  assert.equal(recovered.sourceKind, 'providerDownload');
+  assert.deepEqual(fetched, ['fast.provider.example', 'slow.provider.example']);
+  assert.equal(slowLookups, 2);
+});
+
 test('intranet exception rejects mapped local targets, compatible IPv6 and multicast before fetching', async t => {
   const f = await fixture(t);
   let fetches = 0;
