@@ -103,7 +103,7 @@ test('工具观察裁剪：最多返回 20 条，保留总数', async () => {
   assert.equal(observation.items.length, 20);
 });
 
-test('估价卡：费用由预算决定、幂等键由服务端重写，确认后冻结提交', async () => {
+test('估价卡：预算上限与系统估价分开冻结，幂等键由服务端重写，确认后提交', async () => {
   const created = [];
   const production = { create: async value => { created.push(value); return { id: 'run_1' }; } };
   const { service } = makeService({
@@ -114,8 +114,13 @@ test('估价卡：费用由预算决定、幂等键由服务端重写，确认�
   const events = await collect(service.send(session.id, { content: '帮我生成 60 秒成片，预算 30 元' }));
   const quoteEvent = events.find(event => event.type === 'generation_quote');
   assert.ok(quoteEvent, '必须生成估价确认卡而不是直接执行');
-  assert.equal(quoteEvent.quote.estimateCostMicros, 30_000_000);
+  // 预算上限来自用户，估价来自服务端价格表，两者不得混用。
+  assert.equal(quoteEvent.quote.budgetMicros, 30_000_000);
+  assert.ok(quoteEvent.quote.estimateCostMicros < quoteEvent.quote.budgetMicros);
+  assert.ok(quoteEvent.quote.estimateRangeMicros.lowMicros < quoteEvent.quote.estimateRangeMicros.highMicros);
+  assert.equal(quoteEvent.quote.priceRevision, 'assistant-price/2026-11');
   assert.equal(quoteEvent.quote.status, 'pending');
+  assert.ok(events.some(event => event.type === 'confirmation.required'), '必须发出人工确认事件');
   assert.equal(quoteEvent.quote.request.clientRequestId, `assistant_${quoteEvent.quote.id}`);
   assert.equal(created.length, 0, '建卡阶段绝不能触发付费创建');
 

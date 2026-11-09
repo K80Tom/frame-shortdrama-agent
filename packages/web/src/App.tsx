@@ -23,6 +23,7 @@ import type { WorkspaceSummary } from './deployment';
 import { sessionWorkspaceDirectory } from './auth';
 import { SessionControl, useAuth } from './AuthBoundary';
 import ProjectWorkspace, { ProjectHistory, ProjectOverview, ProjectReview } from './ProjectWorkspace';
+import CanvasWorkspace from './canvas/CanvasWorkspace';
 import GitHubDock from './GitHubDock';
 import SettingsLauncher from './SettingsLauncher';
 import './assistant/assistant.css';
@@ -130,7 +131,8 @@ export default function App() {
   const backdropVariant = backdropVariantForRoute(route);
   const activeProjectId = route.projectId && route.projectId !== 'new'
     ? route.projectId
-    : route.page === 'production' && route.resourceId && route.resourceId !== 'new' ? route.resourceId : undefined;
+    : route.page === 'production' && route.resourceId && route.resourceId !== 'new' ? route.resourceId
+      : route.page === 'canvas' && route.resourceId ? route.resourceId : undefined;
   const assistantContext = {
     label: activeProjectId ? `项目 ${activeProjectId}` : current.label,
     ...(activeProjectId ? { projectId: activeProjectId } : {}),
@@ -141,6 +143,8 @@ export default function App() {
       ? <ScriptPage {...props} />
       : <ProductionPage initialProjectId={route.projectId} onUnsavedChange={reportProductionUnsaved} />)}
     {route.projectSection === 'storyboard' && <StoryboardPage {...props} />}
+    {route.projectSection === 'canvas' && <CanvasWorkspace projectId={route.projectId}
+      notify={notify} onOpenAssistant={() => setAssistantOpen(true)} />}
     {route.projectSection === 'director' && <Suspense fallback={<p className="notice">正在准备 3D 导演台…</p>}><DirectorWorkspace notify={notify} /></Suspense>}
     {route.projectSection === 'production' && <ProductionAutomationPage initialProjectId={route.projectId === 'local-practice' ? undefined : route.projectId} onUnsavedChange={reportAutomationUnsaved} />}
     {route.projectSection === 'review' && <ProjectReview projectId={route.projectId} draft={draft} />}
@@ -173,6 +177,13 @@ export default function App() {
         {route.page === 'novel' && <NovelBreakdown initialNovelId={route.resourceId} importRequest={novelImportRequest} onUnsavedChange={reportNovelUnsaved} />}
         {route.page === 'script' && <ScriptPage {...props} />}
         {route.page === 'storyboard' && <StoryboardPage {...props} />}
+        {route.page === 'canvas' && (route.resourceId
+          ? <CanvasWorkspace projectId={route.resourceId} notify={notify} onOpenAssistant={() => setAssistantOpen(true)} />
+          : <section className="canvas-page canvas-empty"><div className="canvas-empty-card">
+            <h2>生产画布</h2>
+            <p>请从项目工作台打开生产画布，画布需要绑定一个真实项目才能读取正式版本事实。</p>
+            <a className="canvas-primary" href="#/projects">前往项目列表</a>
+          </div></section>)}
         {route.page === 'director' && <Suspense fallback={<p className="notice">正在准备 3D 导演台…</p>}><DirectorWorkspace notify={notify} /></Suspense>}
         {route.page === 'assets' && <AssetWorkspace go={go} initialTab={route.resourceId === 'references' ? 'references' : 'library'} onUnsavedChange={reportAssetsUnsaved} />}
         {route.page === 'flow' && <FlowPage {...props} step={route.step} />}

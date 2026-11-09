@@ -6,6 +6,7 @@
  */
 export * from './models';
 export * from './production';
+export * from './canvas';
 export * from './prompt-packs';
 export * from './asset-retrieval';
 export * from './evolution';

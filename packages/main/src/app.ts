@@ -46,6 +46,9 @@ import type { ProductionMediaObjectService } from './production-media/object-wor
 import { ASSISTANT_SERVICE, AssistantController } from './assistant/controller';
 import { AssistantError } from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
+import { CANVAS_SERVICE, CanvasController } from './canvas/controller';
+import { CanvasError } from '@lyra/shared';
+import type { CanvasService } from './canvas/service';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
 import { EVALUATION_SERVICE, EvaluationController } from './evaluation/controller';
@@ -109,6 +112,7 @@ export interface AppDependencies {
   productionMediaStore?: ProductionMediaStore;
   productionMediaObjectService?: ProductionMediaObjectService;
   assistantService?: AssistantService;
+  canvasService?: CanvasService;
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
@@ -436,6 +440,10 @@ class SafeErrors implements ExceptionFilter {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message,
         details: error.details } });
     }
+    if (error instanceof CanvasError) {
+      return reply.status(error.status).send({ error: { code: error.code, message: error.message,
+        details: error.details } });
+    }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError) {
@@ -460,7 +468,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, AssistantController,
+    ProductionController, ProductionMediaController, AssistantController, CanvasController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
@@ -482,6 +490,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
+    { provide: CANVAS_SERVICE, useValue: dependencies.canvasService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
