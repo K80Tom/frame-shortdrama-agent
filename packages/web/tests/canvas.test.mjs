@@ -5,7 +5,8 @@ import { createServer } from 'vite';
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const {
-  canvasProgress, layoutCanvas, runtimeStates, summarizeDependencies, topologicalColumns, STATE_LABELS,
+  canvasProgress, layoutCanvas, runtimeStates, summarizeDependencies, topologicalColumns,
+  nodeStatusBadge, STATE_LABELS,
 } = await server.ssrLoadModule('/src/canvas/view.ts');
 
 const workspaceId = 'ws_00000000000000000000000000000000';
@@ -115,4 +116,48 @@ test('dependency summary and progress derive strictly from persisted revision fa
   assert.equal(states.get('n_shot_1'), 'unknown');
   assert.deepEqual(canvasProgress(graph, runtime), { total: 5, succeeded: 0, failed: 0, running: 1, waitingHuman: 1 });
   assert.deepEqual(canvasProgress(graph, null), { total: 5, succeeded: 0, failed: 0, running: 0, waitingHuman: 0 });
+});
+
+
+test('layout carries backend queue, progress and artifact facts without inventing them', () => {
+  const live = {
+    ...runtime,
+    nodes: [
+      { nodeId: 'n_gen_1', state: 'running', message: '渲染进行中 62%', sourceAggregateId: 'run_1',
+        sourceRevision: 1, observedAt: 'now', stage: 'video', progressPercent: 62, queuePosition: null,
+        runStatus: 'running', artifact: null },
+      { nodeId: 'n_gate_1', state: 'pending', message: '排队中 · 第 3 位', sourceAggregateId: 'run_1',
+        sourceRevision: 1, observedAt: 'now', stage: null, progressPercent: 0, queuePosition: 3,
+        runStatus: 'queued', artifact: { id: 'art_1', kind: 'video', title: '镜头 1 成片',
+          uri: '/api/production-media/media_1' } },
+    ],
+    run: { id: 'run_1', status: 'running',
+      queue: { pending: 2, ready: 0, running: 1, waitingHuman: 0, failed: 0 },
+      stages: [{ key: 'video', state: 'running', completed: 3, total: 5 }],
+      delivery: null },
+  };
+  const layout = layoutCanvas(graph, live);
+  const generation = layout.nodes.find(item => item.id === 'n_gen_1');
+  assert.equal(generation.stage, 'video');
+  assert.equal(generation.progressPercent, 62);
+  assert.equal(generation.runStatus, 'running');
+  assert.equal(generation.artifact, null);
+  const gate = layout.nodes.find(item => item.id === 'n_gate_1');
+  assert.equal(gate.queuePosition, 3);
+  assert.equal(gate.artifact.uri, '/api/production-media/media_1');
+  // 后端未给出运行覆盖的节点必须保持 null，不能由前端补齐。
+  const note = layout.nodes.find(item => item.id === 'n_note');
+  assert.equal(note.progressPercent, null);
+  assert.equal(note.queuePosition, null);
+  assert.equal(note.artifact, null);
+});
+
+test('node status badge prefers the strongest backend fact', () => {
+  const base = { artifact: null, queuePosition: null, progressPercent: null, stage: null,
+    state: 'unknown', stateLabel: '未运行' };
+  assert.equal(nodeStatusBadge({ ...base, state: 'succeeded', stateLabel: '已完成' }), '已完成');
+  assert.equal(nodeStatusBadge({ ...base, state: 'pending', stateLabel: '待执行', queuePosition: 2 }), '排队第 2 位');
+  assert.equal(nodeStatusBadge({ ...base, state: 'running', stateLabel: '执行中', progressPercent: 45, stage: 'video' }), '渲染 45%');
+  assert.equal(nodeStatusBadge({ ...base, state: 'failed', stateLabel: '失败', artifact: { id: 'a', kind: 'video', title: 't', uri: '/u' } }), '成片可回显');
+  assert.equal(nodeStatusBadge(base), '未运行');
 });

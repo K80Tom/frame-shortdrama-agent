@@ -30,14 +30,24 @@ export interface CanvasStoryboardPort {
   loadAdopted(projectId: string, workspaceId: string): Promise<CanvasSeed | null>;
 }
 
+export interface CanvasProductionRunView {
+  id: string;
+  status: string;
+  updatedAt?: string;
+  shotMatrix?: Array<{ shotId: string; completed: boolean; stages: Record<string, string | null> }>;
+  queue?: { pending: number; ready: number; running: number; waitingHuman: number; failed: number };
+  stages?: Array<{ key: string; state: string; completed: number; total: number }>;
+  artifacts?: Array<{ id: string; kind: string; title: string; uri: string; shotId?: string | null }>;
+  delivery?: { id: string; status: string; title: string; uri: string | null } | null;
+  /** 按镜头计算的 Worker 队列位置（1-based），仅对本轮尚未开始执行的镜头给出。 */
+  queuePositions?: Record<string, number>;
+}
+
 export interface CanvasProductionPort {
   createRun(input: {
     projectId: string; scriptVersionId: string; budgetMicros: number; clientRequestId: string; currency: string;
   }): Promise<{ id: string }>;
-  getRun(runId: string): Promise<{
-    id: string; status: string; updatedAt?: string;
-    shotMatrix?: Array<{ shotId: string; completed: boolean; stages: Record<string, string | null> }>;
-  } | null>;
+  getRun(runId: string): Promise<CanvasProductionRunView | null>;
 }
 
 /**
@@ -66,6 +76,12 @@ const SHOT_BASE_MICROS = 8_000_000;
 const SHOT_SECOND_MICROS = 260_000;
 const CANDIDATE_EXTRA_MICROS = 4_000_000;
 const QUOTE_TTL_MS = 30 * 60 * 1000;
+
+/** 仅用于画布展示的阶段文案；顺序与 productionStageOrder 保持一致。 */
+const STAGE_LABELS: Record<string, string> = {
+  prepare: '准备', breakdown: '拆解', assets: '资产', storyboard: '分镜', director: '导演',
+  video: '渲染', candidates: '候选', review: '复核', compose: '合成', deliver: '交付',
+};
 
 function id(prefix: string): string {
   return `${prefix}_${randomBytes(16).toString('hex')}`;
@@ -394,6 +410,46 @@ export class CanvasService {
    * 确认并创建正式 Run。只有 Quote 仍 pending、digest 未变、未过期且预算覆盖估价时才放行。
    */
   async createRun(documentId: string, revisionIdOrNumber: string, value: unknown, actor: CanvasActor): Promise<CanvasProductionRunRef> {
+    return this.startRun(documentId, revisionIdOrNumber, value, actor, null);
+  }
+
+  /**
+   * 节点驱动：分镜节点一键触发异步生成。
+   * 同一 revision 已有运行时不重复创建，直接复用该运行，避免二次扣费。
+   */
+  async generateNode(
+    documentId: string, revisionIdOrNumber: string, nodeId: string, value: unknown, actor: CanvasActor,
+  ): Promise<CanvasProductionRunRef & { nodeId: string }> {
+    const document = await this.store.getDocument(requireRevision(documentId));
+    if (!document) throw canvasError('canvas_not_found', '画布不存在。');
+    const revision = /^\d+$/u.test(revisionIdOrNumber)
+      ? await this.store.getRevision(document.id, Number(revisionIdOrNumber))
+      : await this.store.getRevisionById(document.id, revisionIdOrNumber);
+    if (!revision) throw canvasError('canvas_revision_not_found', '画布版本不存在。');
+    if (!/^[a-z][a-z0-9_-]{2,127}$/u.test(nodeId)) {
+      throw canvasError('canvas_command_invalid', '节点标识不合法。');
+    }
+    const node = revision.graph.nodes.find(item => item.id === nodeId);
+    if (!node) throw canvasError('canvas_unknown_node_type', '画布节点不存在。');
+    const shotId = node.metadata?.shotId;
+    if (typeof shotId !== 'string' || !shotId.trim()) {
+      throw canvasError('canvas_command_invalid', '只有绑定镜头的节点可以触发异步生成。');
+    }
+    const existing = await this.runs.latestForRevision(document.id, revision.id);
+    if (existing) {
+      return {
+        id: existing.id, documentId: document.id, revisionId: revision.id,
+        semanticGraphDigest: existing.semanticGraphDigest, quoteId: existing.quoteId,
+        createdAt: existing.createdAt, nodeId,
+      };
+    }
+    const created = await this.startRun(document.id, revision.id, value, actor, nodeId);
+    return { ...created, nodeId };
+  }
+
+  private async startRun(
+    documentId: string, revisionIdOrNumber: string, value: unknown, actor: CanvasActor, nodeId: string | null,
+  ): Promise<CanvasProductionRunRef> {
     requireOwner(actor, '只有 owner 或 admin 可以确认付费生产。');
     const document = await this.store.getDocument(requireRevision(documentId));
     if (!document) throw canvasError('canvas_not_found', '画布不存在。');
@@ -449,8 +505,10 @@ export class CanvasService {
     });
     await this.store.recordEvent({
       workspaceId: actor.workspaceId, projectId: document.projectId, documentId: document.id,
-      revisionId: revision.id, type: 'canvas.run.created',
-      payload: { quoteId, runId: run.id, semanticGraphDigest: revision.semanticGraphDigest },
+      revisionId: revision.id, type: nodeId ? 'canvas.node.generation.requested' : 'canvas.run.created',
+      payload: nodeId
+        ? { quoteId, runId: run.id, nodeId, semanticGraphDigest: revision.semanticGraphDigest }
+        : { quoteId, runId: run.id, semanticGraphDigest: revision.semanticGraphDigest },
     });
     return {
       id: stored.id, documentId: document.id, revisionId: revision.id,
@@ -482,21 +540,53 @@ export class CanvasService {
     const run = await this.ports.production.getRun(stored.runId);
     const observedAt = new Date().toISOString();
     if (!run) return { revisionId: revision.id, revision: revision.revision, cursor, nodes, generatedAt: observedAt };
+    const graphNodes = new Map(revision.graph.nodes.map(item => [item.id, item]));
     for (const node of nodes) {
-      const shotId = revision.graph.nodes.find(item => item.id === node.nodeId)?.metadata?.shotId;
+      const graphNode = graphNodes.get(node.nodeId);
+      const shotId = graphNode?.metadata?.shotId;
       if (typeof shotId !== 'string') continue;
       const matrix = run.shotMatrix?.find(item => item.shotId === shotId);
       if (!matrix) continue;
-      node.state = matrix.completed ? 'succeeded'
-        : (Object.values(matrix.stages).some(state => state === 'waitingHuman') ? 'waitingHuman'
-          : Object.values(matrix.stages).some(state => state === 'failed') ? 'failed'
-            : Object.values(matrix.stages).some(state => state === 'running') ? 'running' : 'pending');
-      node.message = matrix.completed ? '镜头已完成' : null;
+      const stages = Object.entries(matrix.stages) as Array<[string, string | null]>;
+      const known = stages.filter(([, state]) => state !== null);
+      const done = known.filter(([, state]) => state === 'succeeded' || state === 'skipped').length;
+      const activeStage = stages.find(([, state]) => state === 'running' || state === 'waitingExternal' || state === 'validating')
+        ?? stages.find(([, state]) => state === 'waitingHuman')
+        ?? stages.find(([, state]) => state === 'failed');
+      if (matrix.completed) node.state = 'succeeded';
+      else if (stages.some(([, state]) => state === 'waitingHuman')) node.state = 'waitingHuman';
+      else if (stages.some(([, state]) => state === 'failed')) node.state = 'failed';
+      else if (stages.some(([, state]) => state === 'reconciling')) node.state = 'reconciling';
+      else if (stages.some(([, state]) => state === 'running' || state === 'waitingExternal' || state === 'validating')) node.state = 'running';
+      else node.state = 'pending';
+      node.stage = activeStage?.[0] ?? null;
+      node.progressPercent = known.length ? Math.round((done / known.length) * 100) : null;
+      node.queuePosition = run.queuePositions?.[shotId] ?? null;
+      node.runStatus = run.status;
+      const shotArtifact = (run.artifacts ?? []).find(item => item.shotId === shotId && item.kind === 'video');
+      node.artifact = shotArtifact
+        ? { id: shotArtifact.id, kind: shotArtifact.kind, title: shotArtifact.title, uri: shotArtifact.uri }
+        : null;
+      const stageLabel = activeStage ? STAGE_LABELS[activeStage[0]] ?? activeStage[0] : null;
+      node.message = matrix.completed ? '镜头已完成'
+        : node.state === 'running' ? `${stageLabel ?? '生产'}进行中${node.progressPercent === null ? '' : ` ${node.progressPercent}%`}`
+          : node.state === 'pending' ? (node.queuePosition ? `排队中 · 第 ${node.queuePosition} 位` : '排队中，等待 Worker 执行')
+            : node.state === 'waitingHuman' ? '等待人工确认'
+              : node.state === 'reconciling' ? '外部请求对账中'
+                : node.state === 'failed' ? '生成失败，可重试' : null;
       node.sourceAggregateId = run.id;
       node.sourceRevision = revision.revision;
       node.observedAt = run.updatedAt ?? observedAt;
     }
-    return { revisionId: revision.id, revision: revision.revision, cursor, nodes, generatedAt: observedAt };
+    return {
+      revisionId: revision.id, revision: revision.revision, cursor, nodes, generatedAt: observedAt,
+      run: {
+        id: run.id, status: run.status,
+        queue: run.queue ?? { pending: 0, ready: 0, running: 0, waitingHuman: 0, failed: 0 },
+        stages: run.stages ?? [],
+        delivery: run.delivery?.uri ? { id: run.delivery.id, title: run.delivery.title, uri: run.delivery.uri } : null,
+      },
+    };
   }
 
   async events(documentId: string, actor: CanvasActor) {

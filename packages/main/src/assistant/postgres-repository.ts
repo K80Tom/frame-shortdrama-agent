@@ -27,6 +27,7 @@ interface QuoteRow {
   estimate_cost_micros: string | number; currency: string; status: AssistantQuoteStatus; submitted_run_id: string | null;
   budget_micros: string | number | null; estimate_low_micros: string | number | null;
   estimate_high_micros: string | number | null; price_revision: string | null;
+  estimated_duration_sec: string | number | null; cost_breakdown_json: unknown;
   assumptions_json: unknown; expires_at: Date | string; created_at: Date | string;
 }
 interface TurnRow {
@@ -56,6 +57,10 @@ const quoteOf = (row: QuoteRow): AssistantQuote => ({
     },
   } : {}),
   ...(row.budget_micros !== null ? { budgetMicros: Number(row.budget_micros) } : {}),
+  ...(row.estimated_duration_sec !== null ? { estimatedDurationSec: Number(row.estimated_duration_sec) } : {}),
+  ...(Array.isArray(row.cost_breakdown_json) && row.cost_breakdown_json.length
+    ? { costBreakdown: row.cost_breakdown_json as Array<{ label: string; amountMicros: number; note?: string }> }
+    : {}),
   ...(row.price_revision ? { priceRevision: row.price_revision } : {}),
   ...(Array.isArray(row.assumptions_json)
     ? { assumptions: row.assumptions_json.filter(item => typeof item === 'string') as string[] } : {}),
@@ -247,14 +252,16 @@ export class PostgresAssistantRepository implements AssistantRepository {
     const result = await this.database.query<QuoteRow>(
       `INSERT INTO assistant_quotes
          (id, session_id, kind, request_json, summary, estimate_cost_micros, currency, status, expires_at,
-          budget_micros, estimate_low_micros, estimate_high_micros, price_revision, assumptions_json)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+          budget_micros, estimate_low_micros, estimate_high_micros, price_revision, assumptions_json,
+          estimated_duration_sec, cost_breakdown_json)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16::jsonb)
        RETURNING *`,
       [quote.id, quote.sessionId, quote.kind, JSON.stringify(quote.request), quote.summary,
         quote.estimateCostMicros, quote.currency, quote.status, quote.expiresAt,
         quote.budgetMicros ?? null, quote.estimateRangeMicros?.lowMicros ?? null,
         quote.estimateRangeMicros?.highMicros ?? null, quote.priceRevision ?? null,
-        JSON.stringify(quote.assumptions ?? [])]);
+        JSON.stringify(quote.assumptions ?? []),
+        quote.estimatedDurationSec ?? null, JSON.stringify(quote.costBreakdown ?? [])]);
     const row = result.rows[0];
     if (!row) throw new AssistantError(500, 'ASSISTANT_PERSISTENCE_ERROR', '估价卡写入失败，请重试。');
     return quoteOf(row);

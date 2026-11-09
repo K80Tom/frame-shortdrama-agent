@@ -32,5 +32,8 @@ export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;
 /** 基础设施异步 Outbox（Worker 任务出件箱，#124/#133 Worker 拓扑）。 */
 export const INFRA_OUTBOX_MIGRATIONS = ["042", "043"] as const;
 
+/** 模型生成执行层（#127/#130）：预算账本、ComfyUI 工作流版本、调用台账。 */
+export const MODEL_GENERATION_MIGRATIONS = ["047"] as const;
+
 /** Unified append-only evaluation results, evidence, and layered metrics (#134). */
-export const EVALUATION_RESULTS_MIGRATIONS = ["047"] as const;
+export const EVALUATION_RESULTS_MIGRATIONS = ["049"] as const;

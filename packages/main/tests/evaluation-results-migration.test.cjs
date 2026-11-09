@@ -4,8 +4,8 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { EVALUATION_RESULTS_MIGRATIONS } = require('../dist/db/readiness');
 
-test('047 建立租户化追加式评估结果表、证据/指标 jsonb 与 append-only 触发器', () => {
-  const sql = readFileSync(join(__dirname, '../migrations/047_evaluator_protocol.sql'), 'utf8');
+test('049 建立租户化追加式评估结果表、证据/指标 jsonb 与 append-only 触发器', () => {
+  const sql = readFileSync(join(__dirname, '../migrations/049_evaluator_protocol.sql'), 'utf8');
   assert.match(sql, /CREATE TABLE evaluation_results/);
   assert.match(sql, /CREATE FUNCTION evaluation_results_append_only/);
   assert.match(sql, /CREATE TRIGGER evaluation_results_append_only_trigger/);
@@ -28,5 +28,5 @@ test('047 建立租户化追加式评估结果表、证据/指标 jsonb 与 appe
   // 不触碰生产域
   assert.doesNotMatch(sql, /REFERENCES production_/);
   assert.doesNotMatch(sql, /CREATE TABLE (production_|novel_|plan_|storyboard_)/);
-  assert.deepEqual([...EVALUATION_RESULTS_MIGRATIONS], ['047']);
+  assert.deepEqual([...EVALUATION_RESULTS_MIGRATIONS], ['049']);
 });
