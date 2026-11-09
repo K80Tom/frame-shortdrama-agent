@@ -23,3 +23,11 @@ shared/main 构建通过，镜头+快照契约回归 18/18（含真实浏览器 
 新增 main 只读验证核心：先校验受信 tenant/project 访问，再解析精确 ShotSpec 版本、摘要和来源链，检查清单闭包、对象版本/checksum、资产包与媒体绑定、控制产物与对象绑定、原文范围、模型能力和 Gate；越权、缺失、篡改与能力不兼容分别报告。客户端即使提供 frozen 标志也必须重新执行全部检查。没有数据库写入或付费调用。
 
 当前回归总计 24/24；其中验证适配器使用明确的服务桩，不能把它们当真实 Repository/ObjectStorage 授权证据。仍需实现实际项目读取/候选编译与这些只读端口的正式适配，然后才能称阶段 A 可执行闭环完成。验证报告不直接修改快照状态，不是可重用的授权凭证；采用/冻结时仍须在事务中重新检查项目 revision 和授权。
+
+## 真实 PostgreSQL 来源读取检查点
+
+新增 PostgresProductionInputSourceReader，直接复用 projects/script_versions/plan_revisions/storyboard_revisions，单条 MVCC SQL 读取同一视图的当前采用输入，JOIN 同时限制 workspace/project/script/plan 血缘。缺失或不匹配的来源返回 null，不能编造已就绪版本。inputSetDigest 仅是输入集合指纹，不冒充数据库单调 project revision 或 CAS 计数器。
+
+历史原文校验按精确 scriptVersionId 查询，不跟随当前项目指针，复核原文字节摘要及 Unicode 码点引用。真实本地 PostgreSQL 17.6 + 非特权 NOBYPASSRLS 应用角色测试通过：跨租户不可读、错误项目不可读、emoji 范围精确、项目切换后历史引用仍有效、原文摘要错误被阻断。test:rls 2/2（含既有隔离回归），相关契约测试 24/24；已接入既有 test:rls 入口。没有真实模型调用。
+
+这还不是完整编译器：仍需版本化 ShotSpec 读取/采用、episode 与 project revision 正式模型、对象/资产包/方法包/模型能力等正式验证适配，以及候选 Snapshot 构造；不能把来源 reader 或 inputSetDigest 当作完整 Run 冻结已完成。

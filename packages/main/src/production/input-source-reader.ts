@@ -1,0 +1,58 @@
+import { createHash } from 'node:crypto';
+import { canonicalDigest, ProductionError } from '@lyra/shared';
+import type { ShotSourceRef } from '@lyra/shared/dist/shot-spec';
+import type { PostgresDatabase } from '../db/client';
+import { parseTenantContext } from '../tenancy/context';
+
+const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+function unavailable(): never { throw new ProductionError(503, 'PRODUCTION_INPUT_SOURCE_UNAVAILABLE', '生产输入来源暂不可用。'); }
+/** Actual PostgreSQL reader, not a new fact store. One SQL statement captures one MVCC project view. */
+export class PostgresProductionInputSourceReader {
+  constructor(private readonly database: PostgresDatabase) {}
+  async readCurrentProjectInputs(tenantValue: unknown, projectId: string) {
+    const tenant = parseTenantContext(tenantValue);
+    return this.database.runWithTenant(tenant, async () => {
+      try {
+        const row = (await this.database.query(`SELECT p.id, p.current_script_version_id, p.active_plan_revision_id,
+          p.active_storyboard_revision_id, s.id AS script_id, s.raw_text, s.content_sha256,
+          f.id AS plan_id, f.content_json AS plan_content, b.id AS storyboard_id, b.content_json AS storyboard_content
+          FROM projects p
+          LEFT JOIN script_versions s ON s.id=p.current_script_version_id AND s.project_id=p.id AND s.workspace_id=p.workspace_id
+          LEFT JOIN plan_revisions f ON f.id=p.active_plan_revision_id AND f.project_id=p.id
+            AND f.script_version_id=s.id AND f.workspace_id=p.workspace_id
+          LEFT JOIN storyboard_revisions b ON b.id=p.active_storyboard_revision_id AND b.project_id=p.id
+            AND b.script_version_id=s.id AND b.source_plan_revision_id=f.id AND b.workspace_id=p.workspace_id
+          WHERE p.id=$1 AND p.workspace_id=$2`, [projectId, tenant.workspaceId])).rows[0];
+        if (!row) return null;
+        if (row.script_id && (typeof row.raw_text !== 'string' || sha(row.raw_text) !== row.content_sha256)) {
+          throw new ProductionError(409, 'DIGEST_MISMATCH', '剧本原文摘要不一致。');
+        }
+        const versions = { scriptVersionId: row.current_script_version_id as string | null,
+          planRevisionId: row.active_plan_revision_id as string | null, storyboardRevisionId: row.active_storyboard_revision_id as string | null };
+        const script = row.script_id ? { id: row.script_id as string, rawText: row.raw_text as string, digest: row.content_sha256 as string } : null;
+        const plan = row.plan_id ? { id: row.plan_id as string, content: row.plan_content as unknown, digest: canonicalDigest(row.plan_content) } : null;
+        const storyboard = row.storyboard_id ? { id: row.storyboard_id as string, content: row.storyboard_content as unknown, digest: canonicalDigest(row.storyboard_content) } : null;
+        // This is an input-set fingerprint, NOT a fabricated monotonic project revision/CAS counter.
+        const inputSetDigest = canonicalDigest({ projectId: row.id, ...versions, script: script?.digest ?? null,
+          plan: plan?.digest ?? null, storyboard: storyboard?.digest ?? null });
+        return { projectId: row.id as string, workspaceId: tenant.workspaceId, versions, script, plan, storyboard, inputSetDigest };
+      } catch (error) { if (error instanceof ProductionError) throw error; return unavailable(); }
+    });
+  }
+  /** Historical exact script, not current project state. Unicode offsets are code points. */
+  async checkSource(tenantValue: unknown, projectId: string, ref: ShotSourceRef) {
+    const tenant = parseTenantContext(tenantValue);
+    return this.database.runWithTenant(tenant, async () => {
+      try {
+        const row = (await this.database.query(`SELECT raw_text,content_sha256 FROM script_versions
+          WHERE id=$1 AND project_id=$2 AND workspace_id=$3`, [ref.scriptVersionId, projectId, tenant.workspaceId])).rows[0];
+        if (!row) return 'REFERENCE_NOT_FOUND' as const;
+        if (typeof row.raw_text !== 'string' || sha(row.raw_text) !== row.content_sha256) return 'DIGEST_MISMATCH' as const;
+        const points = Array.from(row.raw_text);
+        if (!Number.isSafeInteger(ref.start) || !Number.isSafeInteger(ref.end) || ref.start < 0 || ref.end <= ref.start
+          || ref.end > points.length || points.slice(ref.start, ref.end).join('') !== ref.quote) return 'DIGEST_MISMATCH' as const;
+        return null;
+      } catch { return 'REFERENCE_NOT_FOUND' as const; }
+    });
+  }
+}
