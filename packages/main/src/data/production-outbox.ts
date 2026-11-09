@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { canonicalDigest, type DataEventPayload, type DataEventV1, type OutboxEvent, type StoredProductionRun } from '@lyra/shared';
-import { createDataEvent } from './event';
+import { canonicalDigest, type DataEventPayload, type OutboxEvent, type StoredProductionRun } from '@lyra/shared';
+import { createDataEvent, type CreateDataEventInput } from './event';
+import { createDataEventV2, type TenantDataEvent } from './tenant-event';
 
 function projectPayload(payload: Record<string, unknown>, sequence: number): DataEventPayload {
   const result: Record<string, string | number | boolean | null | Array<string | number | boolean | null>> = {};
@@ -24,8 +25,8 @@ function projectPayload(payload: Record<string, unknown>, sequence: number): Dat
 }
 
 /** 生产状态事实 -> DataEventV1；eventId 由旧 outbox 主键确定性派生。 */
-export function productionOutboxDataEvent(run: StoredProductionRun, event: OutboxEvent): DataEventV1 {
-  return createDataEvent({
+export function productionOutboxDataEvent(run: StoredProductionRun, event: OutboxEvent): TenantDataEvent {
+  const input: CreateDataEventInput = {
     eventId: productionOutboxEventId(event.id),
     eventType: event.type,
     aggregateType: 'production_run',
@@ -42,7 +43,8 @@ export function productionOutboxDataEvent(run: StoredProductionRun, event: Outbo
       digest: canonicalDigest(event),
     },
     payload: projectPayload(event.payload, event.sequence),
-  });
+  };
+  return run.inputSnapshot ? createDataEventV2({...input,workspaceId:run.inputSnapshot.workspaceId}) : createDataEvent(input);
 }
 
 export function productionOutboxEventId(eventId: string): string {

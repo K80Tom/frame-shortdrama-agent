@@ -1,4 +1,4 @@
-type Route = { page: string; resourceId?: string };
+type Route = { page: string; resourceId?: string; projectId?: string; projectSection?: string };
 type Location<RouteType extends Route> = { route: RouteType; hash: string };
 
 /** Check before the app changes its route; restoring a hash after setRoute would already unmount the editor. */
@@ -17,7 +17,10 @@ export function applyHashNavigation<RouteType extends Route>(current: Location<R
     || (current.route.page === 'assets' && options.hasUnsavedAssets)
     || (current.route.page === 'settings' && current.route.resourceId === 'models' && options.hasUnsavedModelConnections)
     || (current.route.page === 'automation' && options.hasUnsavedAutomation);
-  const changingEditor = current.route.page !== next.route.page || current.route.resourceId !== next.route.resourceId;
+  const changingEditor = current.route.page !== next.route.page
+    || current.route.resourceId !== next.route.resourceId
+    || current.route.projectId !== next.route.projectId
+    || current.route.projectSection !== next.route.projectSection;
   if (changingEditor && leavingDirtyEditor && !options.confirmLeave()) {
     options.restoreHash(current.hash);
     return current;

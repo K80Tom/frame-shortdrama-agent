@@ -9,7 +9,8 @@ import { ProductionMediaError, type LocalVideoObject } from '../production-media
 import type { ProductionMediaIngestor } from '../production-media/ingestor';
 import type { VideoAutomationService } from '../video-automation/service';
 import { VideoAutomationError } from '../video-automation/contracts';
-import { canonicalDigest, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
+import { canonicalDigest, type FrozenProductionInput, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
+import { requireFrozenExecutionInput } from './frozen-execution-input';
 import type {
   PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor, ProductionExecutorOutcome, SpawnTaskDraft,
 } from './executor';
@@ -54,10 +55,15 @@ function paidModelFailure(error: unknown, fallbackCode: string, fallbackMessage:
 
 export class BreakdownProductionExecutor implements ProductionExecutor {
   readonly stage = 'breakdown' as const;
+  readonly frozenInputVersion = 1 as const;
   constructor(private readonly breakdown: BreakdownServicePort, private readonly runner: Pick<ExtractFactsStageRunner, 'run'>,
     private readonly options: RuntimeOptions) { validEstimate(options.estimateCostMicros); }
 
-  async prepare({ run }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
+  async prepare({ run, frozenInput }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; frozenInput?: FrozenProductionInput }) {
+    if (run.inputSnapshot) {
+      const input=requireFrozenExecutionInput(run,frozenInput);
+      return prepared('breakdown-frozen',{snapshotDigest:input.snapshot.snapshotDigest,plan:input.snapshot.plan},0,false,'local');
+    }
     const project = await this.breakdown.getProject(run.projectId);
     const active = project.activePlanRevisionId ? await this.breakdown.getPlanRevision(project.activePlanRevisionId) : null;
     const alreadyAdopted = Boolean(active && active.scriptVersionId === run.scriptVersionId);
@@ -68,6 +74,7 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
   }
 
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+    if (context.run.inputSnapshot) return this.frozenOutcome(context);
     const { run } = context; const project = await this.breakdown.getProject(run.projectId);
     if (project.activePlanRevisionId) {
       const active = await this.breakdown.getPlanRevision(project.activePlanRevisionId);
@@ -88,6 +95,7 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
   }
 
   async reconcile(context: ProductionExecutionContext, operation: { providerTaskId: string | null }): Promise<ProductionExecutorOutcome> {
+    if (context.run.inputSnapshot) return this.frozenOutcome(context);
     if (!operation.providerTaskId) return { state: 'blocked', issue: { code: 'BREAKDOWN_RUN_ID_MISSING',
       title: '拆解任务无法对账', message: '没有保存拆解 Run ID，不会重新调用模型。', severity: 'error' } };
     try {
@@ -112,7 +120,8 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       this.options.estimateCostMicros, context.operationKey); }
   }
 
-  async review({ run, task, input }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; input: Readonly<ProductionReviewInput> }) {
+  async review({ run, task, input, frozenInput }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; input: Readonly<ProductionReviewInput>; frozenInput?: FrozenProductionInput }) {
+    if (run.inputSnapshot) { requireFrozenExecutionInput(run,frozenInput); return; }
     if (input.decision !== 'approve') return;
     const artifact = metadataArtifact(run as StoredProductionRun, task as ProductionTask, 'breakdown-plan');
     const planRevisionId = artifact?.metadata.planRevisionId; const checkId = artifact?.metadata.checkId;
@@ -125,6 +134,12 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       expectedActivePlanRevisionId: expected as string | null });
   }
 
+  private frozenOutcome(context: ProductionExecutionContext): ProductionExecutorOutcome {
+    const input=requireFrozenExecutionInput(context.run,context.frozenInput),snapshot=input.snapshot;
+    return {state:'succeeded',actualCostMicros:0,artifacts:[{key:'breakdown-plan',kind:'text',title:'冻结的剧本拆解版本',
+      metadata:{planRevisionId:snapshot.plan.versionId,scriptVersionId:snapshot.script.versionId,
+        snapshotId:snapshot.id,snapshotDigest:snapshot.snapshotDigest,adopted:true,frozen:true}}]};
+  }
   private adopted(plan: PlanRevisionRecord, check?: PlanCheckRecord, actualCostMicros = 0): ProductionExecutorOutcome {
     return { state: 'succeeded', artifacts: [{ key: 'breakdown-plan', kind: 'text', title: '已采用的剧本拆解',
       metadata: { planRevisionId: plan.id, scriptVersionId: plan.scriptVersionId, adopted: true,
@@ -172,10 +187,15 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
 
 export class StoryboardProductionExecutor implements ProductionExecutor {
   readonly stage = 'storyboard' as const;
+  readonly frozenInputVersion = 1 as const;
   constructor(private readonly breakdown: BreakdownServicePort, private readonly storyboards: Pick<StoryboardService, 'generate' | 'get' | 'adopt'>,
     private readonly options: RuntimeOptions) { validEstimate(options.estimateCostMicros); }
 
-  async prepare({ run }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }) {
+  async prepare({ run, frozenInput }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; frozenInput?: FrozenProductionInput }) {
+    if (run.inputSnapshot) {
+      const input=requireFrozenExecutionInput(run,frozenInput);
+      return prepared('storyboard-frozen',{snapshotDigest:input.snapshot.snapshotDigest,shots:input.snapshot.shots},0,false,'local');
+    }
     const project = await this.breakdown.getProject(run.projectId);
     if (!project.activePlanRevisionId || project.currentScriptVersionId !== run.scriptVersionId) throw new Error('Current adopted plan is required.');
     let alreadyAdopted = false;
@@ -188,6 +208,15 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
       this.options.estimateCostMicros, !alreadyAdopted, 'configured-general-model');
   }
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+    if (context.run.inputSnapshot) {
+      const input=requireFrozenExecutionInput(context.run,context.frozenInput),snapshot=input.snapshot;
+      return {state:'succeeded',actualCostMicros:0,artifacts:[{key:'storyboard',kind:'text',title:'冻结的镜头输入',metadata:{
+        storyboardRevisionId:snapshot.storyboard.versionId,scriptVersionId:snapshot.script.versionId,sourcePlanRevisionId:snapshot.plan.versionId,
+        snapshotId:snapshot.id,snapshotDigest:snapshot.snapshotDigest,adopted:true,frozen:true,shotCount:input.shots.length,
+        shots:input.shots.map(s=>({id:s.shotId,sceneId:s.sceneId,order:s.order,revisionId:s.revisionId,contentDigest:s.contentDigest,
+          durationMs:s.durationMs,shotSize:s.shotSize,cameraMovement:s.camera.movement}))}}],
+        spawnTasks:this.shotTasks(context.run,input.shots.map(s=>({id:s.shotId,sceneId:s.sceneId,order:s.order})))};
+    }
     const { run } = context;
     try {
       const project = await this.breakdown.getProject(run.projectId);
@@ -211,7 +240,8 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
     } catch (error) { return paidModelFailure(error, 'STORYBOARD_EXECUTION_FAILED', '分镜生成失败，不会自动重试。',
       this.options.estimateCostMicros, context.operationKey); }
   }
-  async review({ run, task, input }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; input: Readonly<ProductionReviewInput> }) {
+  async review({ run, task, input, frozenInput }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>; input: Readonly<ProductionReviewInput>; frozenInput?: FrozenProductionInput }) {
+    if (run.inputSnapshot) { requireFrozenExecutionInput(run,frozenInput); return; }
     if (input.decision !== 'approve') return;
     const artifact = metadataArtifact(run as StoredProductionRun, task as ProductionTask, 'storyboard');
     const revisionId = artifact?.metadata.storyboardRevisionId; const expected = artifact?.metadata.expectedActiveStoryboardRevisionId;
@@ -222,7 +252,7 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
     await this.storyboards.adopt(run.projectId, revisionId, expected as string | null);
   }
   private adopted(run: StoredProductionRun, board: StoryboardRevision, actualCostMicros = 0): ProductionExecutorOutcome {
-    return { state: 'succeeded', artifacts: [this.artifact(board, true)], spawnTasks: this.shotTasks(run, board),
+    return { state: 'succeeded', artifacts: [this.artifact(board, true)], spawnTasks: this.shotTasks(run, board.shots),
       qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/2',
         summary: '镜号、引用、对白覆盖和顺序检查已通过' }], actualCostMicros };
   }
@@ -232,7 +262,7 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
       metadata: { ...this.artifact(board, false).metadata, expectedActiveStoryboardRevisionId: expected } }],
     actualCostMicros,
     qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/2',
-      summary: '镜号、引用、对白覆盖和顺序检查已通过' }], spawnTasks: this.shotTasks(run, board),
+      summary: '镜号、引用、对白覆盖和顺序检查已通过' }], spawnTasks: this.shotTasks(run, board.shots),
     issue: { code: 'CHECKPOINT_REVIEW_REQUIRED', title: '请确认分镜方案',
       message: `${board.shots.length} 个镜头已形成候选，采用后才会推进各镜头生产。`, severity: 'info' } };
   }
@@ -243,10 +273,10 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
         order: shot.order, durationMs: shot.design.durationMs, shotSize: shot.design.shotSize,
         cameraMovement: shot.design.cameraMovement, visualDescription: shot.design.visualDescription })) } };
   }
-  private shotTasks(run: StoredProductionRun, board: StoryboardRevision): SpawnTaskDraft[] {
+  private shotTasks(run: Readonly<StoredProductionRun>, shots: ReadonlyArray<{id:string;sceneId:string;order:number}>): SpawnTaskDraft[] {
     // 直出版：每镜只生成 1 条视频，不建候选组，也不产生抽卡任务；复核直接依赖这条视频。
     const direct = run.candidatePolicy === 'direct';
-    return board.shots.flatMap((shot, index) => {
+    return shots.flatMap((shot, index) => {
       const prefix = `shot-${index + 1}-${shot.id}`;
       const label = `场 ${shot.sceneId} · 镜 ${shot.order}`;
       const assetKey = `${prefix}-assets`;

@@ -9,6 +9,7 @@ x-main-environment: &main-environment
   DATABASE_HOST_ALLOWLIST: postgres
   # Stage 1 is never allowed to fall back to the anonymous Legacy API surface.
   LYRA_AUTH_MODE: session
+  LYRA_REGISTRATION_MODE: ${LYRA_REGISTRATION_MODE:-disabled}
   LYRA_PUBLIC_ORIGIN: ${LYRA_PUBLIC_ORIGIN:?LYRA_PUBLIC_ORIGIN 必须是浏览器访问的完整 Origin}
   LYRA_SESSION_TTL_SECONDS: ${LYRA_SESSION_TTL_SECONDS:-604800}
   LYRA_COOKIE_DOMAIN: ${LYRA_COOKIE_DOMAIN:-}
@@ -238,6 +239,11 @@ services:
   web:
     image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-web:${LYRA_TAG:-latest}
     restart: unless-stopped
+    environment:
+      # Public presentation assets only. The entrypoint validates HTTPS URLs
+      # before generating runtime-config.js; changing them needs no image rebuild.
+      LYRA_BACKDROP_VIDEO_URL: ${LYRA_BACKDROP_VIDEO_URL:-}
+      LYRA_BACKDROP_POSTER_URL: ${LYRA_BACKDROP_POSTER_URL:-}
     ports:
       - "${LYRA_PORT:-8788}:80"
     depends_on:

@@ -47,3 +47,15 @@ npm --prefix packages/web test
 后端全量 583 项：579 通过、3 项平台相关跳过、1 项失败；唯一失败为 dev 既有 production-media 字体断言。
 该问题由独立 PR #111 修复但尚未合并，本分支未改动 composer 或媒体测试，不将本地全量宣称为通过。
 没有真实供应商验证；所有付费路径测试均使用本地桩，预算和 unknown 保护集成测试通过。
+
+## 2026-11-09 最新 dev 同步与 V2 回归
+
+基于 dev b264844（#144 冻结输入与 #146 画布/Assistant 已合并）同步本 PR。service.ts 的 import/option 冲突已同时保留安全诊断、verifyFrozenExecutionInput、frozenInputLoader 与 authorizeFrozenPaidExecution；没有通过删掉新冻结或付费前授权逻辑来消除冲突。
+
+新增 production-frozen-diagnostics.test.cjs 的 8 个 V2 组合：非付费/付费 × 正常、同步抛错、异步拒绝、永不返回的 sink。以明确离线 fixture 编译冻结 Run，核验 exact frozen input、授权回调、拒绝输出、ID-only 日志、预算与未知外部操作；付费失败保留预留、unknown 操作及人工核对，重试被拒绝，后续 tick 不再次提交。授权回调和执行器均为测试 oracle，不是正式 IAM/云模型证明。
+
+- 全包 build 成功；编排+冻结+新增诊断定向 78/78。
+- 本地后端 735 项：731 pass / 1 项既有 Windows drawtext 字体失败（#111）/ 3 平台 skipped，未修改或放宽原断言；Web 135/135。
+- 全新 PG17.6 专用库 lyra_diagnostics_dev_039_test 从 001 连续迁移到 039（不包含未合并的 #147/040 或 #132/042）；test:db 27/27 管理员连接，不能当 RLS 证据。
+- test:rls 5/5：3 项应用角色真实集成、2 项管理员临时 schema 迁移（后者不是 RLS 实验），保留新 dev 的输入/来源/保留测试。新增诊断的 V2 状态/预算场景仍是 MemoryProductionRepository 离线测试，不冒称真实 PG 的付费失败/生产 E2E。
+- 没有真实付费/云调用、浏览器视觉检查或生产日志基础设施验收；不是全仓错误/持久化 UI 文案的脱敏改造，也不是 #133 数据中台整体交付。当前 head CI 须单独通过并由非作者审核，不自动合并。
