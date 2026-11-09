@@ -27,6 +27,7 @@ export interface EndpointPolicy {
 export interface GuardedEndpoint {
   url: URL;
   hostname: string;
+  port: number;
   addresses: string[];
 }
 
@@ -86,7 +87,7 @@ export async function assertMcpEndpoint(raw: string, policy: EndpointPolicy): Pr
   if (forbidden.length > 0) {
     throw new AgentContractError(400, 'MCP_ADDRESS_FORBIDDEN', 'MCP 地址解析到本机或内网地址，已拒绝。');
   }
-  return { url, hostname, addresses };
+  return { url, hostname, port, addresses };
 }
 
 /** 解析重定向目标：每次跳转都重新过白名单与私网检查，不继承原凭据。 */
@@ -163,8 +164,28 @@ export interface McpHttpResponse {
   body: string;
 }
 
+/**
+ * 已经完成 DNS/私网/端口/Host 校验的连接目标。
+ *
+ * transport 必须直接连接 `address`（固定 Peer IP），不能再次把 `hostname`
+ * 交给系统解析；TLS 仍使用 `servername`/`url` 的原始 Host 做证书与 SNI 校验。
+ */
+export interface McpConnectionTarget {
+  url: string;
+  protocol: 'http:' | 'https:';
+  hostname: string;
+  port: number;
+  /** 已校验的固定 Peer IP（IPv6 不带方括号）。 */
+  address: string;
+  /** 当 DNS 返回多个地址时的完整已校验列表，transport 可按序尝试但不得重新解析域名。 */
+  addresses: string[];
+  /** TLS SNI / 证书校验使用的原始 Host，不得替换成 IP。 */
+  servername: string;
+  maxResponseBytes: number;
+}
+
 export type McpFetch = (
-  url: string,
+  target: McpConnectionTarget,
   init: { method: 'GET' | 'POST'; headers: Record<string, string>; body?: string },
 ) => Promise<McpHttpResponse>;
 
@@ -176,6 +197,22 @@ export interface SafeFetchOptions {
   method?: 'GET' | 'POST';
 }
 
+/** 把已校验端点固化成 transport 可直接连接的 Peer IP，避免二次 DNS 解析。 */
+export function mcpTargetOf(endpoint: GuardedEndpoint, maxResponseBytes: number): McpConnectionTarget {
+  const address = endpoint.addresses[0];
+  if (!address) throw new AgentContractError(400, 'MCP_DNS_FAILED', 'MCP 地址没有可连接的已校验地址。');
+  return {
+    url: endpoint.url.toString(),
+    protocol: endpoint.url.protocol as 'http:' | 'https:',
+    hostname: endpoint.hostname,
+    port: endpoint.port,
+    address,
+    addresses: [...endpoint.addresses],
+    servername: endpoint.hostname,
+    maxResponseBytes,
+  };
+}
+
 export async function safeMcpFetch(fetchPort: McpFetch, rawUrl: string, options: SafeFetchOptions): Promise<McpHttpResponse> {
   let endpoint = await assertMcpEndpoint(rawUrl, options.policy);
   let method = options.method ?? 'POST';
@@ -183,7 +220,10 @@ export async function safeMcpFetch(fetchPort: McpFetch, rawUrl: string, options:
   let body = options.body;
   const maxRedirects = options.policy.maxRedirects ?? 3;
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
-    const response = await fetchPort(endpoint.url.toString(), { method, headers, ...(body === undefined ? {} : { body }) });
+    // 每一跳都只把已校验的固定 Peer IP 交给 transport；重定向也重新解析、重新固定。
+    const response = await fetchPort(mcpTargetOf(endpoint, options.maxResponseBytes), {
+      method, headers, ...(body === undefined ? {} : { body }),
+    });
     if (response.body.length > options.maxResponseBytes) {
       throw new AgentContractError(413, 'MCP_RESPONSE_TOO_LARGE', 'MCP 响应超过允许的大小。');
     }

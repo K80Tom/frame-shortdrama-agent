@@ -27,7 +27,7 @@ export interface ToolPermissionRequest {
   mode: ToolAccessMode;
   budgetRemainingMicros?: number;
   /** 用户已经明确批准这一次 Invocation（恢复场景）。 */
-  approvedInvocation?: boolean;
+  verifiedPersistedApproval?: boolean;
 }
 
 export function toolAccessTier(effect: ToolSideEffect): 'read_only' | 'confirmation_required' | 'forbidden' {
@@ -80,12 +80,12 @@ export function decideToolPermission(request: ToolPermissionRequest): ToolPermis
     }
     if (request.workflow.approvedPaidMicros < definition.cost.estimateMicros) {
       // 尚未批准时进入人工确认；已经声称“已批准”但金额不足则直接拒绝，防止绕过估价。
-      if (request.approvedInvocation) {
+      if (request.verifiedPersistedApproval) {
         return { ...base, decision: 'deny', reasonCode: 'AGENT_TOOL_PAID_APPROVAL_MISMATCH', rule: 'paid:approval_mismatch' };
       }
       return { ...base, decision: 'require_confirmation', reasonCode: 'AGENT_TOOL_CONFIRMATION_REQUIRED', rule: 'paid:confirm' };
     }
-    if (request.approvedInvocation) {
+    if (request.verifiedPersistedApproval) {
       return { ...base, decision: 'allow', reasonCode: 'AGENT_TOOL_APPROVED', rule: 'approval:invocation' };
     }
     return { ...base, decision: 'require_confirmation', reasonCode: 'AGENT_TOOL_CONFIRMATION_REQUIRED', rule: 'paid:confirm' };
@@ -102,7 +102,7 @@ export function decideToolPermission(request: ToolPermissionRequest): ToolPermis
   if (tier === 'read_only') {
     return { ...base, decision: 'allow', reasonCode: 'AGENT_TOOL_READ_ONLY', rule: null };
   }
-  if (request.approvedInvocation) {
+  if (request.verifiedPersistedApproval) {
     return { ...base, decision: 'allow', reasonCode: 'AGENT_TOOL_APPROVED', rule: 'approval:invocation' };
   }
   return { ...base, decision: 'require_confirmation', reasonCode: 'AGENT_TOOL_CONFIRMATION_REQUIRED', rule: `side_effect:${definition.sideEffect}` };

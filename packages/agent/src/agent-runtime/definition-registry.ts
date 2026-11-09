@@ -1,5 +1,5 @@
 import {
-  AgentContractError, assertAgentDefinition, digestOf,
+  AgentContractError, assertAgentDefinition, digestOf, isPromptPackVersionId,
   type AgentDefinition, type AgentLimits, type AgentStatus, type AgentToolBinding, type FrozenAgentSnapshot,
   type JsonObject, type ToolPermissionLevel, type ToolSensitivity, type ToolVersionRef,
 } from '@lyra/shared';
@@ -115,6 +115,11 @@ export class AgentDefinitionRegistry {
     if (definition.methodProfileRevisionId !== input.method.profileRevisionId
       || (definition.methodProfileDigest ?? null) !== input.method.profileDigest) {
       throw new AgentContractError(409, 'AGENT_SNAPSHOT_METHOD_MISMATCH', '方法包 Profile 与 Agent 冻结值不一致。');
+    }
+    if (new Set(input.method.packVersionIds).size !== input.method.packVersionIds.length
+      || input.method.packVersionIds.some(packVersionId => !isPromptPackVersionId(packVersionId))) {
+      throw new AgentContractError(409, 'AGENT_SNAPSHOT_METHOD_MISMATCH',
+        '方法包版本引用必须唯一且形如 prompt-pack:<packId>@<digest>，与 run_json.methodPacks 同源。');
     }
     if (definition.codeDigest !== input.code.buildDigest) {
       throw new AgentContractError(409, 'AGENT_SNAPSHOT_CODE_MISMATCH', '代码构建摘要与 Agent 冻结值不一致。');

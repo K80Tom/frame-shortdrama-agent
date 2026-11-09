@@ -56,9 +56,9 @@ test('SSRF 防护拒绝本机、私网、非白名单与 URL 密钥', async () =
 
 test('重定向逐跳校验并剥离跨 Host 鉴权头', async () => {
   const calls = [];
-  const fetchPort = async (url, init) => {
-    calls.push({ url, headers: { ...init.headers } });
-    if (url.includes('api.example.com')) {
+  const fetchPort = async (target, init) => {
+    calls.push({ target, headers: { ...init.headers } });
+    if (target.hostname === 'api.example.com') {
       return { status: 302, headers: { location: 'https://api2.example.com/mcp' }, body: '' };
     }
     return { status: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' };
@@ -68,8 +68,28 @@ test('重定向逐跳校验并剥离跨 Host 鉴权头', async () => {
   });
   assert.equal(response.status, 200);
   assert.equal(calls.length, 2);
+  assert.equal(calls[0].target.address, '93.184.216.34');
+  assert.equal(calls[0].target.hostname, 'api.example.com');
   assert.equal(calls[1].headers.Authorization, undefined);
   assert.equal(calls[1].headers['X-Trace'], '1');
+
+  // DNS rebinding：校验时解析到公网，若 transport 二次解析会拿到私网；这里断言只解析一次且固定公网 Peer IP。
+  let resolveCalls = 0;
+  let fixedTarget;
+  const rebindingPolicy = {
+    ...policy,
+    resolveHost: async () => {
+      resolveCalls += 1;
+      return resolveCalls === 1 ? ['93.184.216.34'] : ['10.0.0.5'];
+    },
+  };
+  await safeMcpFetch(async (target) => {
+    fixedTarget = target;
+    return { status: 200, headers: {}, body: '{}' };
+  }, 'https://api.example.com/mcp', { policy: rebindingPolicy, maxResponseBytes: 1024, headers: {}, body: '{}' });
+  assert.equal(resolveCalls, 1);
+  assert.equal(fixedTarget.address, '93.184.216.34');
+  assert.equal(fixedTarget.servername, 'api.example.com');
 
   await assert.rejects(() => safeMcpFetch(async () => ({ status: 302, headers: { location: 'http://169.254.169.254/' }, body: '' }),
     'https://api.example.com/mcp', { policy, maxResponseBytes: 1024, headers: {}, body: '{}' }),
@@ -82,7 +102,7 @@ test('重定向逐跳校验并剥离跨 Host 鉴权头', async () => {
 
 test('MCP 握手 + 工具列表探测', async () => {
   const requests = [];
-  const fetchPort = async (url, init) => {
+  const fetchPort = async (_target, init) => {
     const payload = JSON.parse(init.body);
     requests.push(payload);
     if (payload.method === 'initialize') {

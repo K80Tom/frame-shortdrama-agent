@@ -3,6 +3,7 @@ import {
   type ToolInvocationRecord,
 } from '@lyra/shared';
 import type { BudgetLedger, BudgetReservation, ToolAttemptRecord, ToolInvocationStore } from '@lyra/agent';
+import type { PoolClient } from 'pg';
 import { randomBytes } from 'node:crypto';
 import type { PostgresDatabase } from '../db/client';
 
@@ -139,6 +140,29 @@ export class PostgresBudgetLedger implements BudgetLedger {
   }): Promise<BudgetReservation> {
     const amount = Math.max(0, Math.trunc(input.amountMicros));
     return this.database.transaction(async client => {
+      // 同一 Invocation 的预留必须串行化；唯一约束只是最后一道防线。
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+        input.workspaceId, input.invocationId,
+      ]);
+      const existing = await client.query<ReservationRow>(`
+        SELECT * FROM agent_budget_reservations
+        WHERE workspace_id = $1 AND invocation_id = $2 FOR UPDATE
+      `, [input.workspaceId, input.invocationId]);
+      const previous = existing.rows[0];
+      if (previous) {
+        if (previous.state !== 'reserved') {
+          throw new AgentContractError(409, 'AGENT_BUDGET_RESERVATION_TERMINAL', '该 Invocation 的预算预留已结算或已释放，不能重复预留。');
+        }
+        const account = await client.query<AccountRow>(`
+          SELECT available_micros FROM agent_budget_accounts
+          WHERE workspace_id = $1 AND currency = $2
+        `, [input.workspaceId, previous.currency]);
+        return {
+          reservationId: previous.reservation_id,
+          amountMicros: Number(previous.amount_micros),
+          remainingMicros: Number(account.rows[0]?.available_micros ?? 0),
+        };
+      }
       const account = await client.query<AccountRow>(`
         SELECT available_micros, reserved_micros FROM agent_budget_accounts
         WHERE workspace_id = $1 AND currency = $2 FOR UPDATE
@@ -213,20 +237,39 @@ export class PostgresBudgetLedger implements BudgetLedger {
         SELECT * FROM agent_budget_reservations WHERE reservation_id = $1 FOR UPDATE
       `, [input.reservationId]);
       const row = reservation.rows[0];
-      if (!row) throw new AgentContractError(404, 'AGENT_BUDGET_RESERVATION_NOT_FOUND', '预算预留不存在。');
-      if (row.state !== 'reserved') throw new AgentContractError(409, 'AGENT_BUDGET_RESERVATION_SETTLED', '预算预留已结算或已释放。');
-      const amount = Number(row.amount_micros);
-      await client.query(`
-        UPDATE agent_budget_accounts SET
-          available_micros = available_micros + $3, reserved_micros = reserved_micros - $3,
-          version = version + 1, updated_at = clock_timestamp()
-        WHERE workspace_id = $1 AND currency = $2
-      `, [row.workspace_id, row.currency, amount]);
-      await client.query(`
-        UPDATE agent_budget_reservations SET state = 'released', updated_at = clock_timestamp()
-        WHERE reservation_id = $1
-      `, [input.reservationId]);
+      // 终态幂等：重复 release 不能重复退款，也不能让清理路径报错后掩盖原始失败。
+      if (!row || row.state !== 'reserved') return;
+      await this.releaseRow(client, row);
     });
+  }
+
+  async releaseForInvocation(input: { workspaceId: string; invocationId: string; reason: string }): Promise<void> {
+    await this.database.transaction(async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+        input.workspaceId, input.invocationId,
+      ]);
+      const reservation = await client.query<ReservationRow>(`
+        SELECT * FROM agent_budget_reservations
+        WHERE workspace_id = $1 AND invocation_id = $2 FOR UPDATE
+      `, [input.workspaceId, input.invocationId]);
+      const row = reservation.rows[0];
+      if (!row || row.state !== 'reserved') return;
+      await this.releaseRow(client, row);
+    });
+  }
+
+  private async releaseRow(client: PoolClient, row: ReservationRow): Promise<void> {
+    const amount = Number(row.amount_micros);
+    await client.query(`
+      UPDATE agent_budget_accounts SET
+        available_micros = available_micros + $3, reserved_micros = reserved_micros - $3,
+        version = version + 1, updated_at = clock_timestamp()
+      WHERE workspace_id = $1 AND currency = $2
+    `, [row.workspace_id, row.currency, amount]);
+    await client.query(`
+      UPDATE agent_budget_reservations SET state = 'released', updated_at = clock_timestamp()
+      WHERE reservation_id = $1
+    `, [row.reservation_id]);
   }
 }
 

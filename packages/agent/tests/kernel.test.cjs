@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { defineTool, digestOf } = require('@lyra/shared');
 const {
   ToolRegistry, ToolKernel, InMemoryToolInvocationStore, InMemoryBudgetLedger,
+  InMemoryToolApprovalStore,
   ToolAdapterError, WAITING_CONFIRMATION, validateToolArguments, decideToolPermission,
   runAgentToolLoop,
 } = require('../dist/index.js');
@@ -123,7 +124,10 @@ test('付费工具必须挂 Workflow、先估价再人工确认，不能由模�
   registry.register(definition, { execute: async () => ({ summary: '付费完成', costMicros: 4200 }) });
   const store = new InMemoryToolInvocationStore();
   const ledger = new InMemoryBudgetLedger({ ws_demo: 100000 });
-  const kernel = new ToolKernel(registry, store, ledger, { now: () => new Date('2026-01-01T00:00:00Z') });
+  const approvals = new InMemoryToolApprovalStore();
+  const kernel = new ToolKernel(registry, store, ledger, {
+    now: () => new Date('2026-01-01T00:00:00Z'), approvals,
+  });
   const paidContext = context({ grantedPermissions: ['workspace_write'] });
   const prepared = await kernel.prepare({
     workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
@@ -134,18 +138,153 @@ test('付费工具必须挂 Workflow、先估价再人工确认，不能由模�
   assert.equal(prepared.kind, 'awaiting_confirmation');
   assert.equal(prepared.confirmationState, WAITING_CONFIRMATION);
   assert.equal(prepared.approval.estimateMicros, 5000);
-  assert.equal(store.listByRunSync?.().length ?? 1, 1);
+  assert.equal(prepared.invocation.approvalRequestId, prepared.approval.approvalId);
+  assert.equal((await approvals.getApproval(prepared.approval.approvalId)).state, 'pending');
 
-  const approved = await kernel.prepare({
+  // 仅凭布尔标记不能恢复；Kernel 会回读 Invocation 绑定的持久化 pending 审批。
+  const booleanOnly = await kernel.prepare({
     workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
     proposal: proposal(definition), context: paidContext, role: 'member', grantedPermissions: ['workspace_write'],
     workflow: { workflowId: 'wf_paid', stage: 'render', approvedPaidMicros: 5000 },
     budgetRemainingMicros: 100000, approvedInvocation: true,
   });
+  assert.equal(booleanOnly.kind, 'awaiting_confirmation');
+  assert.equal(booleanOnly.approval.approvalId, prepared.approval.approvalId);
+
+  const applied = await approvals.updateApproval(prepared.approval.approvalId, {
+    ...prepared.approval, state: 'approved', decidedBy: 'usr_owner', decidedAt: '2026-01-01T00:00:01.000Z',
+  });
+  assert.equal(applied, true);
+  const approved = await kernel.prepare({
+    workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
+    proposal: proposal(definition), context: paidContext, role: 'member', grantedPermissions: ['workspace_write'],
+    workflow: { workflowId: 'wf_paid', stage: 'render', approvedPaidMicros: 5000 },
+    budgetRemainingMicros: 100000, approvalId: prepared.approval.approvalId,
+  });
   assert.equal(approved.kind, 'ready');
   const outcome = await kernel.execute(approved.invocation, paidContext, { validateOutput: true });
   assert.equal(outcome.result.status, 'succeeded');
   assert.equal(ledger.balanceOf('ws_demo'), 100000 - 4200);
+  const reservation = ledger.reservationFor('ws_demo', approved.invocation.invocationId);
+  assert.equal(reservation.state, 'settled');
+});
+
+test('审批必须回读持久化事实：提案 digest 或有效期漂移都拒绝执行', async () => {
+  const definition = makeTool({
+    toolId: 'demo.pay.approval', sideEffect: 'paid_external', executionOwner: 'workflow_only',
+    requiredPermission: 'workspace_write', allowedWorkflowIds: ['wf_paid'],
+    cost: { estimatorRevision: 'quote-v1', budgetDimension: 'money', estimateMicros: 5000, currency: 'CNY' },
+  });
+  const registry = new ToolRegistry();
+  registry.register(definition, { execute: async () => ({ summary: '不应执行' }) });
+  const approvals = new InMemoryToolApprovalStore();
+  const kernel = new ToolKernel(registry, new InMemoryToolInvocationStore(), new InMemoryBudgetLedger({ ws_demo: 100000 }),
+    { now: () => new Date('2026-01-01T00:00:00Z'), approvals });
+  const paidContext = context({ grantedPermissions: ['workspace_write'] });
+  const base = {
+    workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
+    proposal: proposal(definition), context: paidContext, role: 'member', grantedPermissions: ['workspace_write'],
+    workflow: { workflowId: 'wf_paid', stage: 'render', approvedPaidMicros: 5000 },
+    budgetRemainingMicros: 100000,
+  };
+  const waiting = await kernel.prepare(base);
+  assert.equal(waiting.kind, 'awaiting_confirmation');
+
+  await approvals.updateApproval(waiting.approval.approvalId, {
+    ...waiting.approval, proposalDigest: '0'.repeat(64),
+  });
+  await assert.rejects(() => kernel.prepare({ ...base, approvalId: waiting.approval.approvalId }),
+    error => error.code === 'AGENT_APPROVAL_PROPOSAL_CHANGED');
+
+  await approvals.updateApproval(waiting.approval.approvalId, {
+    ...waiting.approval, expiresAt: '2026-01-01T00:00:00.000Z',
+  });
+  await assert.rejects(() => kernel.prepare({ ...base, approvalId: waiting.approval.approvalId }),
+    error => error.code === 'AGENT_APPROVAL_EXPIRED');
+  assert.equal((await approvals.getApproval(waiting.approval.approvalId)).state, 'expired');
+});
+
+test('同一付费 Invocation 并发 execute 只预留一次预算，取消会释放预留', async () => {
+  const definition = makeTool({
+    toolId: 'demo.pay.concurrent', sideEffect: 'paid_external', executionOwner: 'workflow_only',
+    requiredPermission: 'workspace_write', allowedWorkflowIds: ['wf_paid'],
+    cost: { estimatorRevision: 'quote-v1', budgetDimension: 'money', estimateMicros: 5000, currency: 'CNY' },
+  });
+  let executions = 0;
+  const registry = new ToolRegistry();
+  registry.register(definition, { execute: async () => { executions += 1; return { summary: '付费完成', costMicros: 4200 }; } });
+  const store = new InMemoryToolInvocationStore();
+  const ledger = new InMemoryBudgetLedger({ ws_demo: 100000 });
+  const approvals = new InMemoryToolApprovalStore();
+  const kernel = new ToolKernel(registry, store, ledger, {
+    now: () => new Date('2026-01-01T00:00:00Z'), approvals,
+  });
+  const paidContext = context({ grantedPermissions: ['workspace_write'] });
+  const base = {
+    workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
+    proposal: proposal(definition), context: paidContext, role: 'member', grantedPermissions: ['workspace_write'],
+    workflow: { workflowId: 'wf_paid', stage: 'render', approvedPaidMicros: 5000 },
+    budgetRemainingMicros: 100000,
+  };
+  const waiting = await kernel.prepare(base);
+  await approvals.updateApproval(waiting.approval.approvalId, {
+    ...waiting.approval, state: 'approved', decidedBy: 'usr_owner', decidedAt: '2026-01-01T00:00:01.000Z',
+  });
+  const ready = await kernel.prepare({ ...base, approvalId: waiting.approval.approvalId });
+  assert.equal(ready.kind, 'ready');
+
+  const concurrent = await Promise.allSettled([
+    kernel.execute(ready.invocation, paidContext),
+    kernel.execute(ready.invocation, paidContext),
+  ]);
+  assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 1);
+  const rejected = concurrent.find(result => result.status === 'rejected');
+  assert.equal(rejected.reason.code, 'AGENT_TOOL_INVOCATION_STALE');
+  assert.equal(executions, 1);
+  assert.equal(ledger.balanceOf('ws_demo'), 100000 - 4200);
+  assert.equal(ledger.reservationFor('ws_demo', ready.invocation.invocationId).state, 'settled');
+
+  // 取消运行中的 Invocation 必须在 CAS 成功后释放唯一预留，不能永久占用。
+  const cancelDefinition = makeTool({
+    toolId: 'demo.pay.cancel', sideEffect: 'paid_external', executionOwner: 'workflow_only',
+    requiredPermission: 'workspace_write', allowedWorkflowIds: ['wf_paid'],
+    cost: { estimatorRevision: 'quote-v1', budgetDimension: 'money', estimateMicros: 5000, currency: 'CNY' },
+  });
+  let startedResolve;
+  let finishResolve;
+  const started = new Promise(resolvePromise => { startedResolve = resolvePromise; });
+  const finish = new Promise(resolvePromise => { finishResolve = resolvePromise; });
+  const cancelRegistry = new ToolRegistry();
+  cancelRegistry.register(cancelDefinition, {
+    execute: async () => { startedResolve(); await finish; return { summary: '完成', costMicros: 4200 }; },
+  });
+  const cancelStore = new InMemoryToolInvocationStore();
+  const cancelLedger = new InMemoryBudgetLedger({ ws_demo: 100000 });
+  const cancelApprovals = new InMemoryToolApprovalStore();
+  const cancelKernel = new ToolKernel(cancelRegistry, cancelStore, cancelLedger, {
+    now: () => new Date('2026-01-01T00:00:00Z'), approvals: cancelApprovals,
+  });
+  const cancelContext = context({
+    grantedPermissions: ['workspace_write'], toolCallId: 'call_cancel', requestId: 'req_cancel',
+  });
+  const cancelBase = {
+    ...base, context: cancelContext, proposal: proposal(cancelDefinition, { proposalId: 'prop_cancel' }),
+  };
+  const cancelWaiting = await cancelKernel.prepare(cancelBase);
+  assert.equal(cancelWaiting.kind, 'awaiting_confirmation');
+  await cancelApprovals.updateApproval(cancelWaiting.approval.approvalId, {
+    ...cancelWaiting.approval, state: 'approved', decidedBy: 'usr_owner', decidedAt: '2026-01-01T00:00:01.000Z',
+  });
+  const cancelReady = await cancelKernel.prepare({ ...cancelBase, approvalId: cancelWaiting.approval.approvalId });
+  const running = cancelKernel.execute(cancelReady.invocation, cancelContext);
+  await started;
+  const live = await cancelStore.get(cancelReady.invocation.invocationId);
+  assert.equal(live.state, 'running');
+  await cancelKernel.cancel(live, '测试取消');
+  finishResolve();
+  await assert.rejects(() => running, error => error.code === 'AGENT_TOOL_INVOCATION_STALE');
+  assert.equal(cancelLedger.balanceOf('ws_demo'), 100000);
+  assert.equal(cancelLedger.reservationFor('ws_demo', cancelReady.invocation.invocationId).state, 'released');
 });
 
 test('可重试失败按策略重试，外部结果未知进入 reconciling 而非失败', async () => {
@@ -219,7 +358,9 @@ test('多轮 tool_calls 循环逐轮重新校验，遇到需确认调用立即 W
   const paidRegistry = new ToolRegistry();
   let executed = 0;
   paidRegistry.register(paid, { execute: async () => { executed += 1; return { summary: '不应执行' }; } });
-  const paidKernel = new ToolKernel(paidRegistry, new InMemoryToolInvocationStore(), new InMemoryBudgetLedger({ ws_demo: 100000 }));
+  const paidKernel = new ToolKernel(paidRegistry, new InMemoryToolInvocationStore(),
+    new InMemoryBudgetLedger({ ws_demo: 100000 }),
+    { approvals: new InMemoryToolApprovalStore() });
   const suspended = await runAgentToolLoop(paidKernel, {
     ...base, context: context({ grantedPermissions: ['workspace_write'] }),
     grantedPermissions: ['workspace_write'],

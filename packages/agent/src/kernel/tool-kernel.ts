@@ -54,6 +54,15 @@ export interface BudgetLedger {
   }): Promise<BudgetReservation>;
   settle(input: { reservationId: string; actualMicros: number }): Promise<void>;
   release(input: { reservationId: string; reason: string }): Promise<void>;
+  /** 按 Invocation 释放：取消/终态清理用，必须幂等且不能重复退款。 */
+  releaseForInvocation(input: { workspaceId: string; invocationId: string; reason: string }): Promise<void>;
+}
+
+/** 审批事实端口；生产环境由 main 注入 PostgresAgentRuntimeStore。 */
+export interface ToolApprovalStore {
+  createApproval(request: AgentApprovalRequest): Promise<void>;
+  getApproval(approvalId: string): Promise<AgentApprovalRequest | null>;
+  updateApproval(approvalId: string, next: AgentApprovalRequest): Promise<boolean>;
 }
 
 export type ToolPreparation =
@@ -91,8 +100,11 @@ export interface ToolPrepareInput {
   workflow: { workflowId: string; stage: string; approvedPaidMicros: number } | null;
   mode?: ToolAccessMode;
   budgetRemainingMicros?: number;
-  /** 人类已经批准该 Invocation 的恢复路径。 */
-  approvedInvocation?: boolean;
+  /**
+   * 恢复执行时指向持久化审批事实的 ID。Kernel 会从 ToolApprovalStore 读取并校验
+   * 状态、有效期、Run/Invocation、proposal digest、估价与币种；绝不接受布尔标记。
+   */
+  approvalId?: string;
   approvalTtlMs?: number;
   now?: Date;
 }
@@ -119,7 +131,9 @@ export class ToolKernel {
     private readonly registry: ToolRegistry,
     private readonly store: ToolInvocationStore,
     private readonly budget: BudgetLedger,
-    private readonly options: { now?: () => Date; maxObservationChars?: number } = {},
+    private readonly options: {
+      now?: () => Date; maxObservationChars?: number; approvals?: ToolApprovalStore;
+    } = {},
   ) {}
 
   private now(): Date { return this.options.now?.() ?? new Date(); }
@@ -154,13 +168,6 @@ export class ToolKernel {
       maxNodes: Math.min(definition.limits.maxItems, 4096),
     });
     const mode = parseToolAccessMode(input.mode);
-    const verdict = decideToolPermission({
-      definition, role: input.role, grantedPermissions: input.grantedPermissions,
-      workflow: input.workflow, mode,
-      ...(input.budgetRemainingMicros === undefined ? {} : { budgetRemainingMicros: input.budgetRemainingMicros }),
-      ...(input.approvedInvocation ? { approvedInvocation: true } : {}),
-    });
-
     const idempotencyKey = idempotencyKeyOf(definition, input.proposal, input.context);
     const existing = await this.store.findByIdempotencyKey(input.workspaceId, idempotencyKey);
     if (existing?.result && existing.state === 'succeeded') {
@@ -169,19 +176,25 @@ export class ToolKernel {
     if (existing && ['queued', 'running', 'waiting_external', 'reconciling'].includes(existing.state)) {
       return { kind: 'reused', invocation: existing, result: pendingResult(existing) };
     }
-    if (existing && existing.state === 'awaiting_approval') {
-      if (!input.approvedInvocation) {
-        return {
-          kind: 'awaiting_confirmation',
-          confirmationState: 'WAITING_CONFIRMATION',
-          invocation: existing,
-          approval: approvalFor(existing, definition, input, this.now()),
-        };
+    if (existing?.state === 'approved') {
+      const approvalId = input.approvalId ?? existing.approvalRequestId;
+      if (!approvalId || !existing.approvalRequestId) {
+        throw new AgentContractError(503, 'AGENT_APPROVAL_STORE_UNAVAILABLE', '已批准 Invocation 缺少持久化审批 ID，不能恢复执行。');
       }
-      const approved = await this.commit(existing, { state: 'approved' });
-      return { kind: 'ready', invocation: approved };
+      if (existing.approvalRequestId !== approvalId) {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_ID_MISMATCH', '审批 ID 与 Invocation 绑定的审批不一致。');
+      }
+      const persisted = await this.requireApproval(approvalId);
+      this.assertApprovalMatches(existing, persisted, definition);
+      if (this.now().getTime() >= new Date(persisted.expiresAt).getTime()) {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_EXPIRED', '审批已过期，不能恢复执行。');
+      }
+      if (persisted.state !== 'approved') {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_ALREADY_DECIDED', '审批已被撤销或拒绝，不能恢复执行。');
+      }
+      return { kind: 'ready', invocation: existing };
     }
-    if (existing && existing.state === 'rejected') {
+    if (existing?.state === 'rejected') {
       return {
         kind: 'denied',
         reasonCode: 'AGENT_TOOL_REJECTED',
@@ -200,10 +213,79 @@ export class ToolKernel {
       };
     }
 
+    let verifiedPersistedApproval = false;
+    let persistedApproval: AgentApprovalRequest | undefined;
+    if (existing?.state === 'awaiting_approval') {
+      const approvalId = input.approvalId ?? existing.approvalRequestId;
+      if (!approvalId) {
+        throw new AgentContractError(503, 'AGENT_APPROVAL_STORE_UNAVAILABLE', '待审批 Invocation 缺少持久化审批 ID，不能恢复执行。');
+      }
+      if (existing.approvalRequestId && existing.approvalRequestId !== approvalId) {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_ID_MISMATCH', '审批 ID 与 Invocation 绑定的审批不一致。');
+      }
+      persistedApproval = await this.requireApproval(approvalId);
+      this.assertApprovalMatches(existing, persistedApproval, definition);
+      if (this.now().getTime() >= new Date(persistedApproval.expiresAt).getTime()) {
+        if (persistedApproval.state === 'pending') {
+          const applied = await this.options.approvals!.updateApproval(
+            persistedApproval.approvalId, { ...persistedApproval, state: 'expired' },
+          );
+          if (!applied) throw new AgentContractError(409, 'AGENT_APPROVAL_STALE', '审批已被并发修改，不能按过期处理。');
+        }
+        throw new AgentContractError(409, 'AGENT_APPROVAL_EXPIRED', '审批已过期，请重新发起。');
+      }
+      if (persistedApproval.state === 'pending') {
+        return {
+          kind: 'awaiting_confirmation',
+          confirmationState: 'WAITING_CONFIRMATION',
+          invocation: existing,
+          approval: persistedApproval,
+        };
+      }
+      if (persistedApproval.state === 'rejected') {
+        const rejected = await this.commit(existing, { state: 'rejected' });
+        void rejected;
+        return {
+          kind: 'denied',
+          reasonCode: 'AGENT_TOOL_REJECTED',
+          summary: '人工已拒绝该工具调用，不能执行。',
+          definition,
+        };
+      }
+      if (persistedApproval.state !== 'approved') {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_EXPIRED', '审批已过期，请重新发起。');
+      }
+      verifiedPersistedApproval = true;
+    } else if (input.approvalId) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_NOT_APPLICABLE', '当前 Invocation 不在待审批状态，不能绑定审批 ID。');
+    }
+
+    const verdict = decideToolPermission({
+      definition, role: input.role, grantedPermissions: input.grantedPermissions,
+      workflow: input.workflow, mode,
+      ...(input.budgetRemainingMicros === undefined ? {} : { budgetRemainingMicros: input.budgetRemainingMicros }),
+      ...(verifiedPersistedApproval ? { verifiedPersistedApproval: true } : {}),
+    });
+
+    if (existing?.state === 'awaiting_approval') {
+      if (verdict.decision !== 'allow') {
+        const rejected = await this.commit(existing, { state: 'rejected' });
+        void rejected;
+        return {
+          kind: 'denied',
+          reasonCode: verdict.reasonCode,
+          summary: denialSummary(verdict.reasonCode),
+          definition,
+        };
+      }
+      return { kind: 'ready', invocation: await this.commit(existing, { state: 'approved' }) };
+    }
+
     const timestamp = this.now().toISOString();
     const invocationId = `inv_${randomUUID().replace(/-/g, '')}`;
     const state: ToolInvocationState = verdict.decision === 'deny'
-      ? 'rejected' : verdict.decision === 'require_confirmation' && !input.approvedInvocation ? 'awaiting_approval' : 'queued';
+      ? 'rejected'
+      : verdict.decision === 'require_confirmation' ? 'awaiting_approval' : 'queued';
     const invocation: ToolInvocationRecord = {
       invocationId,
       workspaceId: input.workspaceId,
@@ -229,15 +311,53 @@ export class ToolKernel {
       };
     }
 
-    if (state === 'awaiting_approval') {
+    if (verdict.decision === 'require_confirmation') {
+      const approvals = this.options.approvals;
+      if (!approvals) {
+        throw new AgentContractError(503, 'AGENT_APPROVAL_STORE_UNAVAILABLE', '当前 Kernel 未注入持久化审批端口，不能发起人工确认。');
+      }
       const approval = approvalFor(invocation, definition, input, this.now());
       invocation.approvalRequestId = approval.approvalId;
+      await approvals.createApproval(approval);
       await this.store.create(invocation);
       return { kind: 'awaiting_confirmation', confirmationState: 'WAITING_CONFIRMATION', invocation, approval };
     }
 
     await this.store.create(invocation);
     return { kind: 'ready', invocation };
+  }
+
+  private async requireApproval(approvalId: string): Promise<AgentApprovalRequest> {
+    const approvals = this.options.approvals;
+    if (!approvals) throw new AgentContractError(503, 'AGENT_APPROVAL_STORE_UNAVAILABLE', '当前 Kernel 未注入持久化审批端口。');
+    const approval = await approvals.getApproval(approvalId);
+    if (!approval) throw new AgentContractError(404, 'AGENT_APPROVAL_NOT_FOUND', `审批不存在：${approvalId}。`);
+    return approval;
+  }
+
+  /** 审批必须与当前 Invocation、Run、冻结提案和费用完全绑定，任何漂移都拒绝。 */
+  private assertApprovalMatches(
+    invocation: ToolInvocationRecord, approval: AgentApprovalRequest, definition: ToolDefinition,
+  ): void {
+    if (approval.runId !== invocation.agentRunId) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_RUN_MISMATCH', '审批不属于当前 AgentRun。');
+    }
+    if (approval.invocationId !== invocation.invocationId) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_INVOCATION_MISMATCH', '审批不属于当前 Invocation。');
+    }
+    const digest = digestOf({ tool: invocation.tool, arguments: invocation.proposal.arguments });
+    if (approval.proposalDigest !== digest) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_PROPOSAL_CHANGED', '提案参数已变化，原审批失效。');
+    }
+    const estimate = definition.cost?.estimateMicros ?? 0;
+    const currency = definition.cost?.currency ?? 'CNY';
+    if (approval.estimateMicros !== estimate || approval.currency !== currency) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_COST_CHANGED', '估价或币种已变化，原审批失效。');
+    }
+    const expectedKind = isPaidSideEffect(definition.sideEffect) ? 'paid_action' : 'tool_confirmation';
+    if (approval.kind !== expectedKind) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_KIND_MISMATCH', '审批类型与工具副作用不一致。');
+    }
   }
 
   /** 执行一次（含重试）。调用方必须已经通过 prepare 并持久化 Invocation。 */
@@ -251,22 +371,43 @@ export class ToolKernel {
     }
     const definition = this.registry.resolve(invocation.tool);
     const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolvePromise => setTimeout(resolvePromise, ms)));
+
+    // execute 只接受尚未被任何 Worker 抢占的 queued/approved。running 必须由
+    // Runtime 的租约恢复流程重新排队，绝不能把 running 当作可重复执行状态。
+    const loaded = await this.store.get(invocation.invocationId);
+    if (!loaded) throw new AgentContractError(404, 'AGENT_TOOL_INVOCATION_NOT_FOUND', '工具 Invocation 不存在。');
+    if (loaded.workspaceId !== context.workspaceId) {
+      throw new AgentContractError(403, 'AGENT_TOOL_WORKSPACE_MISMATCH', '工具 Invocation 与当前 Workspace 不一致。');
+    }
+    if (loaded.version !== invocation.version) {
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_STALE', 'Invocation 已被其他执行器推进，拒绝覆盖。');
+    }
+    if (loaded.state !== 'queued' && loaded.state !== 'approved') {
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_NOT_EXECUTABLE', `Invocation 当前状态 ${loaded.state} 不能执行。`);
+    }
+    // 执行前再次回读审批事实，避免 prepare 之后审批被撤销/过期仍继续付费动作。
+    if (loaded.approvalRequestId) {
+      const approval = await this.requireApproval(loaded.approvalRequestId);
+      this.assertApprovalMatches(loaded, approval, definition);
+      if (approval.state !== 'approved') {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_ALREADY_DECIDED', `审批当前状态 ${approval.state}，不能执行。`);
+      }
+      if (this.now().getTime() >= new Date(approval.expiresAt).getTime()) {
+        throw new AgentContractError(409, 'AGENT_APPROVAL_EXPIRED', '审批已过期，不能执行。');
+      }
+    }
+
+    // 先原子赢得 Invocation CAS，再预留预算；CAS 失败的 Worker 不碰账本。
+    let current = await this.cas(loaded, 'running');
     let reservation: BudgetReservation | null = null;
-
-    if (invocation.state !== 'queued' && invocation.state !== 'approved' && invocation.state !== 'running') {
-      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_NOT_EXECUTABLE', `Invocation 当前状态 ${invocation.state} 不能执行。`);
-    }
-
-    if (requiresBudgetReservation(definition)) {
-      if (!definition.cost) throw new AgentContractError(409, 'AGENT_TOOL_COST_POLICY_REQUIRED', '付费工具缺少估价策略。');
-      reservation = await this.budget.reserve({
-        workspaceId: context.workspaceId, agentRunId: invocation.agentRunId, invocationId: invocation.invocationId,
-        amountMicros: definition.cost.estimateMicros, currency: definition.cost.currency,
-      });
-    }
+    let reservationOpen = false;
+    const releaseOpen = async (reason: string): Promise<void> => {
+      if (!reservation || !reservationOpen) return;
+      await this.budget.release({ reservationId: reservation.reservationId, reason });
+      reservationOpen = false;
+    };
 
     const startedAt = this.now().toISOString();
-    let current = await this.cas(invocation, 'running');
     const attemptNumber = current.attemptCount + 1;
     let activeAttemptId = `att_${randomUUID().replace(/-/g, '')}`;
     await this.store.appendAttempt({
@@ -274,24 +415,47 @@ export class ToolKernel {
     });
     current = await this.commit(current, { attemptCount: attemptNumber });
 
+    if (requiresBudgetReservation(definition)) {
+      if (!definition.cost) {
+        await releaseOpen('AGENT_TOOL_COST_POLICY_REQUIRED');
+        throw new AgentContractError(409, 'AGENT_TOOL_COST_POLICY_REQUIRED', '付费工具缺少估价策略。');
+      }
+      try {
+        reservation = await this.budget.reserve({
+          workspaceId: context.workspaceId, agentRunId: current.agentRunId, invocationId: current.invocationId,
+          amountMicros: definition.cost.estimateMicros, currency: definition.cost.currency,
+        });
+        reservationOpen = true;
+      } catch (failure) {
+        const info = classifyFailure(failure);
+        const endedAt = this.now().toISOString();
+        const result = failureResult(
+          definition, current, activeAttemptId, 'failed', info.code, info.summary, startedAt, endedAt,
+        );
+        const next = await this.commit(current, { state: 'failed', result });
+        await this.store.completeAttempt(activeAttemptId, {
+          state: 'failed', endedAt, reasonCode: info.code, summary: info.summary,
+        });
+        return { invocation: next, result };
+      }
+    }
+
     let lastCode = 'AGENT_TOOL_FAILED';
     let lastSummary = '工具执行失败。';
-    for (let attempt = attemptNumber; attempt <= definition.retry.maxAttempts; attempt += 1) {
+    try {
+      for (let attempt = attemptNumber; attempt <= definition.retry.maxAttempts; attempt += 1) {
+      let raw: unknown;
       try {
-        const adapter = this.registry.adapterFor(invocation.tool);
-        const raw = await withTimeout(adapter.execute(current.proposal.arguments, context), definition.retry.timeoutMs);
+        const adapter = this.registry.adapterFor(current.tool);
+        raw = await withTimeout(adapter.execute(current.proposal.arguments, context), definition.retry.timeoutMs);
         if (options.validateOutput) validateToolOutput(definition.outputSchema, raw);
-        const result = successResult(definition, current, activeAttemptId, raw, startedAt, this.now(), this.options.maxObservationChars);
-        if (reservation) await this.budget.settle({ reservationId: reservation.reservationId, actualMicros: result.cost.settledMicros });
-        const next = await this.commit(current, { state: 'succeeded', result });
-        await this.store.completeAttempt(activeAttemptId, { state: 'succeeded', endedAt: result.endedAt, reasonCode: result.reasonCode, summary: result.summary });
-        return { invocation: next, result };
       } catch (failure) {
         const info = classifyFailure(failure);
         lastCode = info.code;
         lastSummary = info.summary;
         const endedAt = this.now().toISOString();
         if (info.unknown) {
+          await releaseOpen(info.code);
           const result = failureResult(definition, current, activeAttemptId, 'inconclusive', info.code, info.summary, startedAt, endedAt);
           const next = await this.commit(current, { state: 'reconciling', result });
           await this.store.completeAttempt(activeAttemptId, { state: 'inconclusive', endedAt, reasonCode: info.code, summary: info.summary });
@@ -309,23 +473,61 @@ export class ToolKernel {
           current = await this.commit(current, { attemptCount: attempt + 1, state: 'running' });
           continue;
         }
-        if (reservation) await this.budget.release({ reservationId: reservation.reservationId, reason: info.code });
+        await releaseOpen(info.code);
         const result = failureResult(definition, current, activeAttemptId, 'failed', info.code, info.summary, startedAt, endedAt);
         const next = await this.commit(current, { state: 'failed', result });
         await this.store.completeAttempt(activeAttemptId, { state: 'failed', endedAt, reasonCode: info.code, summary: info.summary });
         return { invocation: next, result };
       }
+
+      const result = successResult(definition, current, activeAttemptId, raw, startedAt, this.now(), this.options.maxObservationChars);
+      let next: ToolInvocationRecord;
+      try {
+        // 先提交成功状态，再结算；提交 CAS 失败时 reservation 仍然 open，可安全释放。
+        next = await this.commit(current, { state: 'succeeded', result });
+      } catch (failure) {
+        await releaseOpen('AGENT_TOOL_INVOCATION_STALE');
+        throw failure;
+      }
+      if (reservation) {
+        try {
+          await this.budget.settle({ reservationId: reservation.reservationId, actualMicros: result.cost.settledMicros });
+          reservationOpen = false;
+        } catch (failure) {
+          await releaseOpen('AGENT_TOOL_BUDGET_SETTLE_FAILED');
+          throw failure;
+        }
+      }
+      await this.store.completeAttempt(activeAttemptId, {
+        state: 'succeeded', endedAt: result.endedAt, reasonCode: result.reasonCode, summary: result.summary,
+      });
+      return { invocation: next, result };
     }
+
     const endedAt = this.now().toISOString();
-    if (reservation) await this.budget.release({ reservationId: reservation.reservationId, reason: lastCode });
+    await releaseOpen(lastCode);
     const result = failureResult(definition, current, activeAttemptId, 'failed', lastCode, lastSummary, startedAt, endedAt);
     const next = await this.commit(current, { state: 'failed', result });
+    await this.store.completeAttempt(activeAttemptId, { state: 'failed', endedAt, reasonCode: lastCode, summary: lastSummary });
     return { invocation: next, result };
+    } catch (failure) {
+      // 预留成功之后的任何抛出（重试记账、CAS、结算、adapter 异常）都必须释放，
+      // 不能因为异常离开 execute 就让预算永久停在 reserved。
+      await releaseOpen('AGENT_TOOL_EXECUTION_ABORTED').catch(() => undefined);
+      throw failure;
+    }
   }
 
   async cancel(invocation: ToolInvocationRecord, reason: string): Promise<ToolInvocationRecord> {
-    if (invocation.state === 'succeeded' || invocation.state === 'failed') {
+    if (invocation.state === 'succeeded' || invocation.state === 'failed' || invocation.state === 'inconclusive') {
       throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_TERMINAL', '已结束的 Invocation 不能取消。');
+    }
+    if (invocation.state === 'cancelled') {
+      // 取消状态已落库但释放可能失败；重复 cancel 幂等补释放，不能留下永久 reserved。
+      await this.budget.releaseForInvocation({
+        workspaceId: invocation.workspaceId, invocationId: invocation.invocationId, reason: 'AGENT_TOOL_CANCELLED',
+      });
+      return invocation;
     }
     const timestamp = this.now().toISOString();
     const next: ToolInvocationRecord = {
@@ -346,7 +548,12 @@ export class ToolKernel {
         reconciliation: 'not_required', sensitivity: 'internal',
       },
     };
-    await this.store.update(invocation.version, next);
+    const applied = await this.store.update(invocation.version, next);
+    if (!applied) throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_STALE', 'Invocation 已被其他执行器推进，取消失败。');
+    // CAS 成功后再释放，避免“取消失败但预算被退”的双花。
+    await this.budget.releaseForInvocation({
+      workspaceId: invocation.workspaceId, invocationId: invocation.invocationId, reason: 'AGENT_TOOL_CANCELLED',
+    });
     return next;
   }
 
@@ -417,27 +624,57 @@ export class InMemoryToolInvocationStore implements ToolInvocationStore {
 /** 单 Workspace 预算账本的最小内存实现，用于离线测试与本地编排。 */
 export class InMemoryBudgetLedger implements BudgetLedger {
   private readonly balances = new Map<string, number>();
-  private readonly reservations = new Map<string, { workspaceId: string; amountMicros: number; settled: boolean }>();
+  private readonly reservations = new Map<string, {
+    reservationId: string;
+    workspaceId: string;
+    invocationId: string;
+    amountMicros: number;
+    state: 'reserved' | 'settled' | 'released';
+  }>();
 
   constructor(initial: Record<string, number> = {}) {
     for (const [workspaceId, micros] of Object.entries(initial)) this.balances.set(workspaceId, micros);
   }
 
   async reserve(input: { workspaceId: string; agentRunId: string; invocationId: string; amountMicros: number; currency: string }): Promise<BudgetReservation> {
+    const existing = this.reservationFor(input.workspaceId, input.invocationId);
+    if (existing) {
+      if (existing.state !== 'reserved') {
+        throw new AgentContractError(409, 'AGENT_BUDGET_RESERVATION_TERMINAL', '该 Invocation 的预算预留已结算或已释放，不能重复预留。');
+      }
+      return {
+        reservationId: existing.reservationId,
+        amountMicros: existing.amountMicros,
+        remainingMicros: this.balances.get(input.workspaceId) ?? 0,
+      };
+    }
     const balance = this.balances.get(input.workspaceId);
     if (balance === undefined) throw new AgentContractError(503, 'AGENT_BUDGET_UNAVAILABLE', '当前 Workspace 未配置预算账本。');
     if (input.amountMicros > balance) throw new AgentContractError(409, 'AGENT_BUDGET_INSUFFICIENT', '预算余额不足，不能提交付费工具。');
     const remaining = balance - input.amountMicros;
     this.balances.set(input.workspaceId, remaining);
-    const reservationId = `res_${digestOf(input).slice(0, 24)}`;
-    this.reservations.set(reservationId, { workspaceId: input.workspaceId, amountMicros: input.amountMicros, settled: false });
+    const reservationId = `res_${digestOf({
+      workspaceId: input.workspaceId,
+      invocationId: input.invocationId,
+      amountMicros: input.amountMicros,
+      currency: input.currency,
+    }).slice(0, 24)}`;
+    this.reservations.set(reservationId, {
+      reservationId, workspaceId: input.workspaceId, invocationId: input.invocationId,
+      amountMicros: input.amountMicros, state: 'reserved',
+    });
     return { reservationId, amountMicros: input.amountMicros, remainingMicros: remaining };
   }
 
   async settle(input: { reservationId: string; actualMicros: number }): Promise<void> {
     const reservation = this.reservations.get(input.reservationId);
-    if (!reservation || reservation.settled) throw new AgentContractError(409, 'AGENT_BUDGET_RESERVATION_INVALID', '预算预留不存在或已结算。');
-    reservation.settled = true;
+    if (!reservation || reservation.state !== 'reserved') {
+      throw new AgentContractError(409, 'AGENT_BUDGET_RESERVATION_INVALID', '预算预留不存在或已结算/释放。');
+    }
+    if (!Number.isSafeInteger(input.actualMicros) || input.actualMicros < 0) {
+      throw new AgentContractError(400, 'AGENT_BUDGET_ACTUAL_INVALID', '实际费用必须是非负整数 micros。');
+    }
+    reservation.state = 'settled';
     const balance = this.balances.get(reservation.workspaceId) ?? 0;
     const delta = reservation.amountMicros - input.actualMicros;
     this.balances.set(reservation.workspaceId, balance + delta);
@@ -445,12 +682,55 @@ export class InMemoryBudgetLedger implements BudgetLedger {
 
   async release(input: { reservationId: string; reason: string }): Promise<void> {
     const reservation = this.reservations.get(input.reservationId);
-    if (!reservation || reservation.settled) return;
-    reservation.settled = true;
+    if (!reservation || reservation.state !== 'reserved') return;
+    reservation.state = 'released';
     this.balances.set(reservation.workspaceId, (this.balances.get(reservation.workspaceId) ?? 0) + reservation.amountMicros);
   }
 
+  async releaseForInvocation(input: { workspaceId: string; invocationId: string; reason: string }): Promise<void> {
+    const reservation = this.reservationFor(input.workspaceId, input.invocationId);
+    if (!reservation || reservation.state !== 'reserved') return;
+    await this.release({ reservationId: reservation.reservationId, reason: input.reason });
+  }
+
   balanceOf(workspaceId: string): number { return this.balances.get(workspaceId) ?? 0; }
+
+  reservationFor(workspaceId: string, invocationId: string): {
+    reservationId: string; workspaceId: string; invocationId: string; amountMicros: number;
+    state: 'reserved' | 'settled' | 'released';
+  } | undefined {
+    const found = [...this.reservations.values()].find(
+      reservation => reservation.workspaceId === workspaceId && reservation.invocationId === invocationId,
+    );
+    return found ? { ...found } : undefined;
+  }
+}
+
+/** 内存审批事实存储：只允许 pending → decided 的 CAS，模拟 039 的 CHECK 约束。 */
+export class InMemoryToolApprovalStore implements ToolApprovalStore {
+  private readonly approvals = new Map<string, AgentApprovalRequest>();
+
+  async createApproval(request: AgentApprovalRequest): Promise<void> {
+    if (this.approvals.has(request.approvalId)) {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_EXISTS', '审批记录已存在。');
+    }
+    if (request.state !== 'pending') {
+      throw new AgentContractError(409, 'AGENT_APPROVAL_INVALID_STATE', '新建审批必须处于 pending。');
+    }
+    this.approvals.set(request.approvalId, clone(request));
+  }
+
+  async getApproval(approvalId: string): Promise<AgentApprovalRequest | null> {
+    const approval = this.approvals.get(approvalId);
+    return approval ? clone(approval) : null;
+  }
+
+  async updateApproval(approvalId: string, next: AgentApprovalRequest): Promise<boolean> {
+    const current = this.approvals.get(approvalId);
+    if (!current || current.state !== 'pending' || next.approvalId !== approvalId) return false;
+    this.approvals.set(approvalId, clone(next));
+    return true;
+  }
 }
 
 function modelFunctionName(toolId: string): string {

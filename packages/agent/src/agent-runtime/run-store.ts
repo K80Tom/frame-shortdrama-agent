@@ -135,7 +135,8 @@ export class InMemoryAgentRuntimeStore implements AgentRuntimeStore {
   }
 
   async updateApproval(approvalId: string, next: AgentApprovalRequest): Promise<boolean> {
-    if (!this.approvals.has(approvalId)) return false;
+    const current = this.approvals.get(approvalId);
+    if (!current || current.state !== 'pending' || next.approvalId !== approvalId) return false;
     this.approvals.set(approvalId, structuredClone(next));
     return true;
   }

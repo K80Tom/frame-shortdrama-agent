@@ -64,11 +64,32 @@ CREATE TABLE skill_versions (
   ]::text[]),
   compatibility_json jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(compatibility_json) = 'object'),
   status text NOT NULL CHECK (status IN ('draft', 'published', 'deprecated')),
+  -- 单一真相源映射：020/021 的 prompt_pack_imports 是方法正文来源；
+  -- skill_versions 只是其 workspace 隔离的不可变版本快照，不是第二套方法中心。
+  source_kind text NOT NULL CHECK (source_kind IN ('prompt_pack_import', 'builtin_library')),
+  source_pack_id text NULL CHECK (source_pack_id IS NULL OR source_pack_id ~ '^[a-z0-9-]{1,80}$'),
+  source_pack_digest text NULL CHECK (source_pack_digest IS NULL OR source_pack_digest ~ '^[a-f0-9]{64}$'),
   created_by text NOT NULL CHECK (char_length(created_by) BETWEEN 3 AND 160),
   created_at timestamptz NOT NULL,
-  PRIMARY KEY (workspace_id, skill_id, version)
+  PRIMARY KEY (workspace_id, skill_id, version),
+  CONSTRAINT skill_versions_prompt_pack_fk FOREIGN KEY (source_pack_id)
+    REFERENCES prompt_pack_imports (id) ON DELETE RESTRICT,
+  CONSTRAINT skill_versions_source_mapping CHECK (
+    (source_kind = 'prompt_pack_import'
+      AND source_pack_id IS NOT NULL AND source_pack_digest IS NOT NULL)
+    OR (source_kind = 'builtin_library'
+      AND source_pack_id IS NULL AND source_pack_digest IS NULL)
+  )
 );
 CREATE INDEX skill_versions_digest_idx ON skill_versions (workspace_id, skill_id, content_digest);
+CREATE INDEX skill_versions_prompt_pack_idx ON skill_versions (source_pack_id, source_pack_digest);
+
+COMMENT ON TABLE skill_versions IS
+  '020/021 prompt_pack_imports 的不可变、workspace 隔离版本快照；不是独立方法包中心。';
+COMMENT ON COLUMN skill_versions.source_pack_id IS
+  '对应 prompt_pack_imports.id；builtin_library 为仓库内置方法包时为空。';
+COMMENT ON COLUMN skill_versions.source_pack_digest IS
+  '来源方法包在导入时的 content digest；与 run_json.methodPacks[].digest 对齐。';
 
 CREATE TABLE skill_workspace_admissions (
   workspace_id text NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
@@ -283,7 +304,9 @@ CREATE TABLE agent_budget_reservations (
   updated_at timestamptz NOT NULL,
   CONSTRAINT agent_budget_reservations_fk FOREIGN KEY (workspace_id, agent_run_id)
     REFERENCES agent_runs (workspace_id, run_id) ON DELETE RESTRICT,
-  CONSTRAINT agent_budget_settled CHECK ((state = 'settled') = (actual_micros IS NOT NULL))
+  CONSTRAINT agent_budget_settled CHECK ((state = 'settled') = (actual_micros IS NOT NULL)),
+  -- 每个 Invocation 最多一条预留；reserve 必须幂等复用，不得重复扣余额。
+  CONSTRAINT agent_budget_invocation_unique UNIQUE (workspace_id, invocation_id)
 );
 CREATE INDEX agent_budget_reservations_run_idx ON agent_budget_reservations (workspace_id, agent_run_id, state);
 

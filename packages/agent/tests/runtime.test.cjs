@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { defineTool, digestOf } = require('@lyra/shared');
 const {
   ToolRegistry, ToolKernel, InMemoryToolInvocationStore, InMemoryBudgetLedger, WAITING_CONFIRMATION,
+  InMemoryToolApprovalStore,
   AgentDefinitionRegistry, AgentRuntime, InMemoryAgentRuntimeStore,
 } = require('../dist/index.js');
 
@@ -41,29 +42,46 @@ function definitionInput(overrides = {}) {
   };
 }
 
+function snapshotInput(overrides = {}) {
+  return {
+    workspaceId: 'ws_demo', projectId: 'prj_demo', userId: 'usr_demo', role: 'member',
+    parentRunId: null, productionRunId: null, workflowTaskId: null,
+    agentId: 'demo-agent', agentVersion: '1.0.0',
+    inputRevisions: [{ kind: 'script', id: 'scr_1', digest: digestOf({ script: 'v1' }) }],
+    prompt: { revisionDigest: digestOf({ prompt: 'v1' }) },
+    method: { profileRevisionId: null, profileDigest: null, packVersionIds: [] },
+    model: { connectionRevision: 'mc_1', model: 'stub-model' },
+    workflow: null, code: { buildDigest: digestOf({ code: 'demo' }) },
+    budget: { maxMicros: 50000, currency: 'CNY' }, timeout: { stepMs: 3000, runMs: 20000 },
+    maxSteps: 5, seed: 'seed-1', now: '2026-01-01T00:00:00.000Z', ...overrides,
+  };
+}
+
 function fixture() {
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(tool(), { execute: async () => ({ summary: 'ok' }) });
   const definitions = new AgentDefinitionRegistry(toolRegistry);
   const draft = definitions.create(definitionInput());
   const frozen = definitions.freeze('demo-agent', '1.0.0', draft.manifestDigest, '2026-01-01T00:00:00.000Z');
-  const snapshot = definitions.snapshot({
-    workspaceId: 'ws_demo', projectId: 'prj_demo', userId: 'usr_demo', role: 'member',
-    parentRunId: null, productionRunId: null, workflowTaskId: null,
-    agentId: 'demo-agent', agentVersion: '1.0.0',
-    inputRevisions: [{ kind: 'script', id: 'scr_1', digest: digestOf({ script: 'v1' }) }],
-    prompt: { revisionDigest: frozen.promptRevisionDigest },
-    method: { profileRevisionId: null, profileDigest: null, packVersionIds: [] },
-    model: { connectionRevision: 'mc_1', model: 'stub-model' },
-    workflow: null, code: { buildDigest: frozen.codeDigest },
-    budget: { maxMicros: 50000, currency: 'CNY' }, timeout: { stepMs: 3000, runMs: 20000 },
-    maxSteps: 5, seed: 'seed-1', now: '2026-01-01T00:00:00.000Z',
-  });
+  const snapshot = definitions.snapshot(snapshotInput());
   let clock = new Date('2026-01-01T00:00:01.000Z');
   const store = new InMemoryAgentRuntimeStore();
   const runtime = new AgentRuntime(store, { now: () => clock, leaseTtlMs: 1000 });
   return { toolRegistry, definitions, frozen, snapshot, runtime, store, advance: (ms) => { clock = new Date(clock.getTime() + ms); }, clock: () => clock };
 }
+
+test('方法包版本引用只接受 prompt-pack:<packId>@<digest> 单一格式', () => {
+  const { definitions } = fixture();
+  const valid = `prompt-pack:pack-a@${digestOf({ pack: 'a' })}`;
+  const frozen = definitions.snapshot(snapshotInput({ method: { profileRevisionId: null, profileDigest: null, packVersionIds: [valid] } }));
+  assert.deepEqual(frozen.method.packVersionIds, [valid]);
+  assert.throws(() => definitions.snapshot(snapshotInput({
+    method: { profileRevisionId: null, profileDigest: null, packVersionIds: ['skl_pack-a@1'] },
+  })), error => error.code === 'AGENT_SNAPSHOT_METHOD_MISMATCH');
+  assert.throws(() => definitions.snapshot(snapshotInput({
+    method: { profileRevisionId: null, profileDigest: null, packVersionIds: [valid, valid] },
+  })), error => error.code === 'AGENT_SNAPSHOT_METHOD_MISMATCH');
+});
 
 test('定义必须冻结后才能创建 Run，Snapshot 固化工具精确版本', () => {
   const { definitions, frozen, snapshot } = fixture();
@@ -121,6 +139,30 @@ test('中断 → interrupted → 恢复 → queued → 新 attempt 领取', asyn
   assert.equal(reclaimed.leaseOwner, 'worker-b');
 });
 
+test('并发 approve/reject 只有一个持久化 CAS 生效', async () => {
+  const { runtime, store } = fixture();
+  const run = await runtime.createRun({ snapshot: fixture().snapshot });
+  await runtime.transition(run.runId, 'planning', {});
+  const approval = {
+    approvalId: 'apr_concurrent', runId: run.runId, invocationId: 'inv_concurrent',
+    kind: 'paid_action', state: 'pending', summary: '并发审批',
+    proposalDigest: digestOf({ proposal: 'concurrent' }), estimateMicros: 5000, currency: 'CNY',
+    requestedBy: 'usr_demo', requestedAt: '2026-01-01T00:00:01.000Z',
+    expiresAt: '2026-01-01T00:10:00.000Z',
+  };
+  await runtime.suspendForApproval(run.runId, approval, '等待并发审批');
+  const results = await Promise.allSettled([
+    runtime.decideApproval({ approvalId: approval.approvalId, decision: 'approved', actor: 'usr_owner_a' }),
+    runtime.decideApproval({ approvalId: approval.approvalId, decision: 'rejected', actor: 'usr_owner_b' }),
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const rejected = results.find(result => result.status === 'rejected');
+  assert.ok(rejected && ['AGENT_APPROVAL_STALE', 'AGENT_APPROVAL_ALREADY_DECIDED'].includes(rejected.reason.code));
+  const persisted = await store.getApproval(approval.approvalId);
+  assert.ok(persisted.state === 'approved' || persisted.state === 'rejected');
+  assert.equal((await runtime.replay(run.runId)).filter(event => event.event.type === 'approval_decided').length, 1);
+});
+
 test('未授权工具调用中断为 WAITING_CONFIRMATION，审批批准后恢复 queued', async () => {
   const { runtime } = fixture();
   const run = await runtime.createRun({ snapshot: fixture().snapshot });
@@ -150,7 +192,8 @@ test('未授权工具调用中断为 WAITING_CONFIRMATION，审批批准后恢�
   });
   const paidRegistry = new ToolRegistry();
   paidRegistry.register(paid, { execute: async () => ({ summary: 'paid' }) });
-  const paidKernel = new ToolKernel(paidRegistry, new InMemoryToolInvocationStore(), new InMemoryBudgetLedger({ ws_demo: 100000 }));
+  const paidKernel = new ToolKernel(paidRegistry, new InMemoryToolInvocationStore(),
+    new InMemoryBudgetLedger({ ws_demo: 100000 }), { approvals: new InMemoryToolApprovalStore() });
   const prepared = await paidKernel.prepare({
     workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: run.runId, stepId: 'stp_1',
     proposal: { proposalId: 'p2', runId: run.runId, stepId: 'stp_1', toolId: paid.toolId, version: '1.0.0',

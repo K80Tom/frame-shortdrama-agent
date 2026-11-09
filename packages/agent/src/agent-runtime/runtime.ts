@@ -296,7 +296,8 @@ export class AgentRuntime {
     if (!approval) throw new AgentContractError(404, 'AGENT_APPROVAL_NOT_FOUND', '审批请求不存在。');
     if (approval.state !== 'pending') throw new AgentContractError(409, 'AGENT_APPROVAL_ALREADY_DECIDED', `审批已是 ${approval.state} 状态。`);
     if (this.now().getTime() >= new Date(approval.expiresAt).getTime()) {
-      await this.store.updateApproval(approval.approvalId, { ...approval, state: 'expired' });
+      const applied = await this.store.updateApproval(approval.approvalId, { ...approval, state: 'expired' });
+      if (!applied) throw new AgentContractError(409, 'AGENT_APPROVAL_STALE', '审批已被并发决定，不能按过期处理。');
       throw new AgentContractError(409, 'AGENT_APPROVAL_EXPIRED', '审批已过期，请重新发起。');
     }
     const decided: AgentApprovalRequest = {
@@ -306,7 +307,9 @@ export class AgentRuntime {
       decidedAt: this.now().toISOString(),
       decisionNote: (input.note ?? '').slice(0, 500),
     };
-    await this.store.updateApproval(approval.approvalId, decided);
+    // 必须使用持久化 CAS 的返回值判定胜负；输掉 CAS 的并发决策不能继续写事件或推 Run。
+    const applied = await this.store.updateApproval(approval.approvalId, decided);
+    if (!applied) throw new AgentContractError(409, 'AGENT_APPROVAL_STALE', '审批已被其他并发决策修改，本次决定未生效。');
     await this.store.appendEvent(approval.runId, {
       type: 'approval_decided', approvalId: approval.approvalId, state: decided.state as AgentApprovalState, decidedBy: input.actor,
     });
@@ -328,7 +331,8 @@ export class AgentRuntime {
     for (const approval of approvals) {
       if (approval.state !== 'pending') continue;
       if (this.now().getTime() < new Date(approval.expiresAt).getTime()) continue;
-      await this.store.updateApproval(approval.approvalId, { ...approval, state: 'expired' });
+      const applied = await this.store.updateApproval(approval.approvalId, { ...approval, state: 'expired' });
+      if (!applied) continue;
       await this.store.appendEvent(runId, { type: 'approval_decided', approvalId: approval.approvalId, state: 'expired', decidedBy: 'system' });
       expired += 1;
     }

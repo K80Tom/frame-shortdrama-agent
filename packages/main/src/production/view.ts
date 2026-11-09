@@ -39,7 +39,9 @@ export function publicProductionRun(input: StoredProductionRun) {
   });
   const { methodPacks, ...publicRun } = run;
   return { ...publicRun,
-    ...(methodPacks ? { methodPacks: methodPacks.map(({ id, digest, nodes }) => ({ id, digest, nodes })) } : {}),
+    ...(methodPacks ? { methodPacks: methodPacks.map(({ id, digest, nodes, versionId }) => ({
+      id, digest, nodes, ...(versionId ? { versionId } : {}),
+    })) } : {}),
     summary: {
       tasks: { completed: completedTasks, total: relevantTasks.length,
         running: relevantTasks.filter(active).length, waitingHuman: relevantTasks.filter(task => task.status === 'waitingHuman').length,

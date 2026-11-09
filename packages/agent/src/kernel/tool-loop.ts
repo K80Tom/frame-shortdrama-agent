@@ -43,11 +43,11 @@ export interface ToolLoopDecision {
 
 export type ToolLoopPlanner = (state: ToolLoopPlannerState) => Promise<ToolLoopDecision>;
 
-export type AgentToolLoopInput = Omit<ToolPrepareInput, 'proposal' | 'approvedInvocation' | 'now'> & {
+export type AgentToolLoopInput = Omit<ToolPrepareInput, 'proposal' | 'approvalId' | 'now'> & {
   planner: ToolLoopPlanner;
   maxRounds?: number;
-  /** 已由人工批准的提案 ID；只对同一 proposalId 生效，不能跨调用复用审批。 */
-  approvedProposalIds?: ReadonlySet<string>;
+  /** 已持久化的人工审批 ID，按 proposalId 绑定；不能跨提案复用。 */
+  approvalIdsByProposal?: ReadonlyMap<string, string> | Readonly<Record<string, string>>;
   executeOptions?: ToolExecuteOptions;
 };
 
@@ -92,7 +92,7 @@ export async function runAgentToolLoop(
   kernel: ToolKernel,
   input: AgentToolLoopInput,
 ): Promise<AgentToolLoopResult> {
-  const { planner, maxRounds: requestedMaxRounds, approvedProposalIds, executeOptions, ...prepareBase } = input;
+  const { planner, maxRounds: requestedMaxRounds, approvalIdsByProposal, executeOptions, ...prepareBase } = input;
   const maxRounds = Math.min(requestedMaxRounds ?? DEFAULT_MAX_ROUNDS, MAX_ROUNDS);
   if (!Number.isInteger(maxRounds) || maxRounds < 1) {
     throw new AgentContractError(400, 'AGENT_TOOL_LOOP_INVALID', 'maxRounds 必须是 1–16 的整数。');
@@ -111,10 +111,15 @@ export async function runAgentToolLoop(
       throw new AgentContractError(400, 'AGENT_TOOL_CALLS_EXCEEDED', `单轮工具调用不能超过 ${MAX_CALLS_PER_ROUND} 个。`);
     }
     for (const proposal of calls) {
+      const approvalId = approvalIdsByProposal instanceof Map
+        ? approvalIdsByProposal.get(proposal.proposalId)
+        : approvalIdsByProposal
+          ? (approvalIdsByProposal as Readonly<Record<string, string>>)[proposal.proposalId]
+          : undefined;
       const prepared = await kernel.prepare({
         ...prepareBase,
         proposal,
-        ...(approvedProposalIds?.has(proposal.proposalId) ? { approvedInvocation: true } : {}),
+        ...(approvalId ? { approvalId } : {}),
       });
       if (prepared.kind === 'denied') {
         observations.push({

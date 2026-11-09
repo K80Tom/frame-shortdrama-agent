@@ -77,6 +77,11 @@ export interface FrozenAgentSnapshot {
   agent: { agentId: string; version: string; manifestDigest: string };
   inputRevisions: Array<{ kind: string; id: string; digest: string }>;
   prompt: { revisionDigest: string };
+  /**
+   * 方法包冻结引用。`packVersionIds` 使用 `prompt-pack:<packId>@<digest>`，
+   * 与 production `run_json.methodPacks[].id/digest` 同一真相源；`skl_*` 版本
+   * 只是该来源在 039 的不可变 workspace 快照，不能另建方法中心。
+   */
   method: { profileRevisionId: string | null; profileDigest: string | null; packVersionIds: string[] };
   model: { connectionRevision: string; model: string };
   tools: ToolVersionRef[];
@@ -88,6 +93,26 @@ export interface FrozenAgentSnapshot {
   seed: string | null;
   contextSnapshotDigest: string;
   createdAt: string;
+}
+
+const PROMPT_PACK_VERSION_REF = /^prompt-pack:[a-z0-9-]{1,80}@[a-f0-9]{64}$/;
+
+/**
+ * 方法包冻结引用的唯一格式。`run_json.methodPacks[]` 的 `{id,digest}` 必须经此
+ * 生成 Snapshot 的 `method.packVersionIds`，避免出现第二套版本命名。
+ */
+export function promptPackVersionId(packId: string, digest: string): string {
+  if (!/^[a-z0-9-]{1,80}$/.test(packId)) {
+    throw new AgentContractError(400, 'AGENT_SNAPSHOT_METHOD_MISMATCH', `方法包 ID 不合法：${packId}。`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(digest)) {
+    throw new AgentContractError(400, 'AGENT_SNAPSHOT_METHOD_MISMATCH', '方法包摘要必须是 64 位十六进制。');
+  }
+  return `prompt-pack:${packId}@${digest}`;
+}
+
+export function isPromptPackVersionId(value: string): boolean {
+  return PROMPT_PACK_VERSION_REF.test(value);
 }
 
 export interface AgentRunRecord {
