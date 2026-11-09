@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import {
   ArrowLeft, ArrowRight, BookOpen, Box, Check, CheckCircle2, Circle, Clapperboard,
-  Clock3, FileCheck2, FileText, Film, FolderClock, History, LayoutDashboard, Play,
+  Clock3, FileCheck2, FileText, Film, FolderClock, History, LayoutDashboard, Network, Play,
   ShieldCheck, Sparkles,
 } from 'lucide-react';
 import type { Draft } from './model';
@@ -38,6 +38,7 @@ const sectionMeta: Array<{
   { id: 'source', label: '原著与素材', eyebrow: 'SOURCE', description: '整理原著、章节范围与改编所需的基础素材。', icon: BookOpen },
   { id: 'screenplay', label: '剧本拆解', eyebrow: 'SCREENPLAY', description: '校对人物、场景、对白与剧情事实。', icon: FileText },
   { id: 'storyboard', label: '分镜设计', eyebrow: 'STORYBOARD', description: '把剧本转译为镜头、构图与节奏。', icon: Clapperboard },
+  { id: 'canvas', label: '生产画布', eyebrow: 'PRODUCTION CANVAS', description: '镜头、资产与运行状态在同一张依赖图上对齐。', icon: Network },
   { id: 'director', label: '3D 导演', eyebrow: 'SPATIAL DIRECTION', description: '在白模空间中安排站位、机位与调度。', icon: Box },
   { id: 'production', label: '自动制作', eyebrow: 'PRODUCTION', description: '统一查看生成任务、人工检查点与成片进度。', icon: Film },
   { id: 'review', label: '审核交付', eyebrow: 'REVIEW & DELIVERY', description: '汇总版本、技术检查和最终交付物。', icon: FileCheck2 },
