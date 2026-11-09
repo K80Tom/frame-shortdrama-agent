@@ -8,7 +8,7 @@ const { sealProductionInputSnapshot: seal, verifyProductionInputSnapshot: verify
 const ref = () => ({ id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) });
 function fixture() {
   return { schemaVersion: 'lyra-production-input/1', id: 'snapshot-one', workspaceId: 'ws_' + 'a'.repeat(32),
-    projectId: 'project-one', episodeId: 'episode-one', baseProjectRevision: 'revision-one', state: 'draft',
+    projectId: 'project-one', episodeId: 'episode-one', baseProjectRevision: '1', state: 'draft',
     shots: [{ shotId: 'shot-one', revisionId: 'shotversion-one', contentDigest: 'b'.repeat(64) }],
     script: ref(), plan: ref(), storyboard: ref(), assetPacks: [], directorScenes: [], controls: [], methodPacks: [], promptPacks: [],
     modelConnections: [{ role: 'video', connection: ref(), capability: ref() }], retrievalPolicy: ref(), qualityGates: [],

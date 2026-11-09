@@ -16,7 +16,7 @@ function fixture() {
     source: { kind: 'user', actor: tenant.userId, sourceRevisionId: null }, createdAt: '2026-11-09T00:00:00.000Z' };
   let shot = sealShotSpecV2(shotDraft);
   const draft = { schemaVersion: 'lyra-production-input/1', id: 'input-one', workspaceId: tenant.workspaceId,
-    projectId: 'project-one', episodeId: 'episode-one', baseProjectRevision: 'projectrevision-one', state: 'frozen',
+    projectId: 'project-one', episodeId: 'episode-one', baseProjectRevision: '1', state: 'frozen',
     shots: [{ shotId: shot.shotId, revisionId: shot.revisionId, contentDigest: shot.contentDigest }],
     script: ref('script-one'), plan: ref('plan-one'), storyboard: ref('board-one'), assetPacks: [], directorScenes: [], controls: [], methodPacks: [],
     promptPacks: [ref('prompt-one')], modelConnections: [{ role: 'video', connection: ref('connection-one'), capability: ref('capability-one') }],

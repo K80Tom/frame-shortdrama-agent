@@ -31,3 +31,11 @@ shared/main 构建通过，镜头+快照契约回归 18/18（含真实浏览器 
 历史原文校验按精确 scriptVersionId 查询，不跟随当前项目指针，复核原文字节摘要及 Unicode 码点引用。真实本地 PostgreSQL 17.6 + 非特权 NOBYPASSRLS 应用角色测试通过：跨租户不可读、错误项目不可读、emoji 范围精确、项目切换后历史引用仍有效、原文摘要错误被阻断。test:rls 2/2（含既有隔离回归），相关契约测试 24/24；已接入既有 test:rls 入口。没有真实模型调用。
 
 这还不是完整编译器：仍需版本化 ShotSpec 读取/采用、episode 与 project revision 正式模型、对象/资产包/方法包/模型能力等正式验证适配，以及候选 Snapshot 构造；不能把来源 reader 或 inputSetDigest 当作完整 Run 冻结已完成。
+
+## 不可变版本底座检查点（033，尚未发布）
+
+新增正式 episode 归属、不可变 shot_spec_versions、带版本 FK 的 shot_spec_heads。全部使用 workspace 复合 FK 和 FORCE RLS；版本 JSON 的身份/digest envelope 必须与列一致（包括拒绝 JSON null），不可 UPDATE/DELETE。只是数据库底座，尚无可用的采用 API/Repository，也未发布领域事件，不能因此宣称完整采用已交付。
+
+projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboard 指针变化由数据库 trigger 自动递增，展示字段变化和外部直接伪改计数器不会递增。Snapshot 的 baseProjectRevision 改为无精度损失的十进制字符串；reader 返回真实计数器而不是拿 inputSetDigest 冒充 revision。后续 ShotSpec head 正式采用还必须接通同事务的项目 revision 推进与 Outbox，当前计数器只覆盖旧三类采用指针，不能声称覆盖新正式镜头采用。
+
+已在全新专用 PostgreSQL 17.6 数据库实际应用 001–031、033（没有依赖未合并的 #132/032）。非特权角色 test:rls 2/2，额外验证计数器、episode/version 租户 FK、null 身份拒绝、版本不可变、错误 shot/version head 外键拒绝；相关契约24/24。第一次本地迁移草案数据库不继续复用，新验证库名为 lyra_input_versions_test。无真实模型调用。

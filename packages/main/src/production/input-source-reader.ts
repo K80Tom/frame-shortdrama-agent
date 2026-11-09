@@ -13,7 +13,7 @@ export class PostgresProductionInputSourceReader {
     const tenant = parseTenantContext(tenantValue);
     return this.database.runWithTenant(tenant, async () => {
       try {
-        const row = (await this.database.query(`SELECT p.id, p.current_script_version_id, p.active_plan_revision_id,
+        const row = (await this.database.query(`SELECT p.id, p.input_revision::text, p.current_script_version_id, p.active_plan_revision_id,
           p.active_storyboard_revision_id, s.id AS script_id, s.raw_text, s.content_sha256,
           f.id AS plan_id, f.content_json AS plan_content, b.id AS storyboard_id, b.content_json AS storyboard_content
           FROM projects p
@@ -35,7 +35,8 @@ export class PostgresProductionInputSourceReader {
         // This is an input-set fingerprint, NOT a fabricated monotonic project revision/CAS counter.
         const inputSetDigest = canonicalDigest({ projectId: row.id, ...versions, script: script?.digest ?? null,
           plan: plan?.digest ?? null, storyboard: storyboard?.digest ?? null });
-        return { projectId: row.id as string, workspaceId: tenant.workspaceId, versions, script, plan, storyboard, inputSetDigest };
+        return { projectId: row.id as string, workspaceId: tenant.workspaceId, projectRevision: row.input_revision as string,
+          versions, script, plan, storyboard, inputSetDigest };
       } catch (error) { if (error instanceof ProductionError) throw error; return unavailable(); }
     });
   }

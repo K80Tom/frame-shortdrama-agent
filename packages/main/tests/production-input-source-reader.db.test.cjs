@@ -33,6 +33,9 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   const first = await reader.readCurrentProjectInputs(a, projectId);
   assert.equal(first.script.rawText, raw); assert.equal(first.plan, null); assert.equal(first.storyboard, null);
   assert.equal(first.versions.scriptVersionId, scriptId);
+  assert.equal(first.projectRevision, '1');
+  await admin.query('UPDATE projects SET title=$1,input_revision=999 WHERE id=$2', ['Display-only change', projectId]);
+  assert.equal((await reader.readCurrentProjectInputs(a, projectId)).projectRevision, '1');
   assert.equal(await reader.readCurrentProjectInputs(b, projectId), null);
   const ref = { scriptVersionId: scriptId, start: 1, end: 2, quote: '😀' };
   assert.equal(await reader.checkSource(a, projectId, ref), null);
@@ -44,10 +47,27 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
     VALUES($1,$2,2,$3,$4,'{}'::jsonb,$5,now())`, [newer, projectId, newRaw, hash(newRaw), a.workspaceId]);
   await admin.query('UPDATE projects SET current_script_version_id=$1 WHERE id=$2', [newer, projectId]);
   const second = await reader.readCurrentProjectInputs(a, projectId);
+  assert.equal(second.projectRevision, '2');
   assert.notEqual(second.inputSetDigest, first.inputSetDigest);
   assert.equal(first.script.rawText, raw); // previously captured view is not a live pointer
   assert.equal(await reader.checkSource(a, projectId, ref), null); // exact historical version
   await admin.query('UPDATE script_versions SET content_sha256=$1 WHERE id=$2', ['0'.repeat(64), newer]);
   await assert.rejects(reader.readCurrentProjectInputs(a, projectId), e => e.code === 'DIGEST_MISMATCH');
   assert.equal(await reader.checkSource(a, projectId, { scriptVersionId: newer, start: 0, end: 1, quote: '新' }), 'DIGEST_MISMATCH');
+  const episodeId = 'episode_' + token(), versionId = 'shotspec_' + token(), shotId = 'shot_' + token();
+  await db.runWithTenant(a, () => db.query(`INSERT INTO production_episodes(workspace_id,id,project_id,title,created_by,created_at)
+    VALUES($1,$2,$3,'Test episode',$4,now())`, [a.workspaceId, episodeId, projectId, a.userId]));
+  // SQL-level envelope constraints tested separately from the full DTO parser.
+  const envelope = { schemaVersion: 'lyra-shot-spec/2', workspaceId: a.workspaceId, projectId, episodeId,
+    shotId, revisionId: versionId, contentDigest: 'a'.repeat(64) };
+  const insert = (id, json) => db.query(`INSERT INTO shot_spec_versions(workspace_id,id,project_id,episode_id,shot_id,
+    content_digest,spec_json,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())`,
+  [a.workspaceId, id, projectId, episodeId, shotId, 'a'.repeat(64), json, a.userId]);
+  await db.runWithTenant(a, () => insert(versionId, envelope));
+  await assert.rejects(db.runWithTenant(a, () => insert('invalid_' + token(), { ...envelope, revisionId: null })), e => e.code === '23514');
+  assert.equal((await db.runWithTenant(b, () => db.query('SELECT id FROM shot_spec_versions WHERE id=$1', [versionId]))).rowCount, 0);
+  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE shot_spec_versions SET spec_json=spec_json WHERE id=$1', [versionId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query(`INSERT INTO shot_spec_heads(workspace_id,project_id,episode_id,shot_id,
+    current_version_id,adopted_by,adopted_at,reason) VALUES($1,$2,$3,$4,$5,$6,now(),'bad target')`,
+  [a.workspaceId, projectId, episodeId, 'shot_wrong', versionId, a.userId])), e => e.code === '23503');
 });

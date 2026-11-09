@@ -61,6 +61,9 @@ function parse(value: unknown, sealed: boolean): ProductionInputSnapshot {
   const r = object(copyBoundedProductionInput(value), sealed ? [...fields, 'snapshotDigest'] : fields);
   if (r.schemaVersion !== PRODUCTION_INPUT_SCHEMA_VERSION || typeof r.workspaceId !== 'string'
     || r.workspaceId.length !== 35 || !/^ws_[a-f0-9]{32}$/u.test(r.workspaceId)) bad();
+  if (typeof r.baseProjectRevision !== 'string' || r.baseProjectRevision.length > 19
+    || !/^(0|[1-9][0-9]*)$/u.test(r.baseProjectRevision) || /[\r\n]/u.test(r.baseProjectRevision)
+    || BigInt(r.baseProjectRevision) > 9223372036854775807n) bad();
   const state = choice(r.state, ['draft', 'validating', 'ready', 'frozen', 'blocked'] as const);
   const shots = list(r.shots, 2000, value => {
     const s = object(value, ['shotId', 'revisionId', 'contentDigest']);
@@ -82,7 +85,7 @@ function parse(value: unknown, sealed: boolean): ProductionInputSnapshot {
   if (typeof r.reason !== 'string' || !r.reason.trim() || r.reason.length > 1000 || /[\x00-\x1f\x7f]/u.test(r.reason)
     || Array.from(r.reason).some(c => { const n = c.codePointAt(0)!; return n >= 0xd800 && n <= 0xdfff; })) bad();
   return { schemaVersion: PRODUCTION_INPUT_SCHEMA_VERSION, id: id(r.id), workspaceId: r.workspaceId, projectId: id(r.projectId),
-    episodeId: id(r.episodeId), baseProjectRevision: id(r.baseProjectRevision), state, shots,
+    episodeId: id(r.episodeId), baseProjectRevision: r.baseProjectRevision, state, shots,
     script: ref(r.script), plan: ref(r.plan), storyboard: ref(r.storyboard), assetPacks: refs(r.assetPacks), directorScenes: refs(r.directorScenes),
     controls: refs(r.controls), methodPacks: refs(r.methodPacks), promptPacks: refs(r.promptPacks),
     modelConnections: list(r.modelConnections, 4, value => {
