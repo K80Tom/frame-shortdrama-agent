@@ -28,3 +28,6 @@ export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
  * admissions, and MCP server revisions.
  */
 export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;
+
+/** 基础设施异步 Outbox（Worker 任务出件箱，#124/#133 Worker 拓扑）。 */
+export const INFRA_OUTBOX_MIGRATIONS = ["042", "043"] as const;
