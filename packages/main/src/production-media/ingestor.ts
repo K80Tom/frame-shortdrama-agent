@@ -124,6 +124,8 @@ export class PinnedHttpsMediaFetcher implements PinnedMediaFetcher {
 }
 
 export interface ProductionMediaIngestorOptions {
+  /** Separate read-only DNS deadline; does not retry or cancel provider generation. */
+  dnsTimeoutMs?: number;
   timeoutMs?: number;
   maxBytes?: number;
   maxDnsAddresses?: number;
@@ -138,6 +140,7 @@ export interface ProductionMediaIngestorOptions {
 
 /** Downloads a provider result into verified local storage; the URL itself is never a deliverable. */
 export class ProductionMediaIngestor {
+  private readonly dnsTimeoutMs: number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
   private readonly maxDnsAddresses: number;
@@ -148,10 +151,12 @@ export class ProductionMediaIngestor {
     private readonly fetcher: PinnedMediaFetcher = new PinnedHttpsMediaFetcher(),
     options: ProductionMediaIngestorOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.dnsTimeoutMs = options.dnsTimeoutMs ?? Math.min(this.timeoutMs, 5_000);
     this.maxBytes = options.maxBytes ?? store.limits.maxBytes;
     this.maxDnsAddresses = options.maxDnsAddresses ?? 16;
     this.allowIntranetMediaSources = options.allowIntranetMediaSources ?? false;
-    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1
+    if (!Number.isSafeInteger(this.dnsTimeoutMs) || this.dnsTimeoutMs < 1 || this.dnsTimeoutMs > 30_000
+      || !Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1
       || !Number.isSafeInteger(this.maxBytes) || this.maxBytes < 1 || this.maxBytes > store.limits.maxBytes
       || !Number.isSafeInteger(this.maxDnsAddresses) || this.maxDnsAddresses < 1 || this.maxDnsAddresses > 64
       || typeof this.allowIntranetMediaSources !== 'boolean') {
@@ -205,11 +210,22 @@ export class ProductionMediaIngestor {
     let addresses: ResolvedAddress[];
     if (literalFamily) addresses = [{ address: hostname, family: literalFamily as 4 | 6 }];
     else {
-      try { addresses = await this.resolver.resolve(hostname); }
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        addresses = await Promise.race([
+          Promise.resolve().then(() => this.resolver.resolve(hostname)),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new ProductionMediaError(
+              504, 'REMOTE_MEDIA_DNS_TIMEOUT', '远程媒体 DNS 解析超时，未开始下载。',
+            )), this.dnsTimeoutMs);
+          }),
+        ]);
+      }
       catch (error) {
         if (error instanceof ProductionMediaError) throw error;
         throw new ProductionMediaError(502, 'REMOTE_MEDIA_DNS_FAILED', '远程视频域名无法安全解析。');
       }
+      finally { if (timer) clearTimeout(timer); }
     }
     if (!Array.isArray(addresses) || addresses.length < 1 || addresses.length > this.maxDnsAddresses) {
       throw new ProductionMediaError(502, 'REMOTE_MEDIA_DNS_INVALID', '远程视频域名没有返回可验证的地址。');
