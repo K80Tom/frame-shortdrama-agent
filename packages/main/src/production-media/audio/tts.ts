@@ -202,3 +202,5 @@ export class DialogueTtsService {
     return profile;
   }
 }
+
+export * from './tts-adapter';
