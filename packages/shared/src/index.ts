@@ -22,3 +22,7 @@ export * from './novel-adaptation';
 export * from './shot-spec';
 export * from './production-input-snapshot';
 export * from './director-scene';
+export * from './agent/contracts';
+export * from './agent/runtime';
+export * from './agent/skills';
+export * from './agent/mcp';

@@ -45,7 +45,7 @@ import type { ProductionMediaStore } from './production-media/store';
 import type { ProductionMediaObjectService } from './production-media/object-worker';
 import { ASSISTANT_SERVICE, AssistantController } from './assistant/controller';
 import { AssistantError } from '@lyra/agent';
-import type { AssistantService } from '@lyra/agent';
+import type { AssistantService, AgentRuntime, ToolKernel } from '@lyra/agent';
 import { CANVAS_SERVICE, CanvasController } from './canvas/controller';
 import { CanvasError } from '@lyra/shared';
 import type { CanvasService } from './canvas/service';
@@ -77,6 +77,8 @@ const TRANSPORT = Symbol('MODEL_TRANSPORT');
 const BREAKDOWN_SERVICE = Symbol('BREAKDOWN_SERVICE');
 const STAGE_RUNNER = Symbol('STAGE_RUNNER');
 const STORYBOARD_SERVICE = Symbol('STORYBOARD_SERVICE');
+const AGENT_RUNTIME = Symbol('AGENT_RUNTIME');
+const AGENT_TOOL_KERNEL = Symbol('AGENT_TOOL_KERNEL');
 
 function requestPath(url: string): string {
   return url.split('?', 1)[0] ?? url;
@@ -113,6 +115,10 @@ export interface AppDependencies {
   productionMediaObjectService?: ProductionMediaObjectService;
   assistantService?: AssistantService;
   canvasService?: CanvasService;
+  /** 041 迁移就绪后由 main 注入的持久化 Agent Runtime（纯逻辑实现留在 agent）。 */
+  agentRuntime?: AgentRuntime;
+  /** 版本化 Tool 的执行内核；真实 SQL/引用注入由 main 完成。 */
+  agentToolKernel?: ToolKernel;
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
@@ -491,6 +497,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: CANVAS_SERVICE, useValue: dependencies.canvasService ?? null },
+    { provide: AGENT_RUNTIME, useValue: dependencies.agentRuntime ?? null },
+    { provide: AGENT_TOOL_KERNEL, useValue: dependencies.agentToolKernel ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },

@@ -21,3 +21,10 @@ export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
 
 /** Unified transactional outbox; production writes require it before starting. */
 export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
+
+/**
+ * Versioned Tool/Agent/Skill/MCP persistence: tool definitions and grants,
+ * invocation/attempt ledger, agent runs and approvals, skill versions and
+ * admissions, and MCP server revisions.
+ */
+export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;

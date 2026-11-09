@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS } from './db/readiness';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -37,8 +37,10 @@ import {
 } from './production-media';
 import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
-import { AssistantOrchestrator, type AssistantMessage } from '@lyra/agent';
-import { AssistantService } from '@lyra/agent';
+import {
+  AssistantOrchestrator, type AssistantMessage, AssistantService, createAssistantToolRegistry,
+  type AssistantToolPorts,
+} from '@lyra/agent';
 import {
   CanvasService, type CanvasReferenceResolver, type CanvasDomainPort, type CanvasStoryboardPort,
 } from './canvas/service';
@@ -65,6 +67,7 @@ import {
 import { startWorkerProcessLifetime } from './system/worker-lifetime';
 import { PostgresJobQueueRepository } from './jobs/repository';
 import { PostgresJobTenantResolver } from './jobs/tenant';
+import { createAgentTooling, type AgentTooling } from './agent-runtime/services';
 import { PersistentJobWorker, type JobHandler } from './jobs/worker';
 import { PostgresDataOutboxRepository } from './data/repository';
 import { PostgresProjectionStore } from './data/checkpoint';
@@ -168,6 +171,7 @@ async function main() {
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
   let canvasService: CanvasService | undefined;
+  let agentTooling: AgentTooling | undefined;
   let evolutionService: AssetEvolutionService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
@@ -338,22 +342,23 @@ async function main() {
         const breakdown = breakdownService;
         const production = productionService;
         const assets = assetService;
+        const assistantPorts: AssistantToolPorts = {
+          listProjects: breakdown
+            ? async () => (await breakdown.listProjects()).map(project => pickScalars(project, ['id', 'title', 'createdAt', 'updatedAt']))
+            : undefined,
+          listProductionRuns: production
+            ? async () => (await production.list()).runs.map(run => summarizeRun(run))
+            : undefined,
+          getProductionRun: production
+            ? async runId => summarizeRun(await production.get(runId))
+            : undefined,
+          listAssets: assets
+            ? async () => (await assets.list()).map(asset => pickScalars(asset, ['id', 'name', 'kind', 'type', 'status', 'createdAt']))
+            : undefined,
+        };
         const orchestrator = new AssistantOrchestrator(
           { call: input => new ModelClient(configForRole(config, 'general'), fetch).call(input) },
-          {
-            listProjects: breakdown
-              ? async () => (await breakdown.listProjects()).map(project => pickScalars(project, ['id', 'title', 'createdAt', 'updatedAt']))
-              : undefined,
-            listProductionRuns: production
-              ? async () => (await production.list()).runs.map(run => summarizeRun(run))
-              : undefined,
-            getProductionRun: production
-              ? async runId => summarizeRun(await production.get(runId))
-              : undefined,
-            listAssets: assets
-              ? async () => (await assets.list()).map(asset => pickScalars(asset, ['id', 'name', 'kind', 'type', 'status', 'createdAt']))
-              : undefined,
-          },
+          assistantPorts,
           { createQuote: (_sessionId, quote) => assistantRepository.createQuote(quote) },
         );
         assistantService = new AssistantService(assistantRepository, orchestrator, productionService, undefined, {
@@ -380,6 +385,11 @@ async function main() {
             }
           },
         });
+        // #137：把助手四个只读工具映射为版本化 ToolDefinition，并由 main 注入
+        // Postgres Invocation/Budget 端口；agent 包仍然不接触数据库。
+        if (await database.hasMigrations(AGENT_PERSISTENCE_MIGRATIONS)) {
+          agentTooling = createAgentTooling(database, createAssistantToolRegistry(assistantPorts));
+        }
       }
       // 生产画布：只引用正式对象；布局与领域事实分离；付费必须经报价与确认。
       if (await database.hasMigrations(['032']) && breakdownService instanceof BreakdownService && storyboardService) {
@@ -579,6 +589,8 @@ async function main() {
     productionMediaObjectService,
     assistantService,
     canvasService,
+    agentRuntime: agentTooling?.runtime,
+    agentToolKernel: agentTooling?.toolKernel,
     evolutionService,
     evaluationService,
     promptPacksService,
@@ -626,9 +638,10 @@ async function main() {
     const persistence = breakdownService instanceof BreakdownService ? 'PostgreSQL ready' : 'breakdown persistence unavailable';
     const extractFacts = stageRunner ? 'extract-facts ledger ready' : 'extract-facts ledger unavailable';
     const production = productionService ? 'production orchestration ready' : 'production orchestration unavailable';
+    const agent = agentTooling ? 'agent runtime/tool kernel ready' : 'agent runtime/tool kernel unavailable';
     const listenHost = config.host ?? '127.0.0.1';
     const endpoint = runApi ? `http://${listenHost}:${config.port}` : 'no HTTP listener';
-    console.log(`Lyra ${config.runtimeRole} ready: ${endpoint} (${persistence}, ${extractFacts}, ${production})`);
+    console.log(`Lyra ${config.runtimeRole} ready: ${endpoint} (${persistence}, ${extractFacts}, ${production}, ${agent})`);
     if (!runApi) {
       const lifetime = startWorkerProcessLifetime(shutdown);
       await lifetime.done;

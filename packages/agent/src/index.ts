@@ -11,3 +11,7 @@ export * from './assistant/service';
 export * from './assistant/repository';
 export * from './prompt-library/index';
 export * from './novel/screenplay';
+export * from './kernel/index';
+export * from './mcp/index';
+export * from './skills/index';
+export * from './agent-runtime/index';
