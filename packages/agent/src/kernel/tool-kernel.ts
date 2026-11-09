@@ -189,6 +189,16 @@ export class ToolKernel {
         definition,
       };
     }
+    if (existing && ['failed', 'cancelled', 'interrupted', 'inconclusive'].includes(existing.state)) {
+      // 同一个幂等键已经产生过业务 Invocation，绝不能为了“重试”再插入一行；
+      // 需要新的外部操作时必须使用新的 ToolCallId/输入摘要。
+      return {
+        kind: 'denied',
+        reasonCode: 'AGENT_TOOL_INVOCATION_TERMINAL',
+        summary: '同一幂等键的调用已进入终态或待对账，不能再次创建 Invocation。',
+        definition,
+      };
+    }
 
     const timestamp = this.now().toISOString();
     const invocationId = `inv_${randomUUID().replace(/-/g, '')}`;
@@ -467,7 +477,8 @@ function approvalFor(
 ): AgentApprovalRequest {
   const ttl = input.approvalTtlMs ?? 15 * 60 * 1000;
   return {
-    approvalId: `apr_${randomUUID().replace(/-/g, '')}`,
+    // 迁移 039 的 approval_id 列固定为 apr_<24hex>，与 decision_id 一一对应。
+    approvalId: `apr_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
     runId: input.agentRunId,
     invocationId: invocation.invocationId,
     kind: isPaidSideEffect(definition.sideEffect) ? 'paid_action' : 'tool_confirmation',

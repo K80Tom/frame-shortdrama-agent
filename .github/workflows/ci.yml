@@ -73,6 +73,8 @@ jobs:
         run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
       - name: Build agent
         run: npm --prefix packages/agent run build
+      - name: Run agent tests
+        run: npm --prefix packages/agent test
       - name: Run backend tests
         run: npm --prefix packages/main test
 

@@ -133,3 +133,46 @@ test('远端 Schema 不可表达时拒绝，读工具映射为 agent_selectable�
   };
   assert.deepEqual(admittedManifests(manifests, admission, 'demo-agent').map(item => item.remoteName), ['search_docs']);
 });
+
+test('Lyra MCP Server 只暴露 scope 内只读工具，写工具拒绝且受速率限制', async () => {
+  const { LyraMcpGateway } = require('../dist/index.js');
+  const base = server();
+  const read = mapMcpTool({ server: base, workspaceId: 'ws_demo', remote: remoteTool(), allowedAgentIds: ['demo-agent'] });
+  const write = mapMcpTool({ server: base, workspaceId: 'ws_demo', remote: remoteTool({
+    name: 'write_doc', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  }), allowedWorkflowIds: ['wf_doc'] });
+  let executions = 0;
+  const gateway = new LyraMcpGateway({
+    list: async () => [publicToolDefinition(read.definition), publicToolDefinition(write.definition)],
+    execute: async toolId => { executions += 1; return { summary: `执行 ${toolId}` }; },
+  }, { now: () => new Date('2026-01-01T00:00:00Z') });
+  const scope = {
+    workspaceId: 'ws_demo', subject: 'external-agent', permission: 'workspace_read',
+    allowedToolIds: [read.definition.toolId, write.definition.toolId], requestsPerMinute: 3,
+  };
+  const initialize = await gateway.handle({ jsonrpc: '2.0', id: 1, method: 'initialize' }, scope);
+  assert.equal(initialize.result.serverInfo.name, 'lyra');
+
+  const listed = await gateway.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, scope);
+  assert.deepEqual(listed.result.tools.map(tool => tool.name), [read.definition.toolId.replaceAll('.', '_')]);
+
+  const denied = await gateway.handle({
+    jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: write.definition.toolId.replaceAll('.', '_'), arguments: {} },
+  }, scope);
+  assert.equal(denied.error.code, -32602);
+  assert.equal(executions, 0);
+
+  const first = await gateway.handle({
+    jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: read.definition.toolId.replaceAll('.', '_'), arguments: { query: 'x' } },
+  }, scope);
+  assert.equal(first.result.isError, false);
+  const second = await gateway.handle({
+    jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: read.definition.toolId.replaceAll('.', '_'), arguments: { query: 'x' } },
+  }, scope);
+  assert.equal(second.result.isError, false);
+  const third = await gateway.handle({
+    jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: read.definition.toolId.replaceAll('.', '_'), arguments: { query: 'x' } },
+  }, scope);
+  assert.equal(third.error.code, -32029);
+  assert.equal(executions, 2);
+});

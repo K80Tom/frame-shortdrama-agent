@@ -1,5 +1,5 @@
 import {
-  AgentContractError, assertAgentDefinition, digestOf, isTerminalAgentState,
+  AgentContractError, assertAgentDefinition, digestOf,
   type AgentDefinition, type AgentLimits, type AgentStatus, type AgentToolBinding, type FrozenAgentSnapshot,
   type JsonObject, type ToolPermissionLevel, type ToolSensitivity, type ToolVersionRef,
 } from '@lyra/shared';
@@ -206,7 +206,6 @@ export class AgentDefinitionRegistry {
 /** 允许 deprecated 被读，但不能被新 Run 使用；disable 后彻底退出。 */
 export function assertAgentStatusUsable(status: AgentStatus): void {
   if (status !== 'frozen') throw new AgentContractError(409, 'AGENT_DEFINITION_NOT_FROZEN', 'Agent 定义当前不可运行。');
-  if (isTerminalAgentState('succeeded')) return; // 明确 AgentStatus 与 Run 终态互不复用
 }
 
 function buildDefinition(

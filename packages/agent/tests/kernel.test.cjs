@@ -4,6 +4,7 @@ const { defineTool, digestOf } = require('@lyra/shared');
 const {
   ToolRegistry, ToolKernel, InMemoryToolInvocationStore, InMemoryBudgetLedger,
   ToolAdapterError, WAITING_CONFIRMATION, validateToolArguments, decideToolPermission,
+  runAgentToolLoop,
 } = require('../dist/index.js');
 
 const BASE_DEF = {
@@ -184,4 +185,50 @@ test('可重试失败按策略重试，外部结果未知进入 reconciling 而�
   const unknownOutcome = await unknownKernel.execute(unknown.invocation, context());
   assert.equal(unknownOutcome.result.status, 'inconclusive');
   assert.equal(unknownOutcome.invocation.state, 'reconciling');
+});
+
+test('多轮 tool_calls 循环逐轮重新校验，遇到需确认调用立即 WAITING_CONFIRMATION 挂起', async () => {
+  const read = makeTool();
+  const registry = new ToolRegistry();
+  registry.register(read, { execute: async () => ({ summary: '第一轮读取成功' }) });
+  const kernel = new ToolKernel(registry, new InMemoryToolInvocationStore(), new InMemoryBudgetLedger({}),
+    { now: () => new Date('2026-01-01T00:00:00Z') });
+  const base = {
+    workspaceId: 'ws_demo', agentId: 'demo-agent', agentRunId: 'run_demo', stepId: 'stp_demo',
+    context: context(), role: 'member', grantedPermissions: ['workspace_read'], workflow: null,
+  };
+  const result = await runAgentToolLoop(kernel, {
+    ...base,
+    planner: async ({ round, observations }) => {
+      if (round === 1) return { calls: [proposal(read)] };
+      assert.equal(observations.length, 1);
+      assert.equal(observations[0].status, 'succeeded');
+      return { done: true, summary: '两轮完成', output: { count: 1 } };
+    },
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.rounds, 2);
+  assert.deepEqual(result.output, { count: 1 });
+  assert.equal(result.observations[0].summary, '第一轮读取成功');
+
+  const paid = makeTool({
+    toolId: 'demo.loop.pay', sideEffect: 'paid_external', executionOwner: 'workflow_only',
+    requiredPermission: 'workspace_write', allowedWorkflowIds: ['wf_paid'],
+    cost: { estimatorRevision: 'quote-v1', budgetDimension: 'money', estimateMicros: 5000, currency: 'CNY' },
+  });
+  const paidRegistry = new ToolRegistry();
+  let executed = 0;
+  paidRegistry.register(paid, { execute: async () => { executed += 1; return { summary: '不应执行' }; } });
+  const paidKernel = new ToolKernel(paidRegistry, new InMemoryToolInvocationStore(), new InMemoryBudgetLedger({ ws_demo: 100000 }));
+  const suspended = await runAgentToolLoop(paidKernel, {
+    ...base, context: context({ grantedPermissions: ['workspace_write'] }),
+    grantedPermissions: ['workspace_write'],
+    workflow: { workflowId: 'wf_paid', stage: 'render', approvedPaidMicros: 0 },
+    budgetRemainingMicros: 100000,
+    planner: async () => ({ calls: [proposal(paid)] }),
+  });
+  assert.equal(suspended.status, 'WAITING_CONFIRMATION');
+  assert.equal(suspended.confirmationState, WAITING_CONFIRMATION);
+  assert.equal(suspended.approval.estimateMicros, 5000);
+  assert.equal(executed, 0);
 });

@@ -150,7 +150,7 @@ export class ToolRegistry {
     for (const binding of request.agent.allowedTools) {
       const versions = [...this.definitions.values()]
         .filter(definition => definition.toolId === binding.toolId)
-        .sort((left, right) => right.version.localeCompare(left.version));
+        .sort((left, right) => compareVersions(right.version, left.version));
       if (versions.length === 0) {
         denied.push({ toolId: binding.toolId, version: binding.range, reasonCode: 'AGENT_TOOL_UNKNOWN' });
         continue;
