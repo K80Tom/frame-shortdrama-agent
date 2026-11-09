@@ -11,6 +11,7 @@ const { ProductionInputObjectVerifier } = require('../dist/production/input-obje
 const { PostgresProductionInputReferenceReader } = require('../dist/production/input-reference-reader');
 const { PostgresProductionInputSnapshotRepository } = require('../dist/production/input-snapshot-repository');
 const { sealProductionInputSnapshot } = require('../dist/production/input-snapshot');
+const { PostgresProductionInputLifecycle } = require('../dist/production/input-lifecycle');
 const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
 const token = () => randomBytes(16).toString('hex');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -148,6 +149,12 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
     candidatePolicy: { mode: 'direct', limit: 1 }, automationMode: 'auto', findings: [], createdBy: a.userId, createdAt: spec.createdAt, reason: 'Persistence test' };
   const snapshot = sealProductionInputSnapshot(draft);
   await snapshots.create(a, snapshot); await snapshots.create(a, snapshot);
+  let factoryCalls = 0;
+  const lifecycle = new PostgresProductionInputLifecycle(db, () => { factoryCalls++; throw new Error('must not authorize forged source pointers'); });
+  await assert.rejects(lifecycle.validate(a, snapshotId, 1, spec.createdAt), e => e.code === 'REVISION_CONFLICT');
+  await assert.rejects(lifecycle.validate(b, snapshotId, 1, spec.createdAt), e => e.code === 'REFERENCE_NOT_FOUND');
+  await assert.rejects(lifecycle.freeze({ ...a, role: 'viewer' }, snapshotId, 1, spec.createdAt), e => e.code === 'REFERENCE_FORBIDDEN');
+  assert.equal(factoryCalls, 0);
   assert.equal((await snapshots.get(a, snapshotId)).state, 'draft'); assert.equal(await snapshots.get(b, snapshotId), null);
   assert.equal((await admin.query('SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2', [a.workspaceId, snapshotId])).rowCount, 1);
   await assert.rejects(snapshots.create(a, sealProductionInputSnapshot({ ...draft, id: 'snapshot_' + token(), baseProjectRevision: '2' })), e => e.code === 'REVISION_CONFLICT');

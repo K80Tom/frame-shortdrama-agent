@@ -83,3 +83,11 @@ Repository 只能保存 draft，要求 Actor/workspace 一致、真实项目 rev
 035 已在独立真实 PG17.6 测试库执行。非特权 test:rls2/2覆盖保存/重试/跨租户拒绝/陈旧项目拒绝/伪造frozen拒绝、正文与关联不可变及状态转换约束。测试里的 ready→frozen 是明确的直接SQL guard测试，未冒充完整真实资源验证或正式冻结服务；候选源引用夹具允许尚未解析的版本，不能作为 ready 的证据。既有 DB 矩阵与相关契约仍需以本次工具运行输出为证。
 
 下一步必须接通正式事务验证/冻结服务、资源授权适配与 HTTP，并把 Run 和所有执行器切到快照读取；整个 #123 仍未完成，不因新增表/Repository就提空壳 PR。
+
+## 事务验证/冻结服务开发检查点（成功路径仍待真实 E2E）
+
+新增 PostgresProductionInputLifecycle：项目锁→状态锁、expectedStateVersion CAS、真实 project revision 和 script/plan/storyboard 指针一致性检查、同事务 ports 工厂、重新执行引用验证、验证失败持久化 blocked、验证成功 ready、freeze 前重新验证后才 frozen；每次状态变化复用统一 Outbox，事务异常不留下半个 validating。客户端不能上传一个 ready 报告直接冻结。
+
+main 构建通过；真实非特权 PG test:rls2/2 新增证明：即便 Snapshot hash 正确，来源指针不匹配也在调用验证工厂之前拒绝；跨租户与 viewer 操作拒绝、没有验证事件副作用。相关34/34。**这些只是新增生命周期的负向/隔离证据，不证明成功验证/冻结 E2E 已通过。**
+
+下一轮必须使用真实 BreakdownService/StoryboardService 的固定桩模型建立并采用完整来源，再覆盖生命周期的正向 ready→重验证→frozen、验证后撤权/失效转 blocked、并发 state CAS、工厂异常全事务回滚及 Outbox 次数；不得把旧测试里直接 SQL 改状态冒充该服务成功路径。
