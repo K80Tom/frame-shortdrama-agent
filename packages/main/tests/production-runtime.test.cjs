@@ -253,7 +253,7 @@ test('video adapter submits once, reconciles, and exposes only verified local me
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
   const submitted = await executor.execute(ctx);
   assert.equal(submitted.state, 'waitingExternal'); assert.equal(creates, 1); assert.equal(createdRequest.allowPaid, true);
-  assert.equal(createdRequest.generateAudio, true);
+  assert.equal(createdRequest.generateAudio, false);
   assert.deepEqual(createdRequest.referenceAssetIds, [ASSET_ONE, ASSET_TWO]);
   assert.match(createdRequest.prompt, /图片1：角色「林晚」、道具「雨伞」/);
   assert.match(createdRequest.prompt, /3D 白模构图约束/);

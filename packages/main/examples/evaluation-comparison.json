@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "lyra-offline-comparison/1",
+  "cases": [
+    {
+      "caseId": "case-dialogue-001",
+      "slice": "dialogue"
+    }
+  ],
+  "policy": {
+    "version": "offline-policy-v1",
+    "samplesPerCase": 1,
+    "minimumSamples": 1,
+    "criticalCaseIds": [
+      "case-dialogue-001"
+    ],
+    "metrics": [
+      {
+        "metricId": "source-coverage",
+        "direction": "higher",
+        "absoluteThreshold": 1,
+        "maxRegression": 0
+      }
+    ]
+  },
+  "baseline": {
+    "runId": "fixture-baseline",
+    "snapshotDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "datasetDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "samples": [
+      {
+        "caseId": "case-dialogue-001",
+        "sampleIndex": 0,
+        "metricId": "source-coverage",
+        "status": "pass",
+        "value": 1,
+        "evidenceRefs": [
+          "evidence:fixture-source-001"
+        ],
+        "costMicros": 0,
+        "durationMs": 1
+      }
+    ]
+  },
+  "candidate": {
+    "runId": "fixture-candidate",
+    "snapshotDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "datasetDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "samples": [
+      {
+        "caseId": "case-dialogue-001",
+        "sampleIndex": 0,
+        "metricId": "source-coverage",
+        "status": "pass",
+        "value": 1,
+        "evidenceRefs": [
+          "evidence:fixture-source-001"
+        ],
+        "costMicros": 0,
+        "durationMs": 1
+      }
+    ]
+  }
+}
