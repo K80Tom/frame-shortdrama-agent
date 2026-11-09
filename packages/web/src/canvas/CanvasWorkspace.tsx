@@ -6,10 +6,10 @@ import type {
   CanvasCommand, CanvasDocument, CanvasQuote, CanvasRevision, CanvasRuntimeView,
 } from '@lyra/shared';
 import {
-  adoptCanvas, canvasRuntimeView, confirmBudgetAndCreateRun, createCanvas, getCanvas, listCanvases,
-  requestCanvasQuote, submitCanvasCommands, validateCanvas,
+  adoptCanvas, canvasRuntimeView, confirmBudgetAndCreateRun, createCanvas, generateCanvasNode, getCanvas,
+  listCanvases, requestCanvasQuote, submitCanvasCommands, validateCanvas,
 } from './api';
-import { layoutCanvas, summarizeDependencies, type CanvasNodeBox } from './view';
+import { layoutCanvas, nodeStatusBadge, summarizeDependencies, type CanvasNodeBox } from './view';
 import './canvas.css';
 
 function yuan(micros: number): string {
@@ -73,14 +73,15 @@ export default function CanvasWorkspace({ projectId, notify, onOpenAssistant }: 
     return () => { alive.current = false; };
   }, [projectId, loadCanvas]);
 
+  const runActive = runtime?.run ? ['queued', 'running', 'reconciling'].includes(runtime.run.status) : false;
   useEffect(() => {
     if (!canvasId || !revision) return;
     const timer = setInterval(() => {
       canvasRuntimeView(canvasId, revision.revision).then(view => { if (alive.current) setRuntime(view); })
         .catch(() => { /* 运行覆盖失败不覆盖既有状态，也不伪造成功 */ });
-    }, 12_000);
+    }, runActive ? 3_000 : 12_000);
     return () => clearInterval(timer);
-  }, [canvasId, revision]);
+  }, [canvasId, revision, runActive]);
 
   const layout = useMemo(() => revision ? layoutCanvas(revision.graph, runtime) : null, [revision, runtime]);
   const selectedNode = layout?.nodes.find(node => node.id === selected) ?? null;
@@ -141,6 +142,21 @@ export default function CanvasWorkspace({ projectId, notify, onOpenAssistant }: 
     if (created) { setQuote(created); notify(`已生成估价卡：系统预计 ${yuan(created.estimateCostMicros)}，预算上限 ${yuan(created.budgetMicros)}。`); }
   }
 
+  async function generateNode(node: CanvasNodeBox) {
+    if (!revision || !node.shotId) return;
+    if (!quote || quote.status !== 'pending') { notify('请先生成并确认该版本的估价卡，再触发节点生成。'); return; }
+    if (!window.confirm(`确认按预算 ${yuan(quote.budgetMicros)} 提交「${node.title}」异步生成？`)) return;
+    const created = await run('generate', () => generateCanvasNode(canvasId, revision.revision, node.id, {
+      quoteId: quote.id, clientRequestId: `canvas-node-${revision.revision}-${Date.now().toString(36)}`,
+    }));
+    if (created) {
+      setQuote({ ...quote, status: 'confirmed' });
+      notify(`已提交「${node.title}」异步生成（运行 ${created.id}），进度将从 Worker 事实同步。`);
+      const view = await canvasRuntimeView(canvasId, revision.revision).catch(() => null);
+      if (view && alive.current) setRuntime(view);
+    }
+  }
+
   async function confirmAndRun() {
     if (!revision || !quote) return;
     if (!canApprove) { notify('只有 owner 或 admin 可以确认付费生产。'); return; }
@@ -163,7 +179,14 @@ export default function CanvasWorkspace({ projectId, notify, onOpenAssistant }: 
         </button>
         <p className="canvas-hint">当前项目还没有生产画布。若分镜尚未采用，请先在分镜工作台完成采用。</p>
       </div>
-      {message && <p className="canvas-alert"><AlertTriangle size={14} />{message}</p>}
+      {runtime?.run && <div className="canvas-run-summary">
+      <span>运行 {runtime.run.status}</span>
+      <span>排队 {runtime.run.queue.pending + runtime.run.queue.ready}</span>
+      <span>执行中 {runtime.run.queue.running}</span>
+      <span>待人工 {runtime.run.queue.waitingHuman}</span>
+      {runtime.run.delivery && <span>成片已产出</span>}
+    </div>}
+    {message && <p className="canvas-alert"><AlertTriangle size={14} />{message}</p>}
     </section>;
   }
 
@@ -224,6 +247,10 @@ export default function CanvasWorkspace({ projectId, notify, onOpenAssistant }: 
             <text x={14} y={24} className="canvas-node-kind">{node.kindLabel}</text>
             <text x={14} y={48} className="canvas-node-title">{node.title.length > 13 ? `${node.title.slice(0, 13)}…` : node.title}</text>
             <text x={14} y={68} className="canvas-node-sub">{node.subtitle}</text>
+            <text x={14} y={86} className="canvas-node-status">{nodeStatusBadge(node)}</text>
+            {node.progressPercent !== null && node.state !== 'succeeded'
+              && <rect x={14} y={node.height - 8} className="canvas-node-progress"
+                width={(node.width - 28) * Math.max(0, Math.min(100, node.progressPercent)) / 100} height={2} />}
             <circle cx={node.width - 14} cy={14} r={5} className="canvas-state-dot" />
           </g>)}
         </svg>}
@@ -239,7 +266,24 @@ export default function CanvasWorkspace({ projectId, notify, onOpenAssistant }: 
             <dt>引用</dt><dd>{selectedNode.resourceType ?? '无'}</dd>
             <dt>上游</dt><dd>{dependencies.upstream.join('、') || '无'}</dd>
             <dt>下游</dt><dd>{dependencies.downstream.join('、') || '无'}</dd>
+            {selectedNode.stage && <><dt>阶段</dt><dd>{selectedNode.stage}</dd></>}
+            {selectedNode.progressPercent !== null && <><dt>进度</dt><dd>{selectedNode.progressPercent}%</dd></>}
           </dl>
+          {selectedNode.message && <p className="canvas-node-message">{selectedNode.message}</p>}
+          {selectedNode.shotId && <button className="canvas-primary canvas-generate"
+            onClick={() => generateNode(selectedNode)} disabled={Boolean(busy)}>
+            {selectedNode.artifact ? '同步该镜头运行状态' : '渲染此镜头'}
+          </button>}
+          {selectedNode.artifact && <div className="canvas-artifact">
+            <h4>{selectedNode.artifact.title}</h4>
+            <video src={selectedNode.artifact.uri} controls preload="metadata" />
+            <a href={selectedNode.artifact.uri} target="_blank" rel="noreferrer">打开镜头成片</a>
+          </div>}
+          {runtime?.run?.delivery && <div className="canvas-artifact">
+            <h4>{runtime.run.delivery.title}</h4>
+            <video src={runtime.run.delivery.uri} controls preload="metadata" />
+            <a href={runtime.run.delivery.uri} target="_blank" rel="noreferrer">打开整集成片</a>
+          </div>}
           <div className="canvas-move">
             <button onClick={() => moveNode(selectedNode, -24, 0)} disabled={Boolean(busy)}>←</button>
             <button onClick={() => moveNode(selectedNode, 0, -24)} disabled={Boolean(busy)}>↑</button>

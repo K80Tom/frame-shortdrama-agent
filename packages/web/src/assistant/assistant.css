@@ -206,3 +206,42 @@
 @media (max-width: 640px) {
   .assistant-panel { width: 100vw; }
 }
+
+/* 估价卡：预计耗时与费用明细（均来自服务端，不在前端重算单价）。 */
+.assistant-quote-duration {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+.assistant-quote-breakdown {
+  list-style: none;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(2, 6, 23, 0.35);
+  font-size: 12px;
+}
+.assistant-quote-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  color: #cbd5e1;
+}
+.assistant-quote-breakdown li em {
+  display: block;
+  margin-top: 2px;
+  color: #94a3b8;
+  font-style: normal;
+  font-size: 11px;
+}
+.assistant-quote-breakdown li.total {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+  color: #e2e8f0;
+}

@@ -3,7 +3,7 @@ import type {
 } from '@lyra/shared';
 
 export const CANVAS_NODE_WIDTH = 168;
-export const CANVAS_NODE_HEIGHT = 84;
+export const CANVAS_NODE_HEIGHT = 96;
 export const CANVAS_COLUMN_GAP = 96;
 export const CANVAS_ROW_GAP = 22;
 
@@ -53,6 +53,13 @@ export interface CanvasNodeBox {
   resourceType: string | null;
   /** 节点在拓扑层级中的列，用于对齐“依赖从左到右”的阅读顺序。 */
   column: number;
+  /** 以下字段全部来自后端运行覆盖，缺失时保持 null，不在前端推断。 */
+  stage: string | null;
+  progressPercent: number | null;
+  queuePosition: number | null;
+  runStatus: string | null;
+  message: string | null;
+  artifact: { id: string; kind: string; title: string; uri: string } | null;
 }
 
 export interface CanvasEdgeBox {
@@ -141,7 +148,7 @@ function groupBounds(nodes: CanvasNode[], groupId: string) {
  * 只有后端未提供 position 时才做兜底网格排列。
  */
 export function layoutCanvas(graph: CanvasGraph, runtime?: CanvasRuntimeView | null): CanvasLayout {
-  const stateOf = new Map((runtime?.nodes ?? []).map(item => [item.nodeId, item.state]));
+  const runtimeOf = new Map((runtime?.nodes ?? []).map(item => [item.nodeId, item]));
   const columns = topologicalColumns(graph);
   const sorted = [...graph.nodes].sort((a, b) => {
     const columnDelta = (columns.get(a.id) ?? 0) - (columns.get(b.id) ?? 0);
@@ -157,7 +164,8 @@ export function layoutCanvas(graph: CanvasGraph, runtime?: CanvasRuntimeView | n
     const fallbackY = 24 + row * (CANVAS_NODE_HEIGHT + CANVAS_ROW_GAP);
     const x = node.position.x || fallbackX;
     const y = node.position.y || fallbackY;
-    const state = stateOf.get(node.id) ?? 'unknown';
+    const live = runtimeOf.get(node.id);
+    const state = live?.state ?? 'unknown';
     const shotId = typeof node.metadata.shotId === 'string' ? node.metadata.shotId : null;
     return {
       id: node.id, kind: node.nodeType, kindLabel: KIND_LABELS[node.nodeType] ?? node.nodeType,
@@ -165,6 +173,9 @@ export function layoutCanvas(graph: CanvasGraph, runtime?: CanvasRuntimeView | n
       width: CANVAS_NODE_WIDTH, height: CANVAS_NODE_HEIGHT,
       state, stateLabel: STATE_LABELS[state] ?? '未知', tone: STATE_TONES[state] ?? 'muted',
       groupId: node.groupId, shotId, resourceType: node.resource?.resourceType ?? null, column,
+      stage: live?.stage ?? null, progressPercent: live?.progressPercent ?? null,
+      queuePosition: live?.queuePosition ?? null, runStatus: live?.runStatus ?? null,
+      message: live?.message ?? null, artifact: live?.artifact ?? null,
     };
   });
   const byId = new Map(placed.map(node => [node.id, node]));
@@ -223,4 +234,18 @@ export function canvasProgress(graph: CanvasGraph, runtime: CanvasRuntimeView | 
     running: states.filter(state => state === 'running').length,
     waitingHuman: states.filter(state => state === 'waitingHuman').length,
   };
+}
+
+const STAGE_TEXT: Record<string, string> = {
+  prepare: '准备', breakdown: '拆解', assets: '资产', storyboard: '分镜', director: '导演',
+  video: '渲染', candidates: '候选', review: '复核', compose: '合成', deliver: '交付',
+};
+
+/** 节点徽章：优先展示后端运行覆盖里的排队位置/百分比，缺失时退回状态文案。 */
+export function nodeStatusBadge(node: CanvasNodeBox): string {
+  if (node.artifact) return '成片可回显';
+  if (node.state === 'succeeded') return '已完成';
+  if (node.queuePosition !== null) return `排队第 ${node.queuePosition} 位`;
+  if (node.progressPercent !== null) return `${node.stage ? STAGE_TEXT[node.stage] ?? node.stage : '生产'} ${node.progressPercent}%`;
+  return node.stateLabel;
 }

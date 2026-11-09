@@ -86,6 +86,10 @@ export interface AssistantQuote {
   estimateRangeMicros?: { lowMicros: number; highMicros: number };
   /** 用户允许的预算上限；为空表示尚未设置，提交时按估价区间校验。 */
   budgetMicros?: number;
+  /** 预计耗时（秒），仅用于确认卡展示，不参与任何计价或扣费。 */
+  estimatedDurationSec?: number;
+  /** 费用明细，展示用；各项之和应等于 estimateCostMicros。 */
+  costBreakdown?: Array<{ label: string; amountMicros: number; note?: string }>;
   priceRevision?: string;
   assumptions?: string[];
   currency: string;
