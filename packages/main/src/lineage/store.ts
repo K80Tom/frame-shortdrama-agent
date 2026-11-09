@@ -1,8 +1,8 @@
 import type { QueryResultRow } from 'pg';
 import type {
-  DataEventV1, LineageEdge, LineageNode, LineageGap,
+  LineageEdge, LineageNode, LineageGap, TenantDataEvent,
 } from '@lyra/shared';
-import { lineageEdgeDigest, lineageNodeDigest } from '@lyra/shared';
+import { DATA_EVENT_LEGACY_WORKSPACE_ID, lineageEdgeDigest, lineageNodeDigest, workspaceIdOfDataEvent } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 
 /**
@@ -14,6 +14,8 @@ import type { PostgresDatabase } from '../db/client';
 export interface LineageFactSet {
   nodes: LineageNode[];
   edges: LineageEdge[];
+  /** 权威记录实际所属 workspace；V1 legacy 事件投影真实租户行时必须显式带上。 */
+  workspaceId?: string;
 }
 
 export interface LineageCommitResult {
@@ -24,8 +26,8 @@ export interface LineageCommitResult {
 }
 
 export interface LineageStore {
-  hasProcessed(consumerName: string, eventId: string): Promise<boolean>;
-  commit(consumerName: string, event: DataEventV1, factSet: LineageFactSet): Promise<LineageCommitResult>;
+  hasProcessed(consumerName: string, eventId: string, workspaceId?: string): Promise<boolean>;
+  commit(consumerName: string, event: TenantDataEvent, factSet: LineageFactSet): Promise<LineageCommitResult>;
   getNode(nodeId: string): Promise<LineageNode | null>;
   listOutgoing(nodeId: string): Promise<LineageEdge[]>;
   listIncoming(nodeId: string): Promise<LineageEdge[]>;
@@ -52,16 +54,20 @@ export class InMemoryLineageStore implements LineageStore {
     edges: new Map<string, LineageEdge>(),
   };
 
-  private processedKey(consumerName: string, eventId: string): string {
-    return `${consumerName}\u0000${eventId}`;
+  private processedKey(consumerName: string, eventId: string, workspaceId?: string): string {
+    // 旧 V1 事件不带 workspace，保留原键以兼容迁移前的离线测试夹具。
+    const scope = workspaceId && workspaceId !== DATA_EVENT_LEGACY_WORKSPACE_ID
+      ? `${workspaceId}\u0000` : '';
+    return `${scope}${consumerName}\u0000${eventId}`;
   }
 
-  async hasProcessed(consumerName: string, eventId: string): Promise<boolean> {
-    return this.state.processed.has(this.processedKey(consumerName, eventId));
+  async hasProcessed(consumerName: string, eventId: string, workspaceId?: string): Promise<boolean> {
+    return this.state.processed.has(this.processedKey(consumerName, eventId, workspaceId));
   }
 
-  async commit(consumerName: string, event: DataEventV1, factSet: LineageFactSet): Promise<LineageCommitResult> {
-    const key = this.processedKey(consumerName, event.eventId);
+  async commit(consumerName: string, event: TenantDataEvent, factSet: LineageFactSet): Promise<LineageCommitResult> {
+    const workspaceId = workspaceIdOfDataEvent(event);
+    const key = this.processedKey(consumerName, event.eventId, workspaceId);
     if (this.state.processed.has(key)) {
       return { applied: false, nodeCount: this.state.nodes.size, edgeCount: this.state.edges.size };
     }
@@ -167,21 +173,26 @@ function edgeOf(row: PgEdgeRow): LineageEdge {
 export class PostgresLineageStore implements LineageStore {
   constructor(private readonly database: PostgresDatabase) {}
 
-  async hasProcessed(consumerName: string, eventId: string): Promise<boolean> {
+  async hasProcessed(consumerName: string, eventId: string, workspaceId?: string): Promise<boolean> {
+    // 事件 ID 全局唯一；由 RLS/tenant scope 限域，不在这里假设事件 workspace 与
+    // 权威记录 workspace 一定相同（V1 legacy 事件可能投影真实租户行）。
+    void workspaceId;
     const result = await this.database.query<{ found: number }>(`
-      SELECT 1 AS found FROM lineage_events WHERE consumer_name = $1 AND event_id = $2
+      SELECT 1 AS found FROM lineage_events
+      WHERE consumer_name = $1 AND event_id = $2
     `, [consumerName, eventId]);
     return result.rows.length > 0;
   }
 
-  async commit(consumerName: string, event: DataEventV1, factSet: LineageFactSet): Promise<LineageCommitResult> {
+  async commit(consumerName: string, event: TenantDataEvent, factSet: LineageFactSet): Promise<LineageCommitResult> {
+    const workspaceId = factSet.workspaceId ?? workspaceIdOfDataEvent(event);
     return this.database.transaction(async client => {
       const ledger = await client.query<{ event_id: string }>(`
-        INSERT INTO lineage_events (consumer_name, event_id, node_count, edge_count, recorded_at)
-        VALUES ($1, $2, $3, $4, $5::timestamptz)
-        ON CONFLICT (consumer_name, event_id) DO NOTHING
+        INSERT INTO lineage_events (workspace_id, consumer_name, event_id, node_count, edge_count, recorded_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+        ON CONFLICT (workspace_id, consumer_name, event_id) DO NOTHING
         RETURNING event_id
-      `, [consumerName, event.eventId, factSet.nodes.length, factSet.edges.length,
+      `, [workspaceId, consumerName, event.eventId, factSet.nodes.length, factSet.edges.length,
         event.recordedAt]);
       if (!ledger.rows[0]) {
         const nodes = await client.query(`SELECT COUNT(*)::int AS c FROM lineage_nodes`);
@@ -191,17 +202,17 @@ export class PostgresLineageStore implements LineageStore {
       for (const node of factSet.nodes) {
         await client.query(`
           INSERT INTO lineage_nodes
-            (node_id, kind, business_id, revision_id, ref_json, digest, schema_version,
-             occurred_at, recorded_at, retention, visibility, authorization, gap_json, gap_type)
-          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::timestamptz, $9::timestamptz,
-                  $10, $11, $12, $13::jsonb, $14)
+            (workspace_id, node_id, kind, business_id, revision_id, ref_json, digest, schema_version,
+             occurred_at, recorded_at, retention, visibility, "authorization", gap_json, gap_type)
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::timestamptz, $10::timestamptz,
+                  $11, $12, $13, $14::jsonb, $15)
           ON CONFLICT (node_id) DO UPDATE SET
             digest = EXCLUDED.digest,
             ref_json = EXCLUDED.ref_json,
             gap_json = EXCLUDED.gap_json,
             gap_type = EXCLUDED.gap_type
           WHERE lineage_nodes.digest IS NULL AND EXCLUDED.digest IS NOT NULL
-        `, [node.nodeId, node.kind, node.businessId, node.revisionId,
+        `, [workspaceId, node.nodeId, node.kind, node.businessId, node.revisionId,
           JSON.stringify(node.ref), node.digest, node.schemaVersion,
           node.occurredAt, node.recordedAt, node.retention, node.visibility, node.authorization,
           node.gap ? JSON.stringify(node.gap) : null, node.gap?.type ?? null]);
@@ -209,10 +220,10 @@ export class PostgresLineageStore implements LineageStore {
       for (const edge of factSet.edges) {
         await client.query(`
           INSERT INTO lineage_edges
-            (edge_id, edge_type, from_node_id, to_node_id, source_event_id, edge_digest, recorded_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+            (workspace_id, edge_id, edge_type, from_node_id, to_node_id, source_event_id, edge_digest, recorded_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
           ON CONFLICT (edge_id) DO NOTHING
-        `, [edge.edgeId, edge.edgeType, edge.fromNodeId, edge.toNodeId, edge.sourceEventId,
+        `, [workspaceId, edge.edgeId, edge.edgeType, edge.fromNodeId, edge.toNodeId, edge.sourceEventId,
           lineageEdgeDigest(edge), edge.recordedAt]);
       }
       return { applied: true, nodeCount: factSet.nodes.length, edgeCount: factSet.edges.length };
@@ -222,7 +233,7 @@ export class PostgresLineageStore implements LineageStore {
   async getNode(nodeId: string): Promise<LineageNode | null> {
     const result = await this.database.query<PgNodeRow>(`
       SELECT node_id, kind, business_id, revision_id, ref_json, digest, schema_version,
-             occurred_at, recorded_at, retention, visibility, authorization, gap_json
+             occurred_at, recorded_at, retention, visibility, "authorization", gap_json
       FROM lineage_nodes WHERE node_id = $1
     `, [nodeId]);
     return result.rows[0] ? nodeOf(result.rows[0]) : null;
@@ -247,7 +258,7 @@ export class PostgresLineageStore implements LineageStore {
   async listNodes(): Promise<LineageNode[]> {
     const result = await this.database.query<PgNodeRow>(`
       SELECT node_id, kind, business_id, revision_id, ref_json, digest, schema_version,
-             occurred_at, recorded_at, retention, visibility, authorization, gap_json
+             occurred_at, recorded_at, retention, visibility, "authorization", gap_json
       FROM lineage_nodes ORDER BY recorded_at, node_id
     `);
     return result.rows.map(nodeOf);

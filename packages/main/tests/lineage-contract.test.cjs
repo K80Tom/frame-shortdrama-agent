@@ -70,16 +70,20 @@ test('节点/边摘要对字段顺序不敏感，越权判断按 scope', () => {
   assert.equal(canReadNode({ authorization: 'asset:read' }, ['project:read']), false);
 });
 
+function contractDetail(fn, text) {
+  assert.throws(fn, error => error instanceof LineageContractError
+    && JSON.stringify(error.details).includes(text));
+}
+
 test('自环边、伪造边 ID、缺摘要、未知类型都被拒绝', () => {
-  assert.throws(() => parseLineageEdge(edgeFixture({ toNodeId: edgeFixture().fromNodeId })),
-    /自环/);
+  contractDetail(() => parseLineageEdge(edgeFixture({ toNodeId: edgeFixture().fromNodeId })), '自环');
   const badEdge = edgeFixture();
   badEdge.edgeId = 'le_' + 'd'.repeat(32);
-  assert.throws(() => parseLineageEdge(badEdge), /不一致/);
+  contractDetail(() => parseLineageEdge(badEdge), '不一致');
   const noDigest = nodeFixture();
   delete noDigest.digest;
   noDigest.digest = null;
-  assert.throws(() => parseLineageNode(noDigest), /权威摘要/);
+  contractDetail(() => parseLineageNode(noDigest), '权威摘要');
   const badKind = nodeFixture({ kind: 'not_a_kind' });
   assert.throws(() => parseLineageNode(badKind), LineageContractError);
 });

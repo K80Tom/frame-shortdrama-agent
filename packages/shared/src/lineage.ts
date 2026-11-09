@@ -17,21 +17,21 @@ export const LINEAGE_MAX_SCOPE_LENGTH = 64;
 
 export type LineageKind =
   | 'novel_source' | 'novel_revision'
-  | 'script_version' | 'plan_revision' | 'storyboard_revision'
+  | 'script_version' | 'plan_revision' | 'storyboard_revision' | 'shot_spec'
   | 'asset'
   | 'production_run' | 'production_task' | 'production_attempt'
-  | 'external_operation'
+  | 'external_operation' | 'production_input'
   | 'quality_check' | 'review_decision'
-  | 'artifact' | 'timeline_revision' | 'delivery';
+  | 'artifact' | 'timeline_revision' | 'delivery' | 'evaluation_run';
 
 export const LINEAGE_KINDS: readonly LineageKind[] = Object.freeze([
   'novel_source', 'novel_revision',
-  'script_version', 'plan_revision', 'storyboard_revision',
+  'script_version', 'plan_revision', 'storyboard_revision', 'shot_spec',
   'asset',
   'production_run', 'production_task', 'production_attempt',
-  'external_operation',
+  'external_operation', 'production_input',
   'quality_check', 'review_decision',
-  'artifact', 'timeline_revision', 'delivery',
+  'artifact', 'timeline_revision', 'delivery', 'evaluation_run',
 ]);
 
 /**
@@ -239,13 +239,20 @@ export interface LineageEdge {
 /* 确定性身份                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** 节点的权威业务身份键；同一身份永远得到同一 nodeId。 */
-export function lineageNodeKey(kind: LineageKind, businessId: string, revisionId: string | null): string {
-  return `${kind}:${businessId}:${revisionId ?? ''}`;
+/**
+ * 节点的权威业务身份键；同一身份永远得到同一 nodeId。
+ * 可选的 workspaceId 用于 Stage 1 多租户隔离：不同 workspace 的相同业务 ID
+ * 必须得到不同节点。省略 workspace 时保留迁移前 V1 节点的确定性 ID。
+ */
+export function lineageNodeKey(kind: LineageKind, businessId: string, revisionId: string | null,
+  workspaceId?: string): string {
+  const scope = workspaceId ? `${workspaceId}:` : '';
+  return `${scope}${kind}:${businessId}:${revisionId ?? ''}`;
 }
 
-export function lineageNodeId(kind: LineageKind, businessId: string, revisionId: string | null): string {
-  const hash = createHash('sha256').update(lineageNodeKey(kind, businessId, revisionId)).digest('hex');
+export function lineageNodeId(kind: LineageKind, businessId: string, revisionId: string | null,
+  workspaceId?: string): string {
+  const hash = createHash('sha256').update(lineageNodeKey(kind, businessId, revisionId, workspaceId)).digest('hex');
   return `ln_${hash.slice(0, 32)}`;
 }
 

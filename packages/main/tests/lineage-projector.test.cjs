@@ -75,9 +75,11 @@ FACT.delivery = fact('delivery', 'delivery_0001', [
 FACT.ghost = fact('quality_check', 'ghost_check_0001',
   [input('artifact', 'missing_artifact', 'validated-by', { factIsTo: false, present: false, digest: undefined })]);
 
+const FACT_BY_ID = Object.fromEntries(Object.values(FACT).map(f => [f.businessId, f]));
+
 class FixtureReader {
   async resolve(event) {
-    return FACT[event.aggregateId] ?? null;
+    return FACT_BY_ID[event.aggregateId] ?? null;
   }
 }
 
@@ -85,6 +87,7 @@ let version = 0;
 function makeEvent(id) {
   version += 1;
   return createDataEvent({
+    eventId: 'evt_' + d64(`corr-${id}-${version}`).slice(0, 32),
     eventType: 'lineage.fact.recorded',
     aggregateType: 'production_run',
     aggregateId: id,
@@ -103,6 +106,7 @@ const ORDER = ['novel', 'script', 'plan', 'storyboard', 'asset', 'run', 'task',
 async function projectChain(store, consumer = 'lineage-test') {
   const projector = new LineageProjector(consumer, store, new FixtureReader());
   const results = [];
+  version = 0;
   for (const key of ORDER) {
     results.push(await projector.deliver(makeEvent(FACT[key].businessId)));
   }
@@ -115,8 +119,8 @@ test('完整链路投影：小说->剧本->计划/分镜->资产->run/task/attem
   assert.ok(results.every(r => r.status === 'projected'), results.map(r => r.status).join(','));
   const nodes = await store.listNodes();
   const edges = await store.listEdges();
-  // 15 个事实节点 + 1 个 unknown 占位（missing_novel）
-  assert.equal(nodes.length, ORDER.length + 1);
+  // 15 个事实节点 + 2 个 unknown 占位（missing_novel、missing_artifact）
+  assert.equal(nodes.length, ORDER.length + 2);
   assert.ok(edges.length >= 14, '至少覆盖主链每条边');
 });
 

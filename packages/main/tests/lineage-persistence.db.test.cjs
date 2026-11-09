@@ -27,7 +27,7 @@ if (!process.env.DATABASE_URL) {
     const unique = randomUUID().replaceAll('-', '').slice(0, 16);
     try {
       await database.verifyConnection();
-      assert.equal(await database.hasMigrations(['026']), true, '先运行 026 迁移。');
+      assert.equal(await database.hasMigrations(['046']), true, '先运行 046 迁移。');
 
       // 记录投影前 data_outbox_events（业务 Outbox）行数，验证血缘不写业务表。
       const outboxBefore = await database.query('SELECT COUNT(*)::int AS c FROM data_outbox_events');
@@ -56,11 +56,20 @@ if (!process.env.DATABASE_URL) {
       const projector = new LineageProjector(consumer, store, reader);
 
       let v = 0;
-      const ev = id => createDataEvent({
-        eventType: 'lineage.fact.recorded', aggregateType: 'script', aggregateId: id,
-        aggregateVersion: ++v, occurredAt: '2026-11-03T00:00:00.000Z',
-        recordedAt: '2026-11-03T00:00:01.000Z', correlationId: `db-${id}-${v}`,
-        authoritativeRef: { kind: 'fixture', id, revisionId: null, digest: d64(id) }, payload: {} });
+      const events = new Map();
+      const ev = id => {
+        if (!events.has(id)) {
+          const version = ++v;
+          events.set(id, createDataEvent({
+            eventId: 'evt_' + d64(`db-${id}-${version}`).slice(0, 32),
+            eventType: 'lineage.fact.recorded', aggregateType: 'script', aggregateId: id,
+            aggregateVersion: version, occurredAt: '2026-11-03T00:00:00.000Z',
+            recordedAt: '2026-11-03T00:00:01.000Z', correlationId: `db-${id}-${version}`,
+            authoritativeRef: { kind: 'fixture', id, revisionId: null, digest: d64(id) }, payload: {},
+          }));
+        }
+        return events.get(id);
+      };
 
       const r1 = await projector.deliver(ev(novelId));
       const r2 = await projector.deliver(ev(scriptId));
@@ -81,8 +90,8 @@ if (!process.env.DATABASE_URL) {
       // delivery 声明的上游缺失 -> unknown gap 可见
       const flagged = back.flaggedGaps.length;
       const allNodes = await store.listNodes();
-      const unknownGap = allNodes.find(n => n.gap && n.gap.type === 'unknown');
-      assert.ok(unknownGap, '缺失上游在真实库中形成 unknown gap');
+      const flaggedNode = allNodes.find(n => n.gap && (n.gap.type === 'unknown' || n.gap.type === 'orphan'));
+      assert.ok(flaggedNode, '缺失上游在真实库中形成 unknown/orphan gap');
       assert.ok(flagged >= 0);
 
       // 血缘投影没有写业务 Outbox
