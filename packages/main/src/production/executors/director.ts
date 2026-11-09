@@ -1,7 +1,9 @@
 import type { PlanRevisionRecord } from '../../breakdown/plan';
 import type { BreakdownServicePort } from '../../breakdown/service';
 import type { StoryboardRevision, StoryboardService, StoryboardShot } from '../../breakdown/storyboard';
-import { canonicalDigest, type StoredProductionRun } from '@lyra/shared';
+import { canonicalDigest, ProductionError, type StoredProductionRun, type DirectorSceneVersion, type InputVersionRef } from '@lyra/shared';
+import { requireFrozenExecutionInput } from '../frozen-execution-input';
+import { checkDirectorSceneBinding, verifyDirectorSceneVersion } from '../director-scene';
 import type {
   PreparedProductionExecution,
   ProductionExecutionContext,
@@ -19,6 +21,8 @@ type StoryboardReader = Pick<StoryboardService, 'get'>;
 export interface DirectorProductionExecutorOptions {
   breakdown: BreakdownReader;
   storyboards: StoryboardReader;
+  /** Exact authorized PG version read; NEVER a current browser scene or current project pointer. */
+  frozenSceneLoader?: (run: Readonly<StoredProductionRun>, ref: InputVersionRef)=>Promise<DirectorSceneVersion|null>;
 }
 
 interface DirectorInput {
@@ -56,9 +60,17 @@ export interface RuleBasedDirectorSnapshot {
 
 export class DirectorProductionExecutor implements ProductionExecutor {
   readonly stage = 'director' as const;
+  readonly frozenInputVersion = 1 as const;
   constructor(private readonly options: DirectorProductionExecutorOptions) {}
 
   async prepare(context: Omit<ProductionExecutionContext, 'attemptId' | 'inputDigest' | 'operationKey'>): Promise<PreparedProductionExecution> {
+    if(context.run.inputSnapshot){
+      const input=requireFrozenExecutionInput(context.run,context.frozenInput);
+      const version=context.task.scope.kind==='shot'?await this.loadFrozen(context):null;
+      return {executor:'production-director-frozen/1',inputDigest:canonicalDigest({snapshotDigest:input.snapshot.snapshotDigest,
+        scope:context.task.scope,controls:input.shots.map(s=>({shotId:s.shotId,controls:s.controls.filter(c=>c.kind==='director_scene')})),
+        sceneDigest:version?.contentDigest??null}),estimateCostMicros:0,requiresPaid:false,provider:null};
+    }
     const loaded = await this.load(context.run);
     const shot = loaded.state === 'ready' && context.task.scope.kind === 'shot'
       ? loaded.storyboard.shots.find(item => item.id === context.task.scope.id) ?? null : null;
@@ -71,6 +83,9 @@ export class DirectorProductionExecutor implements ProductionExecutor {
   }
 
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
+    if(context.run.inputSnapshot){
+      try{return await this.executeFrozen(context);}catch(error){return blocked(error instanceof ProductionError?error.code:'DIRECTOR_INPUT_UNAVAILABLE','冻结导演场景不可用，未生成替代白模。');}
+    }
     const loaded = await this.load(context.run);
     if (loaded.state === 'blocked') return blocked(loaded.code, loaded.message);
     if (context.task.scope.kind === 'episode') return this.expandEpisode(context.run, loaded);
@@ -80,6 +95,45 @@ export class DirectorProductionExecutor implements ProductionExecutor {
     return this.buildShot(context.run, loaded, context.task.scope.id);
   }
 
+  private async loadFrozen(context: Pick<ProductionExecutionContext,'run'|'task'|'frozenInput'>){
+    const input=requireFrozenExecutionInput(context.run,context.frozenInput),shot=input.shots.find(s=>s.shotId===context.task.scope.id);
+    if(context.task.scope.kind!=='shot'||!shot)throw new ProductionError(409,'REFERENCE_NOT_FOUND','冻结镜头不存在。');
+    if(context.run.directorPolicy==='never')return null;
+    const controls=shot.controls.filter(c=>c.kind==='director_scene');
+    if(!controls.length&&context.run.directorPolicy==='auto')return null;
+    if(controls.length!==1||!this.options.frozenSceneLoader)throw new ProductionError(409,'CAPABILITY_INCOMPATIBLE','缺少唯一场景版本或读取器。');
+    const v=await this.options.frozenSceneLoader(context.run,controls[0]!.artifact);
+    if(!v)throw new ProductionError(404,'REFERENCE_NOT_FOUND','场景版本不存在。');
+    const version=verifyDirectorSceneVersion(v),code=checkDirectorSceneBinding(version,controls[0]!,shot);
+    if(code)throw new ProductionError(409,code,'冻结场景与镜头引用不一致。');
+    return version;
+  }
+  private async executeFrozen(context: ProductionExecutionContext):Promise<ProductionExecutorOutcome>{
+    const input=requireFrozenExecutionInput(context.run,context.frozenInput),run=context.run;
+    if(context.task.scope.kind==='episode'){
+      if(run.directorPolicy==='always'&&input.shots.some(s=>s.controls.filter(c=>c.kind==='director_scene').length!==1))
+        return blocked('CAPABILITY_INCOMPATIBLE','强制导演策略需要每个冻结镜头引用唯一正式场景。');
+      return {state:'succeeded',artifacts:[{key:'director-plan',kind:'report',title:'冻结导演场景清单',metadata:{frozen:true,
+        snapshotId:input.snapshot.id,snapshotDigest:input.snapshot.snapshotDigest,policy:run.directorPolicy,
+        scenes:input.shots.map(s=>({shotId:s.shotId,references:s.controls.filter(c=>c.kind==='director_scene').map(c=>c.artifact)}))}}]};
+    }
+    const version=await this.loadFrozen(context);
+    if(!version)return {state:'succeeded',artifacts:[{key:'director-skip-'+context.task.scope.id,kind:'report',title:'冻结策略无需导演场景',
+      metadata:{frozen:true,snapshotDigest:input.snapshot.snapshotDigest,policy:run.directorPolicy,shotId:context.task.scope.id}}]};
+    const content=version.scene;
+    // Deterministic view projection only. No re-design, current lookup, external attachments or UI state inference.
+    const snapshot={schemaVersion:1,aspectRatio:content.aspectRatio,selectedObjectId:null,activeCameraId:content.activeCameraId,
+      objects:content.objects.map(o=>({id:o.id,name:o.name,type:o.type,visible:o.visible,color:o.color,transform:o.transform,attachments:[],
+        ...(o.mannequin?{bodyType:o.mannequin.bodyType,pose:{preset:o.mannequin.posePreset},joints:Object.fromEntries(o.mannequin.joints.map(j=>[j.name,[j.rotation.x,j.rotation.y,j.rotation.z]]))}:{}),
+        ...(o.geometry?{shape:o.geometry.shape,size:[o.geometry.size.x,o.geometry.size.y,o.geometry.size.z]}:{}),...(o.crowd?o.crowd:{}),provenance:{planEntityId:o.entityId}})),
+      cameras:content.cameras.map(c=>({id:c.id,name:c.name,type:'camera',focalLength:c.focalLength,transform:{position:c.position},target:c.target,rollDeg:c.rollDeg})),
+      environment:content.environment,ui:{},provenance:{frozen:true,ruleBased:false,projectId:version.projectId,scriptVersionId:version.scriptVersionId,
+        planRevisionId:version.planRevisionId,storyboardRevisionId:version.storyboardRevisionId,shotId:version.shotId,sceneId:version.sceneId,
+        revisionId:version.revisionId,contentDigest:version.contentDigest}};
+    return {state:'succeeded',actualCostMicros:0,artifacts:[{key:'director-'+version.shotId,kind:'directorScene',title:'冻结导演场景',metadata:{
+      frozen:true,directorSceneVersionId:version.revisionId,contentDigest:version.contentDigest,snapshotId:input.snapshot.id,
+      snapshotDigest:input.snapshot.snapshotDigest,snapshot}}]};
+  }
   private expandEpisode(run: Readonly<StoredProductionRun>, loaded: DirectorInput): ProductionExecutorOutcome {
     const decisions = loaded.storyboard.shots.map(shot => directorDecision(run.directorPolicy, shot,
       loaded.plan.content.scenes.find(scene => scene.id === shot.sceneId)?.characterIds.length ?? 0));

@@ -1,6 +1,6 @@
 {
   "name": "@lyra/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lyra 智能能力层：AI 工作区编排、只读工具、估价状态机。无状态、不持有密钥、不连接数据库；数据访问由 main 通过接口注入。",
   "main": "dist/index.js",
