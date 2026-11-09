@@ -29,12 +29,12 @@ Worker 新增可选领域事务结算模式：领域处理器必须证明相同 
 - 使用真实 PG17.6 + 真实 LocalObjectStorage + 实际任务仓库/租户解析器/通用 Worker：幂等 reserve、真实字节物化、原对象替换后仍读副本、损坏拒绝、跨 workspace 拒绝、租约接管拒绝旧提交、重试与永久失败、Outbox ready 事件注入故障时领域/job/事件一起回滚，且原缓存随后消失仍能恢复正确副本。
 - `test:rls` 7/7：4 项应用角色集成、3 项管理员隔离 schema 迁移测试；后 3 项不是 RLS 证据。既有 DB 27/27。对象源 ready 行是明确的测试 fixture，不能当作完整上传/资产授权/媒体格式校验流程的证据。
 - 供应商 selector、拒绝回退、公开请求边界、Worker 结算与冻结验真相关单元 20/20（S3 为 SDK facade 桩，不是真实云服务）。已有 HEAD-only 正向夹具已改为“不能批准 provider-only 历史”的负向断言；正向证明由新真实 PG+磁盘测试承担，不删除或跳过验真要求。
-- 全包构建成功；后端本地全量 724 pass / 1 项既有 Windows drawtext 字体失败（#111）/ 3 skipped；Web 131/131，不声称本地全绿。原 head 21c85e3 CI 7/7，接续提交必须重新验证，不能沿用旧绿灯。
+- 全包构建成功；后端本地全量 724 pass / 1 项既有 Windows drawtext 字体失败（#111）/ 3 skipped；Web 135/135，不声称本地全绿。原 head 21c85e3 CI 7/7，接续提交必须重新验证，不能沿用旧绿灯。
 - 没有真实云/MinIO 互通、付费模型、进程级故障接管、吞吐/SLO 或浏览器视觉验证。MIME 类型沿用原拥有者已登记的事实（Local GET 没有 MIME header），本层不冒充新的媒体格式 sniff/审核器。读取预算默认 64 MiB、服务端可配置；大模型/视频流式处理与资源上限仍需联调。
 
 真实资产媒体入库/AssetPack owner、控制图和 V2 Video/其余媒体适配、正式策略/权限/能力装配、V1/灰度/完整 E2E 均未完成，#123 保持开放。对象 ready fixture 或正确字节不能替代资产准入与授权。必须非作者真人审查当前 head，并对齐 #124 前置；不自动合并、不触发真实付费。
 
-开发期间检测到 #144 已由维护者合并，后续对象版本使用最新 dev 的独立 PR。另有 #145 预留 039_tool_and_skills.sql，本迁移使用 040，避免与并行贡献重复编号；未改写已发布迁移或伪造本地 schema_migrations。最终分支基于 d04758e，在全新专用数据库 lyra_object_versions_040_test 从 001 完整应用到 040（跳过未合并的 032/039），迁移成功；在该库重跑 test:db 27/27 与 test:rls 7/7。没有改写旧原型数据库的 schema_migrations。
+开发期间检测到 #144 已由维护者合并，后续对象版本使用最新 dev 的独立 PR。最初 #145 预留 039，本迁移选用 040；随后维护者合并 #146，039 现正式为 assistant_turns，本迁移仍为 040，并已提醒 #145 调整其未发布编号；未改写已发布迁移或伪造本地 schema_migrations。初次提交基于 d04758e，在全新专用数据库 lyra_object_versions_040_test 从 001 完整应用到 040（跳过未合并的 032/039），迁移成功；在该库重跑 test:db 27/27 与 test:rls 7/7。没有改写旧原型数据库的 schema_migrations。
 
 ## 运行入口与显式恢复（后续增量）
 
@@ -46,3 +46,7 @@ Worker 新增可选领域事务结算模式：领域处理器必须证明相同 
 - 领域结算本身失败或提交结果未知时，通用 Worker 不得单独把 jobs 标为 failed：保持 durable lease 等待到期接管。PG 故障注入同时阻断 ready/retry 事件后，验证 pending + running + 仅原始 requested 事件；恢复 DB 后重领租约，原缓存已消失也能复用受控副本完成。未测试真实断电或多进程杀进程。
 - 队列达到最大尝试会依照既有机制 dead_letter；不会伪造 ready 或无限重试。显式重发同一 POST（等价 repository.request）将仍 pending 且 job 已 failed/cancelled/dead_letter 的版本协调为 failed，并同事务追加一次失败事件及 reconciledBy；不重建或复活失败版本，不改写 job 历史。GET 不隐式写入。尚无后台 terminal 事实协调扫描/管理 UI、重新派生源版本的恢复产品、GC 或大文件流式处理。
 - 当前 API 只有 workspace 成员边界；尚不能据此宣称正式资产包的 project/usage/license 审核与授权已完成。没有增加字节下载/签名入口来绕过这些待完成的领域准入。
+
+## 最新基线同步验证
+
+维护者在本次接续期间合并 #146，dev 更新为 b264844。已将本 PR rebase 到该基线，唯一 app controller 列表冲突保留 CanvasController 与 ObjectVersionController，未删除或覆盖他人画布/Assistant 改动。全新专用库 lyra_object_canvas_040_test 从 001 连续应用到 040，包含正式 032_canvas_documents 与 039_assistant_turns；test:db 27/27、test:rls 7/7。早期跳过未合并 032/039 的验证仅为历史，不代替当前组合验证。开发工作树复用安装的 npm file: 包副本会陈旧，必须重新 ci 安装相关消费者后重建，不能据此修改合法 Canvas 类型或屏蔽错误。
