@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-export type CommercialVideoProvider = 'kling' | 'jimeng' | 'minimax';
+export type CommercialVideoProvider = 'kling' | 'jimeng' | 'minimax' | 'seedance';
 
 export interface CommercialVideoRequest {
   workspaceId: string;
@@ -35,6 +35,25 @@ export interface CommercialVideoAcceptance {
   status: 'submitted';
 }
 
+/** 供应商任务轮询查询；providerTaskId 为提交时供应商返回的原样任务号。 */
+export interface CommercialVideoPollQuery {
+  providerTaskId: string;
+  /** Kling 按生成路径区分查询端点（text2video/image2video）；其他供应商忽略。 */
+  imageToVideo?: boolean;
+}
+
+export interface CommercialVideoPollResult {
+  provider: CommercialVideoProvider;
+  taskId: string;
+  state: 'pending' | 'succeeded' | 'failed';
+  /** 供应商返回的视频下载地址；仅在 succeeded 且确实返回时给出。 */
+  videoUrl: string | null;
+  /** 供应商显式回传的尾帧预览地址（如 Seedance return_last_frame）。 */
+  lastFrameUrl?: string | null;
+  /** 供应商状态描述或失败原因，已截断，不含凭据或完整上游响应。 */
+  message: string | null;
+}
+
 export interface CommercialVideoProviderConfig {
   endpoint: string;
   apiKey: string;
@@ -46,9 +65,9 @@ export interface CommercialVideoProviderConfig {
 
 export interface ProviderHttpRequest {
   url: string;
-  method: 'POST';
+  method: 'GET' | 'POST';
   headers: Record<string, string>;
-  body: Record<string, unknown>;
+  body?: Record<string, unknown>;
 }
 
 export class CommercialVideoError extends Error {
@@ -68,7 +87,7 @@ export class ProviderHttpError extends CommercialVideoError {
 const WORKSPACE = /^ws_[a-f0-9]{32}$/u;
 const OPERATION = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,100}$/u;
-const PROVIDERS = new Set<CommercialVideoProvider>(['kling', 'jimeng', 'minimax']);
+const PROVIDERS = new Set<CommercialVideoProvider>(['kling', 'jimeng', 'minimax', 'seedance']);
 const MAX_IMAGE_URL = 4096;
 
 function invalid(message: string): never {
@@ -89,8 +108,38 @@ function privateImageHost(hostname: string): boolean {
   return false;
 }
 
-function httpsImageUrl(value: unknown, label: string): string | undefined {
+/** 出站 URL 的 SSRF 门禁：HTTPS、无凭据、非本机/内网主机。 */
+export function parsePublicHttpsUrl(value: unknown, label: string): URL {
+  if (typeof value !== 'string' || value.length > MAX_IMAGE_URL || /[\\\x00-\x20\x7f]/u.test(value)) {
+    invalid(`${label}必须是 HTTPS 地址。`);
+  }
+  let url: URL;
+  try { url = new URL(value); } catch { invalid(`${label}必须是 HTTPS 地址。`); }
+  if (url.protocol !== 'https:' || url.username || url.password || !url.hostname) invalid(`${label}必须是 HTTPS 地址。`);
+  if (privateImageHost(url.hostname)) invalid(`${label}不能指向本机或内网地址。`);
+  return url;
+}
+
+const INLINE_IMAGE_PATTERN = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/u;
+export const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** 已验真对象版本的内联帧：规范 Base64、可解码、大小受控（与 media-client 同纪律）。 */
+export function inlineImageDataUri(value: unknown, label: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') invalid(`${label}必须是 HTTPS 图片地址或规范 Base64 图片。`);
+  if (!value.startsWith('data:')) return httpsImageUrl(value, label);
+  if (value.length > Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4 + 32) invalid(`${label}超过内联图片大小限制。`);
+  const matched = INLINE_IMAGE_PATTERN.exec(value);
+  const encoded = matched?.[2];
+  if (!matched || !encoded || encoded.length % 4) invalid(`${label}不是规范的 Base64 图片。`);
+  const bytes = Buffer.from(encoded, 'base64');
+  if (!bytes.length || bytes.length > MAX_INLINE_IMAGE_BYTES || bytes.toString('base64') !== encoded) {
+    invalid(`${label}的 Base64 图片数据无效。`);
+  }
+  return value;
+}
+
+function httpsImageUrl(value: unknown, label: string): string | undefined {  if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || value.length > MAX_IMAGE_URL || /[\\\x00-\x20\x7f]/u.test(value)) {
     invalid(`${label}必须是 HTTPS 图片地址。`);
   }
@@ -99,6 +148,17 @@ function httpsImageUrl(value: unknown, label: string): string | undefined {
   if (url.protocol !== 'https:' || url.username || url.password || !url.hostname) invalid(`${label}必须是 HTTPS 图片地址。`);
   if (privateImageHost(url.hostname)) invalid(`${label}不能指向本机或内网地址。`);
   return url.href;
+}
+
+/** 供应商媒体地址（图片或视频下载地址）的 SSRF 门禁：HTTPS、无凭据、非内网。 */
+export const httpsMediaUrl = httpsImageUrl;
+
+/** 校验供应商任务号形状（不透传空白、控制字符或超长值）。 */
+export function validateProviderTaskId(value: unknown, provider: CommercialVideoProvider): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_.:-]{8,160}$/u.test(value)) {
+    invalid(`${provider} 供应商任务号无效。`);
+  }
+  return value;
 }
 
 export function parseCommercialVideoRequest(value: CommercialVideoRequest,
@@ -122,8 +182,8 @@ export function parseCommercialVideoRequest(value: CommercialVideoRequest,
   }
   if (value.ratio !== '9:16' && value.ratio !== '16:9') invalid('视频画幅只支持 9:16 或 16:9。');
   if (value.resolution !== '720p' && value.resolution !== '1080p') invalid('视频分辨率只支持 720p 或 1080p。');
-  const firstFrameUrl = httpsImageUrl(value.firstFrameUrl, '首帧');
-  const lastFrameUrl = httpsImageUrl(value.lastFrameUrl, '尾帧');
+  const firstFrameUrl = inlineImageDataUri(value.firstFrameUrl, '首帧');
+  const lastFrameUrl = inlineImageDataUri(value.lastFrameUrl, '尾帧');
   if (lastFrameUrl && !firstFrameUrl) invalid('尾帧必须同时提供首帧。');
   if (firstFrameUrl && lastFrameUrl && firstFrameUrl === lastFrameUrl) invalid('首帧与尾帧不能是同一张图。');
   const references = value.referenceImageUrls === undefined ? [] : value.referenceImageUrls;
@@ -177,14 +237,19 @@ export function assertProviderConfig(config: CommercialVideoProviderConfig, prov
   }
 }
 
-export async function providerPostJson(config: CommercialVideoProviderConfig, request: ProviderHttpRequest): Promise<unknown> {
+export async function providerRequestJson(config: CommercialVideoProviderConfig,
+  request: ProviderHttpRequest): Promise<unknown> {
   const fetchImpl = config.fetch ?? globalThis.fetch;
   const timeoutMs = config.timeoutMs ?? 180_000;
   const signal = AbortSignal.timeout(timeoutMs);
+  const hasBody = request.method === 'POST';
+  if (hasBody && !request.body) invalid('视频供应商 POST 请求缺少请求体。');
   let response: Response;
   try {
     response = await fetchImpl(request.url, {
-      method: request.method, headers: request.headers, body: JSON.stringify(request.body),
+      method: request.method,
+      headers: request.headers,
+      ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
       redirect: 'error', signal,
     });
   } catch {
@@ -218,6 +283,11 @@ export async function providerPostJson(config: CommercialVideoProviderConfig, re
   catch { throw new CommercialVideoError(502, 'VIDEO_PROVIDER_RESPONSE_INVALID', '视频供应商没有返回有效 JSON。'); }
 }
 
+export async function providerPostJson(config: CommercialVideoProviderConfig,
+  request: ProviderHttpRequest): Promise<unknown> {
+  return providerRequestJson(config, { ...request, method: 'POST' });
+}
+
 export function responseString(body: unknown, ...keys: string[]): string | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   let current: unknown = body;
@@ -226,6 +296,18 @@ export function responseString(body: unknown, ...keys: string[]): string | null 
     current = (current as Record<string, unknown>)[key];
   }
   return typeof current === 'string' && /^[A-Za-z0-9_.:-]{8,160}$/u.test(current) ? current : null;
+}
+
+/** 状态词读取器：比任务号宽松（'queued'/'running'/'Success' 等短词），仍拒绝控制字符与超长值。 */
+export function responseStatus(body: unknown, ...keys: string[]): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  let current: unknown = body;
+  for (const key of keys) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === 'string' && current.length >= 1 && current.length <= 160
+    && !/[\x00-\x1f\x7f]/u.test(current) ? current : null;
 }
 
 export function newProviderClientId(): string { return `lyra_${randomUUID().replaceAll('-', '')}`; }

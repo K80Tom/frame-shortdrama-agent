@@ -8,9 +8,11 @@ import {
   assertProviderConfig,
   CommercialVideoError,
   parseCommercialVideoRequest,
+  providerRequestJson,
   ProviderHttpError,
-  providerPostJson,
   type CommercialVideoAcceptance,
+  type CommercialVideoPollQuery,
+  type CommercialVideoPollResult,
   type CommercialVideoProvider,
   type CommercialVideoProviderConfig,
   type CommercialVideoRequest,
@@ -32,12 +34,28 @@ export abstract class CommercialVideoAdapter {
   /** Pure request assembly; safe to unit test without network or credentials. */
   protected abstract buildRequest(request: CommercialVideoRequest): ProviderHttpRequest;
   protected abstract parseTaskId(response: unknown): string | null;
+  /** 轮询请求组装（GET，只读，无预算动作）。 */
+  protected abstract buildPollRequest(query: CommercialVideoPollQuery): ProviderHttpRequest;
+  /** 纯解析：把供应商轮询响应映射为 pending/succeeded/failed 与产物地址。 */
+  protected abstract parsePollResponse(response: unknown, query: CommercialVideoPollQuery): CommercialVideoPollResult;
 
   /** Redacted view for tests/operators: never returns auth headers or the API key. */
   inspectRequest(raw: CommercialVideoRequest): { url: string; body: Record<string, unknown> } {
     const request = parseCommercialVideoRequest(raw, this.provider);
     const built = this.buildRequest(request);
-    return { url: built.url, body: built.body };
+    return { url: built.url, body: built.body ?? {} };
+  }
+
+  /** 轮询URL预览（脱敏，不含 Authorization）；供测试与运维检查。 */
+  inspectPoll(query: CommercialVideoPollQuery): { url: string } {
+    return { url: this.buildPollRequest(query).url };
+  }
+
+  /** 单次任务轮询。只读，不触发预算动作；网络失败抛 ProviderHttpError，由调用方决定重试节奏。 */
+  async poll(query: CommercialVideoPollQuery): Promise<CommercialVideoPollResult> {
+    const request = this.buildPollRequest(query);
+    const response = await providerRequestJson(this.config, request);
+    return this.parsePollResponse(response, query);
   }
 
   async submit(raw: CommercialVideoRequest): Promise<CommercialVideoAcceptance> {
@@ -65,7 +83,7 @@ export abstract class CommercialVideoAdapter {
     }
 
     let response: unknown;
-    try { response = await providerPostJson(this.config, built); }
+    try { response = await providerRequestJson(this.config, built); }
     catch (error) {
       if (error instanceof ProviderHttpError) {
         if (error.upstreamStatus >= 400 && error.upstreamStatus < 500
