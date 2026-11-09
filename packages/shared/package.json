@@ -1,12 +1,13 @@
 {
   "name": "@lyra/shared",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lyra monorepo 公共契约：模型调用与生产运行的请求/响应、错误和事件类型。所有包共用，不依赖任何运行时服务。",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.cjs"
   },
   "engines": {
     "node": ">=22.19.0"

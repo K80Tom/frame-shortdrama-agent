@@ -18,6 +18,9 @@ export interface CreateVideoRun {
   generateAudio: boolean;
   /** Ordered immutable catalogue references used as Seedance reference images. */
   referenceAssetIds?: string[];
+  /** Workspace-scoped immutable asset IDs; the adapter resolves them to short-lived inputs. */
+  firstFrameAssetId?: string;
+  lastFrameAssetId?: string;
   clientRequestId: string;
   expectedModelConnectionRevision: string;
   allowPaid: true;
@@ -52,7 +55,7 @@ function invalid(): never {
 }
 export function parseCreateVideoRun(value: unknown): CreateVideoRun {
   const required = ['prompt', 'ratio', 'duration', 'resolution', 'generateAudio', 'clientRequestId', 'expectedModelConnectionRevision', 'allowPaid'];
-  const keys = [...required, 'referenceAssetIds'];
+  const keys = [...required, 'referenceAssetIds', 'firstFrameAssetId', 'lastFrameAssetId'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(key => !keys.includes(key)) || required.some(key => !Object.hasOwn(value, key))) invalid();
   const input = value as Record<string, unknown>;
@@ -60,6 +63,12 @@ export function parseCreateVideoRun(value: unknown): CreateVideoRun {
   if (references !== undefined && (!Array.isArray(references) || references.length > 30
     || references.some(id => typeof id !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(id))
     || new Set(references).size !== references.length)) invalid();
+  const first = input.firstFrameAssetId; const last = input.lastFrameAssetId;
+  if (first !== undefined && (typeof first !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(first))) invalid();
+  if (last !== undefined && (typeof last !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(last))) invalid();
+  if (last !== undefined && first === undefined) invalid();
+  if (first !== undefined && last !== undefined && first === last) invalid();
+  if (references !== undefined && [first, last].some(id => typeof id === 'string' && references.includes(id))) invalid();
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 8000
     || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(input.prompt)
     || Array.from(input.prompt).some(char => char.length === 1 && char.charCodeAt(0) >= 0xd800 && char.charCodeAt(0) <= 0xdfff)
@@ -80,6 +89,7 @@ export function sameVideoRequest(run: StoredVideoRun, input: CreateVideoRun): bo
   return run.prompt === input.prompt && run.ratio === input.ratio && run.duration === input.duration
     && run.resolution === input.resolution && run.generateAudio === input.generateAudio
     && sameReferences(run.referenceAssetIds, input.referenceAssetIds)
+    && run.firstFrameAssetId === input.firstFrameAssetId && run.lastFrameAssetId === input.lastFrameAssetId
     && run.clientRequestId === input.clientRequestId && run.modelConnectionRevision === input.expectedModelConnectionRevision;
 }
 

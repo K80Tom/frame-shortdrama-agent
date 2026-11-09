@@ -97,6 +97,13 @@ export interface DesktopTask {
 }
 export interface StoredDesktopTask extends Omit<DesktopTask, 'candidate'> {
   jobKey: string; item: NovelItem; version: number; submittedAt: string | null;
+  /**
+   * Frozen tenant owner used by a background Worker to re-enter PostgreSQL
+   * RLS before it reads source facts, calls a provider or imports media.
+   * Records created before Stage 1 legitimately omit this field and must be
+   * sent to manual review rather than executed with system authority.
+   */
+  workspaceId?: string;
   /** Snapshot the paid media choice so a later settings change cannot silently
    * redirect an already-authorised job. Older desktop records omit these. */
   model?: string;

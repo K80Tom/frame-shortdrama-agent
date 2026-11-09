@@ -1,6 +1,6 @@
 import { loadPromptPacks, PROMPT_PACK_STAGES, type LoadedPromptPack } from '@lyra/agent';
 import { readFile } from 'node:fs/promises';
-import { canonicalDigest, methodNodesFor, type FrozenMethodPack, type MethodNode } from '@lyra/shared';
+import { canonicalDigest, methodNodesFor, promptPackVersionId, type FrozenMethodPack, type MethodNode } from '@lyra/shared';
 import { excerptOf, isAdaptedProject } from './runtime';
 import path from 'node:path';
 import type { PromptPackImportRepository, PromptPackStateRepository } from './repository';
@@ -205,7 +205,9 @@ export class PromptPackService {
       // YAML metadata is cataloguing information, not a production instruction.
       const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u, '').trim() || raw.trim();
       const clean = body.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\uD800-\uDFFF]/gu, ' ');
-      snapshot.push({ id, nodes, digest: canonicalDigest(raw), excerpt: excerptOf(clean, 4000) });
+      const digest = canonicalDigest(raw);
+      // 单一真相源：run_json.methodPacks[].versionId 就是 Snapshot 的 packVersionIds 元素。
+      snapshot.push({ id, nodes, digest, excerpt: excerptOf(clean, 4000), versionId: promptPackVersionId(id, digest) });
     }
     return snapshot;
   }

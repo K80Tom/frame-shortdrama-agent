@@ -1,4 +1,17 @@
+import { workspaceFetch } from '../deployment';
+
 export interface AssistantContext { label: string; projectId?: string; runId?: string }
+
+export interface AssistantContextSnapshot {
+  label: string;
+  capturedAt: string;
+  projectId?: string;
+  projectTitle?: string;
+  scriptVersionId?: string;
+  storyboardRevisionId?: string;
+  productionRunIds: string[];
+  canvasId?: string;
+}
 
 export interface AssistantSession {
   id: string;
@@ -7,6 +20,21 @@ export interface AssistantSession {
   title: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface AssistantTurn {
+  id: string;
+  sessionId: string;
+  agentRunId: string;
+  cursor: number;
+  status: 'running' | 'completed' | 'failed' | 'interrupted';
+  userContent: string;
+  context: AssistantContextSnapshot;
+  events: AssistantEvent[];
+  startedAt: string;
+  completedAt?: string;
+  error?: { code: string; message: string };
 }
 
 export interface AssistantMessage {
@@ -28,7 +56,13 @@ export interface AssistantQuote {
   kind: 'production_run';
   request: Record<string, unknown>;
   summary: string;
+  /** 系统估价；展示“预计花费”只能用它或区间，不能拿预算冒充。 */
   estimateCostMicros: number;
+  estimateRangeMicros?: { lowMicros: number; highMicros: number };
+  /** 用户设置的预算上限；与估价分开显示。 */
+  budgetMicros?: number;
+  priceRevision?: string;
+  assumptions?: string[];
   currency: string;
   status: 'pending' | 'submitted' | 'expired' | 'cancelled';
   submittedRunId?: string;
@@ -37,14 +71,20 @@ export interface AssistantQuote {
 }
 
 export type AssistantEvent =
-  | { type: 'session'; sessionId: string }
-  | { type: 'text_delta'; delta: string }
-  | { type: 'thinking_delta'; delta: string }
-  | { type: 'tool_start'; toolName: string }
-  | { type: 'tool_end'; toolName: string; isError: boolean; summary: string }
-  | { type: 'generation_quote'; quote: AssistantQuote }
-  | { type: 'done'; message: AssistantMessage }
-  | { type: 'error'; code: string; message: string };
+  | { type: 'session'; sessionId: string; turnId?: string }
+  | { type: 'turn.started'; sessionId: string; turnId: string; agentRunId: string; context: AssistantContextSnapshot }
+  | { type: 'model.delta'; delta: string; turnId: string }
+  | { type: 'text_delta'; delta: string; turnId?: string }
+  | { type: 'thinking_delta'; delta: string; turnId?: string }
+  | { type: 'tool.proposed'; turnId: string; callId: string; toolName: string; arguments: Record<string, unknown> }
+  | { type: 'tool_start'; toolName: string; turnId?: string; callId?: string }
+  | { type: 'tool_end'; toolName: string; isError: boolean; summary: string; turnId?: string; callId?: string }
+  | { type: 'generation_quote'; quote: AssistantQuote; turnId?: string }
+  | { type: 'confirmation.required'; quote: AssistantQuote; turnId: string }
+  | { type: 'run.created'; turnId: string; quoteId: string; runId: string }
+  | { type: 'done'; message: AssistantMessage; turnId?: string; cursor?: number }
+  | { type: 'turn.failed'; turnId: string; code: string; message: string; retryable: boolean }
+  | { type: 'error'; code: string; message: string; turnId?: string };
 
 const JSON_HEADERS = { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' };
 
@@ -59,28 +99,51 @@ async function readError(response: Response): Promise<Error> {
   }
 }
 
-export async function createAssistantSession(context: AssistantContext): Promise<AssistantSession> {
-  const response = await fetch('/api/assistant/sessions', {
-    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(context), cache: 'no-store',
-  });
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await workspaceFetch(path, { cache: 'no-store', ...init });
   if (!response.ok) throw await readError(response);
-  return response.json() as Promise<AssistantSession>;
+  return response.json() as Promise<T>;
 }
 
-export async function assistantHistory(sessionId: string):
-  Promise<{ session: AssistantSession; items: AssistantMessage[]; quotes: AssistantQuote[] }> {
-  const response = await fetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages`, { cache: 'no-store' });
-  if (!response.ok) throw await readError(response);
-  return response.json();
+export function createAssistantSession(context: AssistantContext): Promise<AssistantSession> {
+  return request('/api/assistant/sessions', {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(context),
+  });
+}
+
+export function listAssistantSessions(includeArchived = false): Promise<AssistantSession[]> {
+  return request(`/api/assistant/sessions?includeArchived=${includeArchived ? '1' : '0'}&limit=30`);
+}
+
+export function updateAssistantSession(sessionId: string, patch: { title?: string; archived?: boolean }):
+  Promise<AssistantSession> {
+  return request(`/api/assistant/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(patch),
+  });
+}
+
+export function assistantHistory(sessionId: string): Promise<{
+  session: AssistantSession; items: AssistantMessage[]; quotes: AssistantQuote[]; turns: AssistantTurn[];
+}> {
+  return request(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages`);
+}
+
+export function resumeAssistantSession(sessionId: string, cursor: number): Promise<{
+  session: AssistantSession; cursor: number; turns: AssistantTurn[]; events: AssistantEvent[];
+}> {
+  return request(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/resume?cursor=${cursor}`);
 }
 
 export async function streamAssistantMessage(
   sessionId: string, content: string, onEvent: (event: AssistantEvent) => void, signal?: AbortSignal,
+  cursor?: number,
 ): Promise<void> {
-  const response = await fetch(`/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages?stream=1`, {
-    method: 'POST', headers: { ...JSON_HEADERS, Accept: 'text/event-stream' },
-    body: JSON.stringify({ content }), cache: 'no-store', signal,
-  });
+  const suffix = cursor && cursor > 0 ? `&cursor=${cursor}` : '';
+  const response = await workspaceFetch(
+    `/api/assistant/sessions/${encodeURIComponent(sessionId)}/messages?stream=1${suffix}`, {
+      method: 'POST', headers: { ...JSON_HEADERS, Accept: 'text/event-stream' },
+      body: JSON.stringify({ content }), cache: 'no-store', signal,
+    });
   if (!response.ok || !response.body) throw await readError(response);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -104,11 +167,9 @@ export async function streamAssistantMessage(
   }
 }
 
-export async function submitAssistantQuote(sessionId: string, quoteId: string):
+export function submitAssistantQuote(sessionId: string, quoteId: string):
   Promise<{ quote: AssistantQuote; runId: string }> {
-  const response = await fetch(
+  return request(
     `/api/assistant/sessions/${encodeURIComponent(sessionId)}/quotes/${encodeURIComponent(quoteId)}/submit`,
-    { method: 'POST', headers: JSON_HEADERS, body: '{}', cache: 'no-store' });
-  if (!response.ok) throw await readError(response);
-  return response.json();
+    { method: 'POST', headers: JSON_HEADERS, body: '{}' });
 }

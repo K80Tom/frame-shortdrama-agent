@@ -124,6 +124,8 @@ export class PinnedHttpsMediaFetcher implements PinnedMediaFetcher {
 }
 
 export interface ProductionMediaIngestorOptions {
+  /** Separate read-only DNS deadline; does not retry or cancel provider generation. */
+  dnsTimeoutMs?: number;
   timeoutMs?: number;
   maxBytes?: number;
   maxDnsAddresses?: number;
@@ -138,6 +140,7 @@ export interface ProductionMediaIngestorOptions {
 
 /** Downloads a provider result into verified local storage; the URL itself is never a deliverable. */
 export class ProductionMediaIngestor {
+  private readonly dnsTimeoutMs: number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
   private readonly maxDnsAddresses: number;
@@ -148,10 +151,12 @@ export class ProductionMediaIngestor {
     private readonly fetcher: PinnedMediaFetcher = new PinnedHttpsMediaFetcher(),
     options: ProductionMediaIngestorOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.dnsTimeoutMs = options.dnsTimeoutMs ?? Math.min(this.timeoutMs, 5_000);
     this.maxBytes = options.maxBytes ?? store.limits.maxBytes;
     this.maxDnsAddresses = options.maxDnsAddresses ?? 16;
     this.allowIntranetMediaSources = options.allowIntranetMediaSources ?? false;
-    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1
+    if (!Number.isSafeInteger(this.dnsTimeoutMs) || this.dnsTimeoutMs < 1 || this.dnsTimeoutMs > 30_000
+      || !Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1
       || !Number.isSafeInteger(this.maxBytes) || this.maxBytes < 1 || this.maxBytes > store.limits.maxBytes
       || !Number.isSafeInteger(this.maxDnsAddresses) || this.maxDnsAddresses < 1 || this.maxDnsAddresses > 64
       || typeof this.allowIntranetMediaSources !== 'boolean') {
@@ -205,11 +210,22 @@ export class ProductionMediaIngestor {
     let addresses: ResolvedAddress[];
     if (literalFamily) addresses = [{ address: hostname, family: literalFamily as 4 | 6 }];
     else {
-      try { addresses = await this.resolver.resolve(hostname); }
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        addresses = await Promise.race([
+          Promise.resolve().then(() => this.resolver.resolve(hostname)),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new ProductionMediaError(
+              504, 'REMOTE_MEDIA_DNS_TIMEOUT', '远程媒体 DNS 解析超时，未开始下载。',
+            )), this.dnsTimeoutMs);
+          }),
+        ]);
+      }
       catch (error) {
         if (error instanceof ProductionMediaError) throw error;
         throw new ProductionMediaError(502, 'REMOTE_MEDIA_DNS_FAILED', '远程视频域名无法安全解析。');
       }
+      finally { if (timer) clearTimeout(timer); }
     }
     if (!Array.isArray(addresses) || addresses.length < 1 || addresses.length > this.maxDnsAddresses) {
       throw new ProductionMediaError(502, 'REMOTE_MEDIA_DNS_INVALID', '远程视频域名没有返回可验证的地址。');
@@ -217,10 +233,10 @@ export class ProductionMediaIngestor {
     const unique = new Map<string, ResolvedAddress>();
     for (const value of addresses) {
       const family = value && typeof value.address === 'string' ? isIP(value.address) : 0;
-      const addressAllowed = this.allowIntranetMediaSources
+      const addressAllowed = (family === 4 || family === 6) && value.family === family && (this.allowIntranetMediaSources
         ? isNonLocalIntranetAddress(value.address, family)
-        : isPublicInternetAddress(value.address);
-      if ((family !== 4 && family !== 6) || value.family !== family || !addressAllowed) {
+        : isPublicInternetAddress(value.address));
+      if (!addressAllowed) {
         throw new ProductionMediaError(403, 'REMOTE_MEDIA_ADDRESS_FORBIDDEN', '远程视频地址指向私网、本机或保留网络。');
       }
       unique.set(`${family}:${value.address.toLowerCase()}`, { address: value.address, family });
@@ -235,18 +251,25 @@ function isNonLocalIntranetAddress(address: string, family: number): boolean {
     const parts = address.split('.').map(Number);
     if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
     const [a, b] = parts as [number, number, number, number];
-    return !(a === 0 || a === 127 || (a === 169 && b === 254));
+    return !(a === 0 || a === 127 || a >= 224 || (a === 169 && b === 254));
   }
   if (family !== 6) return false;
   const value = ipv6ToBigInt(address);
   if (value === null) return false;
+  // IPv4-mapped IPv6 must obey the same local-target rules as plain IPv4.
+  if (matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96)) {
+    const bytes = [24n, 16n, 8n, 0n].map(shift => Number((value >> shift) & 255n));
+    return isNonLocalIntranetAddress(bytes.join('.'), 4);
+  }
+  // Deprecated IPv4-compatible and multicast addresses are not CDN unicast targets.
+  if (matchesPrefix(value, 0n, 96) || matchesPrefix(value, ipv6ToBigInt('ff00::')!, 8)) return false;
   const unspecified = value === 0n;
   const loopback = value === 1n;
-  const ipv4MappedLoopback = matchesPrefix(value, ipv6ToBigInt('::ffff:0:0')!, 96) && (value & 0xff000000n) === (0x7fn << 24n);
   const linkLocal = matchesPrefix(value, ipv6ToBigInt('fe80::')!, 10);
-  return !unspecified && !loopback && !ipv4MappedLoopback && !linkLocal;
+  return !unspecified && !loopback && !linkLocal;
 }
 
+/** Project media-source filter; deliberately stricter than global routability. */
 export function isPublicInternetAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) {
@@ -268,10 +291,12 @@ export function isPublicInternetAddress(address: string): boolean {
   if (family !== 6 || address.includes('%')) return false;
   const value = ipv6ToBigInt(address);
   if (value === null || !matchesPrefix(value, ipv6ToBigInt('2000::')!, 3)) return false;
-  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 32)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:10::')!, 28)
-    && !matchesPrefix(value, ipv6ToBigInt('2001:20::')!, 28)
+  // A conservative media-CDN policy, not an IANA routability oracle. Exclude
+  // IETF protocol assignments (including unassigned holes and special anycast/
+  // overlay identifiers) rather than treating the gaps as ordinary CDN hosts.
+  return !matchesPrefix(value, ipv6ToBigInt('2001::')!, 23)
     && !matchesPrefix(value, ipv6ToBigInt('2001:db8::')!, 32)
+    && !matchesPrefix(value, ipv6ToBigInt('3fff::')!, 20)
     && !matchesPrefix(value, ipv6ToBigInt('2002::')!, 16);
 }
 

@@ -4,6 +4,7 @@ import {
   type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
+  type FrozenProductionInput,
 } from '@lyra/shared';
 import { compileProductionRun } from './blueprint';
 import {
@@ -13,12 +14,19 @@ import {
 } from './executor';
 import type { ProductionRepository } from './repository';
 import { publicProductionRun } from './view';
+import { logProductionOutputRejected, type ProductionDiagnosticSink } from './diagnostics';
+import { verifyFrozenExecutionInput } from './frozen-execution-input';
 
 export interface ProductionSourceCatalog {
   getProject(projectId: string): Promise<unknown>;
   getScriptVersion(projectId: string, scriptVersionId: string): Promise<unknown>;
 }
 export interface ProductionServiceOptions {
+  diagnosticSink?: ProductionDiagnosticSink;
+  /** Main-owned exact Run-ID loader. Does not resolve current project/registry state. */
+  frozenInputLoader?: (run: Readonly<StoredProductionRun>)=>Promise<FrozenProductionInput>;
+  /** Required immediately before a new V2 paid submission: recheck current permissions, capabilities and consent. */
+  authorizeFrozenPaidExecution?: (context: {run: Readonly<StoredProductionRun>;task: Readonly<ProductionTask>;input: FrozenProductionInput})=>Promise<void>;
   now?: () => Date;
   pollIntervalMs?: number;
   executors?: ProductionExecutor[];
@@ -26,6 +34,8 @@ export interface ProductionServiceOptions {
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
+  /** Worker scheduler resolves the persisted run owner before touching tenant data or media. */
+  runInTenantScope?: <T>(runId: string, work: () => Promise<T>) => Promise<T>;
 }
 
 const terminal = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -49,21 +59,29 @@ function issueRequiresWorkflow(task: ProductionTask, issue: ProductionIssue) {
 }
 
 export class ProductionService {
+  private readonly diagnosticSink?: ProductionDiagnosticSink;
   private readonly now: () => Date;
   private readonly pollIntervalMs: number;
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
   private readonly sourceCatalog?: ProductionSourceCatalog;
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
+  private readonly frozenInputLoader?: ProductionServiceOptions['frozenInputLoader'];
+  private readonly authorizeFrozenPaidExecution?: ProductionServiceOptions['authorizeFrozenPaidExecution'];
+  private readonly runInTenantScope?: ProductionServiceOptions['runInTenantScope'];
   private timer: NodeJS.Timeout | null = null;
   private tickTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly repository: ProductionRepository, options: ProductionServiceOptions = {}) {
+    this.diagnosticSink = options.diagnosticSink;
     this.now = options.now ?? (() => new Date());
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
     this.methodPacks = options.methodPacks;
+    this.frozenInputLoader=options.frozenInputLoader;
+    this.authorizeFrozenPaidExecution=options.authorizeFrozenPaidExecution;
+    this.runInTenantScope = options.runInTenantScope;
     for (const executor of [new ProductionPreflightExecutor(), ...(options.executors ?? [])]) this.executors.set(executor.stage, executor);
   }
 
@@ -74,6 +92,7 @@ export class ProductionService {
     const input = parseCreateProductionRun(value);
     const existing = await this.repository.getByClientRequestId(input.clientRequestId);
     if (existing) {
+      if (existing.inputSnapshot) conflict('PRODUCTION_REQUEST_REUSED', '此请求标识已用于冻结输入运行，不能改用旧创建入口。');
       if (!sameProductionRequest(existing, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
       return publicProductionRun(existing);
     }
@@ -122,6 +141,7 @@ export class ProductionService {
       return publicProductionRun(await this.save(run, 'production.run.resumed', {}));
     }
     if (action.type === 'raiseBudget') {
+      if (run.inputSnapshot) conflict('FROZEN_BUDGET_REQUIRES_NEW_SNAPSHOT', '冻结预算不可原地修改，请创建新快照。');
       if (action.budgetMicros <= run.budgetMicros) {
         conflict('PRODUCTION_BUDGET_NOT_RAISED', '新预算必须高于当前预算。');
       }
@@ -224,7 +244,9 @@ export class ProductionService {
     const task = run.tasks.find(item => item.id === input.taskId); if (!task) taskNotFound();
     const at = this.timestamp();
     this.validateReview(run, task, input);
-    await this.executors.get(task.stage)?.review?.({ run: clone(run), task: clone(task), input: clone(input) });
+    const reviewExecutor=this.executors.get(task.stage);
+    const frozenInput=run.inputSnapshot ? await this.loadFrozenInput(run,reviewExecutor) : undefined;
+    await reviewExecutor?.review?.({ run: clone(run), task: clone(task), input: clone(input), ...(frozenInput?{frozenInput:clone(frozenInput)}:{}) });
     if (input.decision === 'selectCandidate') this.selectCandidate(run, task, input, at);
     else if (input.decision === 'approve') this.approveCheckpoint(run, task, input, at);
     else if (input.decision === 'resolveIssue') this.resolveIssue(run, task, input, at);
@@ -238,27 +260,29 @@ export class ProductionService {
   async start() {
     const at = this.timestamp();
     for (const current of await this.repository.list()) {
-      if (terminal.has(current.status) || current.pausedAt) continue;
-      let changed = false;
-      for (const task of current.tasks.filter(item => item.status === 'running')) {
-        const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
-        const attemptWasRunning = attempt?.status === 'running';
-        if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
-        const operation = this.activeOperation(current, task.id);
-        if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
-          task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
-        else {
-          // The process that held this attempt is gone, and no external operation
-          // was opened. Settle the hold so a later retry can reserve again.
-          if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
-          task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+      await this.inRunScope(current.id, async () => {
+        if (terminal.has(current.status) || current.pausedAt) return;
+        let changed = false;
+        for (const task of current.tasks.filter(item => item.status === 'running')) {
+          const attempt = current.attempts.filter(item => item.taskId === task.id).at(-1);
+          const attemptWasRunning = attempt?.status === 'running';
+          if (attemptWasRunning) { attempt!.status = 'interrupted'; attempt!.endedAt = at; }
+          const operation = this.activeOperation(current, task.id);
+          if (operation) { operation.status = 'unknown'; operation.updatedAt = at; task.status = 'reconciling';
+            task.blockingReason = { code: 'EXTERNAL_SUBMISSION_UNKNOWN', message: '后端重启时付费提交可能已发生，只能查询原任务。' }; }
+          else {
+            // The process that held this attempt is gone, and no external operation
+            // was opened. Settle the hold so a later retry can reserve again.
+            if (attemptWasRunning) this.charge(current, task, attempt!, 0, at, true);
+            task.status = 'waitingHuman'; task.blockingReason = { code: 'TASK_EXECUTION_INTERRUPTED', message: '后端重启中断了本地任务，需要明确重试。' };
+          }
+          task.updatedAt = at; task.version++; this.addIssue(current, task, {
+            code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
+            severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
+          }, at); changed = true;
         }
-        task.updatedAt = at; task.version++; this.addIssue(current, task, {
-          code: task.blockingReason.code, title: '任务需要恢复', message: task.blockingReason.message,
-          severity: 'warning', recommendedActions: operation ? ['对账原外部任务'] : ['确认后重试'],
-        }, at); changed = true;
-      }
-      if (changed) { this.refreshRunStatus(current); await this.save(current, 'production.run.recovered', {}); }
+        if (changed) { this.refreshRunStatus(current); await this.save(current, 'production.run.recovered', {}); }
+      });
     }
     if (!this.timer) {
       this.timer = setInterval(() => void this.tick().catch(() => undefined), this.pollIntervalMs);
@@ -276,15 +300,21 @@ export class ProductionService {
     const execute = async () => {
       const runs = runId ? [await this.requireRun(parseProductionRunId(runId))] : await this.repository.list();
       for (const run of runs) {
-        if (terminal.has(run.status) || run.pausedAt || run.status === 'pausedBudget') continue;
-        await this.advanceOne(run).catch(error => {
-          if (!(error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT')) throw error;
+        await this.inRunScope(run.id, async () => {
+          if (terminal.has(run.status) || run.pausedAt || run.status === 'pausedBudget') return;
+          await this.advanceOne(run).catch(error => {
+            if (!(error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT')) throw error;
+          });
         });
       }
     };
     const scheduled = this.tickTail.then(execute, execute);
     this.tickTail = scheduled.catch(() => undefined);
     return scheduled;
+  }
+
+  private inRunScope<T>(runId: string, work: () => Promise<T>): Promise<T> {
+    return this.runInTenantScope ? this.runInTenantScope(runId, work) : work();
   }
 
   private async advanceOne(initial: StoredProductionRun) {
@@ -333,12 +363,16 @@ export class ProductionService {
       await this.save(run, 'production.task.retry_limit_reached', { taskId: task.id });
       return;
     }
-    let prepared;
-    try { prepared = await executor.prepare({ run: clone(run), task: clone(task) }); }
+    let prepared; let frozenInput: FrozenProductionInput | undefined;
+    try {
+      frozenInput=run.inputSnapshot ? await this.loadFrozenInput(run,executor) : undefined;
+      prepared = await executor.prepare({ run: clone(run), task: clone(task), ...(frozenInput?{frozenInput:clone(frozenInput)}:{}) });
+    }
     catch { return this.blockPrepare(run, task); }
     if (!Number.isSafeInteger(prepared.estimateCostMicros) || prepared.estimateCostMicros < 0 || !prepared.inputDigest || !prepared.executor) {
       return this.blockPrepare(run, task);
     }
+    if (frozenInput) prepared={...prepared,inputDigest:canonicalDigest({snapshotDigest:frozenInput.snapshot.snapshotDigest,executorInputDigest:prepared.inputDigest})};
     if (prepared.prerequisites?.length) {
       if (prepared.requiresPaid || prepared.estimateCostMicros !== 0) return this.blockPrepare(run, task);
       const at = this.timestamp();
@@ -378,7 +412,18 @@ export class ProductionService {
     const claimed = await this.save(run, 'production.task.started', { taskId: task.id, attemptId });
     const claimedTask = claimed.tasks.find(item => item.id === task.id)!;
     const context: ProductionExecutionContext = { run: clone(claimed), task: clone(claimedTask), attemptId,
-      inputDigest: prepared.inputDigest, operationKey };
+      inputDigest: prepared.inputDigest, operationKey, ...(frozenInput?{frozenInput:clone(frozenInput)}:{}) };
+    if (frozenInput && (prepared.requiresPaid || prepared.estimateCostMicros>0)) {
+      try {
+        if (!this.authorizeFrozenPaidExecution) throw new Error('Frozen paid authorization is not installed.');
+        await this.authorizeFrozenPaidExecution({run:clone(claimed),task:clone(claimedTask),input:clone(frozenInput)});
+      } catch {
+        // We KNOW no executor/provider was called: close the operation and release, do not label it unknown.
+        await this.applyOutcomeAfterClaim(claimed,task.id,attemptId,{state:'failed',code:'FROZEN_INPUT_AUTHORIZATION_REQUIRED',
+          message:'尚未通过当前权限、能力和人工授权复查，未调用供应商。',retryable:true,actualCostMicros:0});
+        return;
+      }
+    }
     let outcome: ProductionExecutorOutcome;
     try { outcome = await executor.execute(context); }
     catch (error) {
@@ -460,12 +505,16 @@ export class ProductionService {
       return;
     }
     const attempt = run.attempts.find(item => item.id === operation.attemptId); if (!attempt) return;
+    let frozenInput: FrozenProductionInput | undefined;
+    try { frozenInput=run.inputSnapshot ? await this.loadFrozenInput(run,executor) : undefined; }
+    catch { return this.blockPrepare(run,task); }
     const at = this.timestamp(); operation.status = 'polling'; operation.updatedAt = at; task.status = 'reconciling'; task.updatedAt = at; task.version++;
     const polling = await this.save(run, 'production.external.polling', { taskId: task.id, operationId: operation.id });
     const currentTask = polling.tasks.find(item => item.id === task.id)!; const currentOp = this.activeOperation(polling, task.id)!;
     let outcome: ProductionExecutorOutcome;
     try { outcome = await executor.reconcile({ run: clone(polling), task: clone(currentTask), attemptId: attempt.id,
-      inputDigest: attempt.inputDigest, operationKey: operation.operationKey }, clone(currentOp)); }
+      inputDigest: attempt.inputDigest, operationKey: operation.operationKey,
+      ...(frozenInput?{frozenInput:clone(frozenInput)}:{}) }, clone(currentOp)); }
     catch (error) {
       if (error instanceof ProductionError && error.code === 'PRODUCTION_RUN_CONFLICT') return;
       const latest = await this.requireRun(run.id); const latestTask = latest.tasks.find(item => item.id === task.id);
@@ -549,10 +598,13 @@ export class ProductionService {
   }
 
   private async failInvalidOutcome(runId: string, taskId: string, attemptId: string, error: unknown) {
-    console.error('[failInvalidOutcome]', taskId, error instanceof Error ? (error.stack || error.message) : JSON.stringify(error));
     const latest = await this.requireRun(runId); const task = latest.tasks.find(item => item.id === taskId);
     const attempt = latest.attempts.find(item => item.id === attemptId);
     if (!task || !attempt || attempt.status === 'succeeded') return;
+    logProductionOutputRejected({
+      projectId: latest.projectId, runId, taskId, attemptId,
+      operationId: this.activeOperation(latest, taskId)?.id,
+    }, this.diagnosticSink);
     const at = this.timestamp(); const code = error instanceof ProductionError ? error.code : 'PRODUCTION_EXECUTOR_OUTPUT_INVALID';
     // Keep a redacted, field-level reason on the attempt so the UI can explain the
     // rejection without re-running the paid step only to see the same error again.
@@ -969,6 +1021,12 @@ export class ProductionService {
       recommendedActions: ['对账供应商账单和原任务', '不要重复提交', '需要更高预算时创建新运行'] }, at);
     this.refreshRunStatus(run);
     await this.save(run, 'production.task.actual_cost_unauthorized', { taskId: task.id, reservedMicros: reserved });
+  }
+  private async loadFrozenInput(run: StoredProductionRun,executor?: ProductionExecutor) {
+    if (!this.frozenInputLoader || executor?.frozenInputVersion!==1) {
+      throw new ProductionError(409,'CAPABILITY_INCOMPATIBLE','冻结输入读取器或执行器尚未装配。');
+    }
+    return verifyFrozenExecutionInput(run,await this.frozenInputLoader(clone(run)));
   }
   private async requireRun(id: string) { const run = await this.repository.get(id); return run ?? notFound(); }
   private async save(run: StoredProductionRun, eventType: string, payload: Record<string, unknown>) {

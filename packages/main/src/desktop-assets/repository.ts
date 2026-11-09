@@ -84,6 +84,10 @@ interface CandidateRow {
   provenance_json: StoredAssetGenerationCandidate['provenance']; review_note: string;
   accepted_revision_id: string | null; created_at: Date | string; updated_at: Date | string;
 }
+interface TaskRow {
+  workspace_id: string;
+  task_json: StoredDesktopTask;
+}
 function time(value: Date | string): string {
   const result = value instanceof Date ? value.toISOString() : value;
   if (typeof result !== 'string' || !Number.isFinite(Date.parse(result))) persistence();
@@ -95,34 +99,39 @@ function fromCandidateRow(row: CandidateRow): StoredAssetGenerationCandidate {
     reviewNote: row.review_note, acceptedRevisionId: row.accepted_revision_id,
     createdAt: time(row.created_at), updatedAt: time(row.updated_at)});
 }
+function fromTaskRow(row: TaskRow): StoredDesktopTask {
+  const task = copy(row.task_json);
+  if (task.workspaceId !== undefined && task.workspaceId !== row.workspace_id) persistence();
+  return task;
+}
 
 export class PostgresDesktopTaskRepository implements DesktopTaskRepository {
   constructor(private readonly db: PostgresDatabase) {}
   async list(chapterId?: string) {
     try {
-      const result = await this.db.query<{task_json: StoredDesktopTask}>(
-        `SELECT task_json FROM desktop_asset_jobs ${chapterId ? 'WHERE chapter_id=$1' : ''} ORDER BY created_at DESC`, chapterId ? [chapterId] : []);
-      return result.rows.map(row => copy(row.task_json));
+      const result = await this.db.query<TaskRow>(
+        `SELECT workspace_id, task_json FROM desktop_asset_jobs ${chapterId ? 'WHERE chapter_id=$1' : ''} ORDER BY created_at DESC`, chapterId ? [chapterId] : []);
+      return result.rows.map(fromTaskRow);
     } catch { return persistence(); }
   }
   async get(id: string) {
     try {
-      const result = await this.db.query<{task_json: StoredDesktopTask}>('SELECT task_json FROM desktop_asset_jobs WHERE id=$1', [id]);
-      return result.rows[0] ? copy(result.rows[0].task_json) : null;
+      const result = await this.db.query<TaskRow>('SELECT workspace_id, task_json FROM desktop_asset_jobs WHERE id=$1', [id]);
+      return result.rows[0] ? fromTaskRow(result.rows[0]) : null;
     } catch { return persistence(); }
   }
   async getTaskByAsset(assetId: string) {
     try {
-      const result = await this.db.query<{task_json: StoredDesktopTask}>(
-        "SELECT task_json FROM desktop_asset_jobs WHERE task_json->>'assetId'=$1 LIMIT 1", [assetId]);
-      return result.rows[0] ? copy(result.rows[0].task_json) : null;
+      const result = await this.db.query<TaskRow>(
+        "SELECT workspace_id, task_json FROM desktop_asset_jobs WHERE task_json->>'assetId'=$1 LIMIT 1", [assetId]);
+      return result.rows[0] ? fromTaskRow(result.rows[0]) : null;
     } catch { return persistence(); }
   }
   async create(task: StoredDesktopTask) {
     try { return await this.db.transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext('shortdrama:desktop-asset-create'))");
-      const same = await client.query<{task_json: StoredDesktopTask}>('SELECT task_json FROM desktop_asset_jobs WHERE job_key=$1', [task.jobKey]);
-      if (same.rows[0]) return copy(same.rows[0].task_json);
+      const same = await client.query<TaskRow>('SELECT workspace_id, task_json FROM desktop_asset_jobs WHERE job_key=$1', [task.jobKey]);
+      if (same.rows[0]) return fromTaskRow(same.rows[0]);
       const active = await client.query('SELECT id FROM desktop_asset_jobs WHERE status=ANY($1::text[])', [activeStates]);
       if (active.rowCount) busy();
       await client.query('INSERT INTO desktop_asset_jobs(id,job_key,chapter_id,status,version,task_json,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',

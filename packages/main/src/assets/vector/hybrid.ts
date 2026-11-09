@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AssetRecord } from '@lyra/shared';
 import { DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
 import {
@@ -13,6 +14,7 @@ import {
 import type { AssetEmbeddingClient } from './embedding';
 import { isRebuildableVectorDependencyFailure } from './errors';
 import type { AssetVectorStore } from './milvus';
+import { buildAssetVectorText } from './projection';
 
 /** Semantic recall + deterministic lexical ranking, always hydrated from AssetService records. */
 export class HybridAssetRetriever implements AssetRetriever {
@@ -48,6 +50,8 @@ export class HybridAssetRetriever implements AssetRetriever {
         // Milvus is rebuildable. Stale IDs and cross-kind hits are never assets.
         const asset = catalog.get(hit.assetId);
         if (!asset || asset.kind !== query.kind || !Number.isFinite(hit.score)) continue;
+        if (hit.sourceVersion && hit.sourceVersion !== createHash('sha256')
+          .update(buildAssetVectorText(asset), 'utf8').digest('hex')) continue;
         hydrated++;
         const semanticScore = Math.max(0, Math.min(1, hit.score));
         const current = combined.get(asset.id);

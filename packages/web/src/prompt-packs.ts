@@ -1,5 +1,6 @@
 /** 方法包页面数据层：列表只拿元数据，正文按需单独请求（渐进式披露）。 */
 import type { MethodNode } from '@lyra/shared';
+import { workspaceFetch } from './deployment';
 
 export type PromptPackItem = {
   id: string;
@@ -43,7 +44,7 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal, cache: 'no-store' });
+  const response = await workspaceFetch(path, { signal, cache: 'no-store' });
   const data = await readJson(response);
   if (!response.ok) throw new PromptPackApiError(messageOf(data) || `请求失败（${response.status}）`, response.status);
   return data as T;
@@ -58,7 +59,7 @@ export function fetchPromptPackContent(id: string, signal?: AbortSignal): Promis
 }
 
 export async function setPromptPackState(id: string, enabled: boolean): Promise<{ id: string; enabled: boolean; updatedAt: string }> {
-  const response = await fetch(`/api/prompt-packs/${encodeURIComponent(id)}/state`, {
+  const response = await workspaceFetch(`/api/prompt-packs/${encodeURIComponent(id)}/state`, {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' },
@@ -82,7 +83,7 @@ export type PromptPackImportInput = {
 export async function importPromptPack(
   input: PromptPackImportInput,
 ): Promise<{ id: string; name: string; stages: string[]; total: number }> {
-  const response = await fetch('/api/prompt-packs/import', {
+  const response = await workspaceFetch('/api/prompt-packs/import', {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' },

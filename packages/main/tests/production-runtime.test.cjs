@@ -253,7 +253,7 @@ test('video adapter submits once, reconciles, and exposes only verified local me
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
   const submitted = await executor.execute(ctx);
   assert.equal(submitted.state, 'waitingExternal'); assert.equal(creates, 1); assert.equal(createdRequest.allowPaid, true);
-  assert.equal(createdRequest.generateAudio, true);
+  assert.equal(createdRequest.generateAudio, false);
   assert.deepEqual(createdRequest.referenceAssetIds, [ASSET_ONE, ASSET_TWO]);
   assert.match(createdRequest.prompt, /图片1：角色「林晚」、道具「雨伞」/);
   assert.match(createdRequest.prompt, /3D 白模构图约束/);
@@ -316,6 +316,45 @@ test('video localization retry reuses the completed provider run without another
   const recovered = await executor.execute(ctx);
   assert.equal(recovered.state, 'succeeded'); assert.equal(recovered.actualCostMicros, 0);
   assert.equal(creates, 1); assert.equal(ingests, 2);
+});
+
+for (const late of ['resolve', 'reject']) test('real DNS deadline in video localization reuses the completed run after late ' + late, { timeout: 5000 }, async () => {
+  const { ProductionMediaIngestor } = require('../dist/production-media');
+  const f = videoFixture(); let creates = 0, lookups = 0, fetches = 0, stores = 0, complete, fail;
+  const completed = { id: 'video_dns_done', status: 'completed', model: 'video-model', modelConnectionRevision: 'revision_1',
+    result: { videoUrl: 'https://cdn.example.com/video.mp4' }, error: null };
+  const mediaIngestor = new ProductionMediaIngestor({ limits: { maxBytes: 1024 }, async putVideoBuffer() {
+    stores++; return localVideo();
+  } }, { resolve() {
+    lookups++;
+    if (lookups === 1) return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+    return Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+  } }, { async fetch() {
+    fetches++; return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('local-fixture') };
+  } }, { dnsTimeoutMs: 10 });
+  const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
+    async create() { creates++; return completed; }, async get() { return completed; }, async reconcile() { return completed; } };
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+    { estimateCostMicros: 500, mediaIngestor });
+  const prepared = await executor.prepare({ run: f.run, task: f.task });
+  const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
+  const blocked = await executor.execute(ctx);
+  assert.equal(blocked.state, 'waitingHuman');
+  assert.equal(blocked.artifacts[0].metadata.localizationErrorCode, 'REMOTE_MEDIA_DNS_TIMEOUT');
+  assert.equal(blocked.artifacts[0].metadata.videoRunId, completed.id);
+  assert.equal(blocked.actualCostMicros, 500, 'known completed generation is not relabeled as free');
+  assert.equal(fetches, 0); assert.equal(stores, 0); assert.equal(creates, 1);
+  if (late === 'resolve') complete([{ address: '93.184.216.34', family: 4 }]);
+  else fail(new Error('private late resolver failure'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetches, 0); assert.equal(stores, 0);
+  f.run.artifacts.push({ id: 'dns_provider_ref', runId: f.run.id, taskId: f.task.id, kind: 'report', title: '待入库', uri: null,
+    sha256: null, metadata: { ...blocked.artifacts[0].metadata, key: 'provider-video-result' }, status: 'superseded', createdAt: f.run.createdAt });
+  const retry = await executor.prepare({ run: f.run, task: f.task });
+  assert.equal(retry.requiresPaid, false);
+  const recovered = await executor.execute({ ...ctx, operationKey: null, inputDigest: retry.inputDigest });
+  assert.equal(recovered.state, 'succeeded'); assert.equal(recovered.actualCostMicros, 0);
+  assert.equal(creates, 1); assert.equal(fetches, 1); assert.equal(stores, 1); assert.equal(lookups, 2);
 });
 
 test('video references and repair requirements are frozen into a changed paid prompt before submission', async () => {

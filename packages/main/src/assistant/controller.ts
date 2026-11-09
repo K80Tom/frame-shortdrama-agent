@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { AssistantError, parseAssistantId, type AssistantEvent } from '@lyra/agent';
+import {
+  AssistantError, parseAssistantCursor, parseAssistantId, type AssistantEvent,
+} from '@lyra/agent';
 import type { AssistantService } from '@lyra/agent';
 
 export const ASSISTANT_SERVICE = Symbol('ASSISTANT_SERVICE');
@@ -21,8 +23,28 @@ export class AssistantController {
   @HttpCode(201)
   createSession(@Body() body: unknown) { return this.ready().createSession(body); }
 
+  @Get('sessions')
+  listSessions(@Query('includeArchived') includeArchived: string | undefined,
+    @Query('limit') limit: string | undefined) {
+    return this.ready().listSessions({
+      includeArchived: includeArchived === '1',
+      limit: limit ? Math.max(1, Math.min(100, Number(limit) || 30)) : 30,
+    });
+  }
+
+  @Patch('sessions/:id')
+  updateSession(@Param('id') id: string, @Body() body: unknown) {
+    return this.ready().updateSession(parseAssistantId(id, 'sessionId'), body);
+  }
+
   @Get('sessions/:id/messages')
   history(@Param('id') id: string) { return this.ready().history(parseAssistantId(id, 'sessionId')); }
+
+  /** 断线恢复：从 cursor 之后回放已落库的 turn（不重放未完成的内存状态）。 */
+  @Get('sessions/:id/resume')
+  resume(@Param('id') id: string, @Query('cursor') cursor: string | undefined) {
+    return this.ready().resume(parseAssistantId(id, 'sessionId'), parseAssistantCursor(cursor));
+  }
 
   @Post('sessions/:id/quotes/:quoteId/submit')
   @HttpCode(200)
@@ -38,14 +60,17 @@ export class AssistantController {
   @HttpCode(200)
   async send(
     @Param('id') id: string, @Body() body: unknown, @Query('stream') stream: string | undefined,
+    @Query('cursor') cursor: string | undefined,
     @Headers('accept') accept: string | undefined, @Res() reply: FastifyReply,
   ): Promise<void> {
     const sessionId = parseAssistantId(id, 'sessionId');
+    const after = parseAssistantCursor(cursor);
+    const resumed = after > 0 ? await this.ready().resume(sessionId, after) : null;
     const useStream = stream === '1' || (accept ?? '').includes('text/event-stream');
     if (!useStream) {
-      const events: AssistantEvent[] = [];
+      const events: AssistantEvent[] = resumed ? [...resumed.events] : [];
       for await (const event of this.ready().send(sessionId, body)) events.push(event);
-      await reply.status(200).send({ events });
+      await reply.status(200).send({ events, resumedFrom: after });
       return;
     }
     reply.raw.writeHead(200, {
@@ -54,8 +79,15 @@ export class AssistantController {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    const write = (event: AssistantEvent) => { reply.raw.write(`data: ${JSON.stringify(event)}\n\n`); };
+    let seq = 0;
+    const write = (event: AssistantEvent) => {
+      seq += 1;
+      const cursor = (event as { cursor?: number }).cursor;
+      const id = typeof cursor === 'number' ? `${cursor}:${seq}` : `${after}:${seq}`;
+      reply.raw.write(`id: ${id}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
     try {
+      if (resumed) for (const event of resumed.events) write(event);
       for await (const event of this.ready().send(sessionId, body)) write(event);
     } catch (error) {
       write({

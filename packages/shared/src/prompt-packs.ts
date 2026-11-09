@@ -5,6 +5,11 @@ export interface FrozenMethodPack {
   digest: string;
   nodes: MethodNode[];
   excerpt: string;
+  /**
+   * `prompt-pack:<packId>@<digest>`，由 `promptPackVersionId()` 生成；与
+   * Agent Snapshot 的 `method.packVersionIds` 使用同一字符串，不允许另造版本键。
+   */
+  versionId?: string;
 }
 
 /** Library tags describe creative disciplines. Only actual generation nodes consume them. */

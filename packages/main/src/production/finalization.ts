@@ -133,14 +133,17 @@ export class ReviewProductionExecutor implements ProductionExecutor {
       const expectedSeconds = typeof shot?.durationMs === 'number' ? shot.durationMs / 1000 : null;
       const issues: string[] = [];
       if (Math.abs(actualRatio - expectedRatio) / expectedRatio > 0.035) issues.push(`画幅 ${probe.width}×${probe.height} 与 ${run.ratio} 不匹配`);
-      if (!probe.hasAudio) issues.push('未检测到音轨');
+      // Audio presence is a technical field only. The formal audio graph (#130)
+      // supplies dialogue/mix/subtitles; a provider-native track is never a gate.
       if (expectedSeconds && Math.abs(probe.durationSeconds - expectedSeconds) > Math.max(2, expectedSeconds * 0.55)) {
         issues.push(`时长 ${probe.durationSeconds.toFixed(1)}s 与分镜 ${expectedSeconds.toFixed(1)}s 偏差过大`);
       }
       if (!issues.length) return { state: 'succeeded', artifacts: [{ key: 'shot-review', kind: 'report', title: `${task.label} 通过`,
-        metadata: { mediaId: local.object.id, shotId: task.scope.id, checks: ['container', 'hash', 'ratio', 'duration', 'audio'],
-          semanticVideoReview: false } }], qualityChecks: [{ level: 'shot', result: 'pass', ruleVersion: 'local-shot-media/1',
-        summary: '本地容器、哈希、画幅、时长与音轨检查通过' }] };
+        metadata: { mediaId: local.object.id, shotId: task.scope.id,
+          checks: ['container', 'hash', 'ratio', 'duration', 'audio_presence'],
+          audioKind: probe.hasAudio ? 'provider_scratch' : 'none', semanticVideoReview: false } }],
+      qualityChecks: [{ level: 'shot', result: 'pass', ruleVersion: 'local-shot-media/1',
+        summary: '本地容器、哈希、画幅与时长检查通过；音轨存在性仅记录，不作为正式声音门禁' }] };
 
       const priorReviews = run.tasks.filter(item => item.stage === 'review' && item.scope.kind === 'shot'
         && item.scope.id === task.scope.id && item.id !== task.id).length;

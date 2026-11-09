@@ -4,3 +4,6 @@ export * from './store';
 export * from './composer';
 export * from './ingestor';
 export * from './frame-assessment';
+export * from './object-storage';
+export * from './object-records';
+export * from './object-worker';

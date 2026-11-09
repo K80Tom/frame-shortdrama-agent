@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight, ArrowUpRight, AudioLines, BookOpen, Box, Check, Clapperboard,
-  FileJson, FileText, Image, Images, Layers3, MapPin, PackageOpen, Puzzle,
-  Search, Sparkles, Users, Video, WandSparkles, X,
+  ArrowRight, ArrowUpRight, Box, FileText, Images, Layers3, MapPin,
+  PackageOpen, Search, Users, X,
   type LucideIcon,
 } from 'lucide-react';
 import { plan, sampleImage, type Page } from './model';
@@ -89,37 +88,5 @@ export function LibraryPage({ go, compact = false }: PageProps & { compact?: boo
     </div> : <div className="lib-empty"><span><PackageOpen size={28} strokeWidth={1.4} /></span><h2>{mode === 'references' && filter === '道具' && !query.trim() ? '道具还在需求清单里' : '没有找到匹配的内容'}</h2><p>{mode === 'references' && filter === '道具' && !query.trim() ? '剑与重尺已有制作需求，独立参考素材尚未制作。' : '试试其他名称，或调整分类继续查找。'}</p>{mode === 'references' && filter === '道具' && !query.trim() ? <button className="lib-button lib-button-secondary" onClick={() => setMode('requirements')}>查看道具需求 <ArrowRight size={15} /></button> : <button className="lib-button lib-button-secondary" onClick={resetFilters}>清除筛选</button>}</div>}
     <div className="lib-footnote">{!compact && <FileText size={14} />}<p>{compact ? mode === 'references' ? '同一示意图的 3 个参考裁切，不属于已登记素材；原文与来源见详情。' : '手写样例的 5 项待制作需求，尚无独立素材；原文与来源见详情。' : mode === 'references' ? '3 张参考均为同一示意图的裁切；视觉参考用于探索方向，不代表已生成独立的角色或场景资产。' : '资产需求来自手写计划样例，是待制作清单；需求数量不代表已经完成的素材数量。'}</p></div>
     <LibraryDetail item={selected} onClose={() => setSelected(null)} go={go} />
-  </div>;
-}
-
-type ToolItem = {
-  id: string; name: string; category: string; description: string;
-  icon: LucideIcon; color: string; available: boolean; page?: Page; href?: string; action?: string;
-};
-const builtInTools: ToolItem[] = [
-  { id: 'automation', name: '自动制作总控', category: '整集生产', description: '从剧本拆解到资产、分镜、3D、视频抽卡、复核和出片，按真实任务状态推进。', icon: Sparkles, color: 'lime', available: true, page: 'automation', action: '打开生产总控' },
-  { id: 'novel', name: '小说逐章拆解', category: '原文与故事', description: '按章提取人物、地点、道具与对白，回到原文核对每一处依据。', icon: BookOpen, color: 'lime', available: true, page: 'novel', action: '打开小说工作区' },
-  { id: 'production', name: '剧本拆解', category: '原文与故事', description: '保存真实项目，校对事实候选，检查并采用文字拆解。', icon: FileText, color: 'blue', available: true, page: 'production', action: '打开项目工作区' },
-  { id: 'storyboard', name: '分镜编辑', category: '镜头设计', description: '编辑示例镜头的画面、景别、运镜与时长，逐镜对照原文。', icon: Clapperboard, color: 'purple', available: true, page: 'storyboard', action: '打开示例分镜' },
-  { id: 'director', name: '3D 导演台', category: '空间预演', description: '手工调整人物站位、机位与光照，预演构图并导出浏览器渲染。', icon: Box, color: 'peach', available: true, page: 'director', action: '进入 3D 导演台' },
-  { id: 'json', name: 'JSON 草稿导出', category: '保存与交付', description: '在分镜工作台导出当前浏览器的编辑草稿，留存设计与修改。', icon: FileJson, color: 'mint', available: true, page: 'storyboard', action: '前往分镜导出' },
-  { id: 'image', name: '图像生成', category: '视觉创作', description: '将角色、场景与构图设计转为独立图片素材。', icon: Image, color: 'blue', available: false },
-  { id: 'video', name: '单镜头视频实验', category: '动态影像', description: '独立测试一段画面的生视频连接，不建立整集生产流水线。', icon: Video, color: 'purple', available: true, href: '#/automation/video', action: '打开单镜头工具' },
-  { id: 'voice', name: '对白与配音', category: '声音制作', description: '为原文对白准备角色声音，组织台词与声音素材。', icon: AudioLines, color: 'peach', available: false },
-  { id: 'edit', name: '剪辑与成片', category: '后期制作', description: '编排多镜头时间线、对白与字幕，完成整集交付。', icon: WandSparkles, color: 'mint', available: false },
-];
-
-export function PluginsPage({ go }: PageProps) {
-  const [filter, setFilter] = useState<'全部' | '已可用' | '规划中'>('全部');
-  const [query, setQuery] = useState('');
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visible = builtInTools.filter(tool => (filter === '全部' || tool.available === (filter === '已可用'))
-    && `${tool.name} ${tool.category} ${tool.description}`.toLocaleLowerCase().includes(normalizedQuery));
-  return <div className="plugin-page">
-    <header className="plugin-heading"><div><span className="plugin-eyebrow">YOUR CREATIVE TOOLKIT</span><h1>插件与工具<span className="plugin-heading-dot" /></h1><p>让合适的工具，接住每一步创作。</p></div><span className="plugin-built-in-label"><Puzzle size={15} />内置工具目录</span></header>
-    <section className="plugin-feature"><div className="plugin-feature-copy"><span className="plugin-feature-tag"><Sparkles size={13} />为短剧创作而准备</span><h2>从读懂故事，到看清镜头。</h2><p>原文校对、分镜设计与空间预演，按你的节奏逐步展开。</p><button onClick={() => go('novel')}>从小说拆解开始 <ArrowUpRight size={16} /></button></div><div className="plugin-feature-visual" aria-hidden="true"><span className="plugin-orbit plugin-orbit-one" /><span className="plugin-orbit plugin-orbit-two" /><span className="plugin-orbit-icon plugin-orbit-book"><BookOpen size={24} strokeWidth={1.4} /></span><span className="plugin-orbit-icon plugin-orbit-box"><Box size={29} strokeWidth={1.4} /></span><span className="plugin-orbit-icon plugin-orbit-board"><Clapperboard size={24} strokeWidth={1.4} /></span><span className="plugin-orbit-center"><Puzzle size={42} strokeWidth={1.1} /></span></div></section>
-    <div className="plugin-toolbar"><div className="plugin-filters" aria-label="工具可用状态">{(['全部', '已可用', '规划中'] as const).map(value => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value}<span>{builtInTools.filter(tool => value === '全部' || tool.available === (value === '已可用')).length}</span></button>)}</div><label className="plugin-search"><Search size={16} /><span className="plugin-sr-only">搜索插件与工具</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索创作工具" />{query && <button onClick={() => setQuery('')} aria-label="清除工具搜索"><X size={14} /></button>}</label></div>
-    {visible.length ? <div className="plugin-grid">{visible.map(tool => <article className={`plugin-card ${!tool.available ? 'plugin-card-planned' : ''}`} key={tool.id}><div className="plugin-card-top"><span className={`plugin-tool-icon plugin-color-${tool.color}`}><tool.icon size={25} strokeWidth={1.6} /></span><span className={`plugin-status ${tool.available ? 'plugin-status-ready' : ''}`}>{tool.available && <Check size={11} />}{tool.available ? '已可用' : '规划中'}</span></div><span className="plugin-category">{tool.category}</span><h2>{tool.name}</h2><p>{tool.description}</p><div className="plugin-card-footer"><span>{tool.available ? 'Lyra 内置' : '尚未接入'}</span><button disabled={!tool.available} onClick={() => { if (tool.href) location.hash = tool.href; else if (tool.page) go(tool.page); }} aria-label={tool.action ?? `${tool.name}尚未接入`}>{tool.available ? '打开工具' : '敬请期待'}{tool.available && <ArrowUpRight size={14} />}</button></div></article>)}</div> : <div className="plugin-empty"><Search size={27} strokeWidth={1.4} /><h2>没有找到这个工具</h2><p>换一个关键词，或查看全部工具。</p><button onClick={() => { setFilter('全部'); setQuery(''); }}>查看全部工具 <ArrowRight size={14} /></button></div>}
-    <div className="plugin-footnote"><Puzzle size={15} /><p>这里展示 Lyra 内置能力，目前没有第三方插件安装系统。小说与剧本的模型提取需要本地服务及单次授权；打开工具不会触发生成。</p></div>
   </div>;
 }
