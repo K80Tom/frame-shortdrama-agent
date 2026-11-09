@@ -170,7 +170,8 @@ test('mix graph splits dialogue for sidechain and keeps the same track in the fi
     amixNormalize: true, alimiter: true, outputPath: 'out.mp4',
   });
   const graph = args[args.indexOf('-filter_complex') + 1];
-  assert.match(graph, /\[dlg\]asplit=2\[dside\]\[dmix\]/u);
+  assert.match(graph, /\[dlg\]asplit=2\[dside0\]\[dmix\]/u);
+  assert.match(graph, /\[dside0\]apad=whole_dur=4\.000\[dside\]/u);
   assert.match(graph, /\[musicraw\]\[dside\]sidechaincompress=threshold=0\.0500:ratio=4:attack=20:release=300/u);
   assert.match(graph, /\[dmix\]\[s0\]amix=inputs=2:duration=longest:normalize=0\[fg\]/u);
   assert.match(graph, /\[fg\]\[musicduck\]amix=inputs=2:duration=longest:normalize=0\[aoutpre\]/u);
@@ -299,4 +300,8 @@ test('real FFmpeg smoke: dialogue, ducked BGM and burned subtitles produce a pla
     if (pixels[index] > 190 && pixels[index + 1] > 190 && pixels[index + 2] > 190) bright++;
   }
   assert.ok(bright > 20, 'burned subtitle glyphs must be visible in the lower frame region');
+  const tail = await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', '2', '-t', '1',
+    '-i', output.absolutePath, '-vn', '-f', 's16le', '-acodec', 'pcm_s16le', 'pipe:1'],
+  { timeoutMs: 30_000, maxOutputBytes: 4 * 1024 * 1024 });
+  assert.ok(tail.stdout.some(byte => byte !== 0), 'BGM must keep playing after the last dialogue cue');
 });

@@ -239,7 +239,11 @@ export function buildAudioAssemblyArgs(input: AudioAssemblyArgsInput): string[] 
   // The dialogue graph is consumed once. Split it before SFX mixing so the same
   // rendered dialogue can both key the compressor and reach the final mix.
   if (foreground && duckingRequested) {
-    filters.push(`[dlg]asplit=2[dside][dmix]`);
+    filters.push(`[dlg]asplit=2[dside0][dmix]`);
+    // sidechaincompress ends with the sidechain input. Pad the dialogue key
+    // to the full timeline so BGM keeps playing (and recovers) after the last
+    // line instead of being cut at the end of the dialogue.
+    filters.push(`[dside0]apad=whole_dur=${input.totalDurationSeconds.toFixed(3)}[dside]`);
     foreground = 'dmix';
   }
 
