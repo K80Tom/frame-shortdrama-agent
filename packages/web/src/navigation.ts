@@ -1,4 +1,4 @@
-import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Settings2, Sparkles, Wand2, Workflow } from 'lucide-react';
+import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Network, Settings2, Sparkles, Wand2, Workflow } from 'lucide-react';
 import type { Page } from './model';
 import type { NovelAdaptationResult } from '@lyra/shared';
 
@@ -14,6 +14,7 @@ export const creationNavigation = [
   { id: 'novel' as Page, label: '小说拆解', en: 'Novel', icon: BookOpen },
   { id: 'production' as Page, label: '剧本拆解', en: 'Production', icon: FileText },
   { id: 'storyboard' as Page, label: '分镜工作台', en: 'Storyboard', icon: Clapperboard },
+  { id: 'canvas' as Page, label: '生产画布', en: 'Production Canvas', icon: Network },
   { id: 'director' as Page, label: '3D 导演台', en: 'Director', icon: Box },
 ];
 export const commands = [...workspaceNavigation, ...creationNavigation,
@@ -21,7 +22,7 @@ export const commands = [...workspaceNavigation, ...creationNavigation,
   { id: 'flow' as Page, label: '创作指南', en: 'Workflow', icon: Workflow },
   { id: 'settings' as Page, label: '工作台设置', en: 'Settings', icon: Settings2 },
 ];
-export type ProjectSection = 'overview' | 'source' | 'screenplay' | 'storyboard' | 'director' | 'production' | 'review' | 'history';
+export type ProjectSection = 'overview' | 'source' | 'screenplay' | 'storyboard' | 'canvas' | 'director' | 'production' | 'review' | 'history';
 export type WorkspaceRoute = {
   page: Page;
   step: number;
@@ -32,7 +33,7 @@ export type WorkspaceRoute = {
 };
 const projectPages: Record<ProjectSection, Page> = {
   overview: 'projects', source: 'production', screenplay: 'production', storyboard: 'storyboard',
-  director: 'director', production: 'automation', review: 'projects', history: 'projects',
+  canvas: 'canvas', director: 'director', production: 'automation', review: 'projects', history: 'projects',
 };
 export function projectWorkspaceHash(projectId: string, section: ProjectSection): string {
   return `#/projects/${encodeURIComponent(projectId)}/${section}`;
@@ -44,7 +45,7 @@ export function routeFromHash(hash: string): WorkspaceRoute {
   const screenplay = /^#\/automation\/from-script\/([a-z][a-z0-9_-]{2,127})\/([a-z][a-z0-9_-]{2,127})$/u.exec(hash);
   if (screenplay) return { page: 'automation', step: 1, resourceId: screenplay[0].slice(2),
     screenplay: { projectId: screenplay[1]!, scriptVersionId: screenplay[2]! } };
-  const project = /^#\/projects\/([^/]+)\/(overview|source|screenplay|storyboard|director|production|review|history)\/?$/u.exec(hash);
+  const project = /^#\/projects\/([^/]+)\/(overview|source|screenplay|storyboard|canvas|director|production|review|history)\/?$/u.exec(hash);
   if (project) {
     try {
       const projectId = decodeURIComponent(project[1]!);
@@ -57,7 +58,7 @@ export function routeFromHash(hash: string): WorkspaceRoute {
   const [name, value] = hash.replace(/^#\/?/, '').split('/');
   const page = commands.some(item => item.id === name) ? name as Page : 'studio';
   let resourceId: string | undefined;
-  if ((page === 'production' || page === 'novel') && value) {
+  if ((page === 'production' || page === 'novel' || page === 'canvas') && value) {
     try { resourceId = decodeURIComponent(value); } catch { /* Malformed URLs still open the editor safely. */ }
   }
   if (page === 'assets' && value === 'references') resourceId = 'references';

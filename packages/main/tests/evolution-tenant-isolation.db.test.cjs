@@ -21,7 +21,7 @@ const adminUrl = process.env.DATABASE_ADMIN_URL;
 const appUrl = process.env.DATABASE_URL;
 const at = '2026-11-08T08:00:00.000Z';
 
-test('032 upgrades populated legacy registry/audit records without rewriting immutable JSON', {
+test('042 upgrades populated legacy registry/audit records without rewriting immutable JSON', {
   skip: adminUrl ? false : 'DATABASE_ADMIN_URL is required',
 }, async () => {
   const admin = new Client({ connectionString: adminUrl }); await admin.connect();
@@ -41,7 +41,7 @@ test('032 upgrades populated legacy registry/audit records without rewriting imm
       VALUES('AssetRetrievalPolicy',$1::jsonb,$2,'original policy')`, [policy, at]);
     await admin.query(`INSERT INTO evolution_registry_events(id,domain,revision,event_json,created_at)
       VALUES('event-original','AssetRetrievalPolicy',7,$1::jsonb,$2)`, [event, at]);
-    await admin.query(sql('032_evolution_registry_tenancy.sql'));
+    await admin.query(sql('042_evolution_registry_tenancy.sql'));
     const registry = (await admin.query('SELECT * FROM evolution_registry')).rows[0];
     const audit = (await admin.query('SELECT * FROM evolution_registry_events')).rows[0];
     assert.equal(registry.workspace_id, legacyWorkspace); assert.deepEqual(registry.policy_json, policy);

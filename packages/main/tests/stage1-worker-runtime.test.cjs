@@ -187,5 +187,5 @@ test('031 migration fences vector projection metadata writes', () => {
 
 test('first-admin bootstrap requires the complete Stage 1 migration baseline', () => {
   const source = readFileSync(join(__dirname, '../src/auth/bootstrap-admin.ts'), 'utf8');
-  assert.match(source, /hasMigrations\(\['025', '028', '030', '031', '032'\]\)/u);
+  assert.match(source, /hasMigrations\(\['025', '028', '030', '031', '042'\]\)/u);
 });

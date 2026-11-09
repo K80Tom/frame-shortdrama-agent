@@ -1,6 +1,6 @@
 import { createApp } from './app';
 import { readConfig } from './config';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
@@ -39,6 +39,12 @@ import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
 import { AssistantOrchestrator, type AssistantMessage } from '@lyra/agent';
 import { AssistantService } from '@lyra/agent';
+import {
+  CanvasService, type CanvasReferenceResolver, type CanvasDomainPort, type CanvasStoryboardPort,
+} from './canvas/service';
+import {
+  PostgresCanvasQuoteStore, PostgresCanvasRunStore, PostgresCanvasStore,
+} from './canvas/repository';
 import { ProductionError } from '@lyra/shared';
 import { PostgresEvolutionRepository } from './evolution/postgres-repository';
 import { AssetEvolutionService } from './evolution/service';
@@ -161,6 +167,7 @@ async function main() {
   let videoAutomationService: VideoAutomationService | undefined;
   let productionService: ProductionService | undefined;
   let assistantService: AssistantService | undefined;
+  let canvasService: CanvasService | undefined;
   let evolutionService: AssetEvolutionService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
@@ -189,16 +196,16 @@ async function main() {
     });
     try {
       await database.verifyConnection();
-      stage1RuntimeMigrated = await database.hasMigrations(['031', '032']);
+      stage1RuntimeMigrated = await database.hasMigrations(['031', '042']);
       if (stage1Process && !stage1RuntimeMigrated) {
-        throw new Error('Stage 1 API/Worker/session runtime requires migrations 031 and 032');
+        throw new Error('Stage 1 API/Worker/session runtime requires migrations 031 and 042');
       }
       if (config.authMode === 'session') {
         if (conversationContext.mode !== 'redis') {
           throw new Error('Session authentication requires Redis for shared snapshots and rate limits');
         }
-        if (!await database.hasMigrations(['025', '028', '030', '031', '032'])) {
-          throw new Error('Session authentication requires migrations 025, 028, 030, 031 and 032');
+        if (!await database.hasMigrations(['025', '028', '030', '031', '042'])) {
+          throw new Error('Session authentication requires migrations 025, 028, 030, 031 and 042');
         }
         await database.verifyTenantRole();
         authService = new AuthService(new PostgresAuthRepository(database), {
@@ -282,7 +289,7 @@ async function main() {
         && assetService && videoAutomationService) {
         const breakdown = breakdownService;
         const productionRepository = new PostgresProductionRepository(database);
-        if (await database.hasMigrations(['019', '032'])) {
+        if (await database.hasMigrations(['019', '042'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
         }
         productionService = new ProductionService(productionRepository, {
@@ -349,7 +356,127 @@ async function main() {
           },
           { createQuote: (_sessionId, quote) => assistantRepository.createQuote(quote) },
         );
-        assistantService = new AssistantService(assistantRepository, orchestrator, productionService);
+        assistantService = new AssistantService(assistantRepository, orchestrator, productionService, undefined, {
+          async snapshot(context) {
+            const capturedAt = new Date().toISOString();
+            const base = { label: context.label, capturedAt, productionRunIds: [] as string[] };
+            if (!context.projectId) return base;
+            try {
+              const project = await breakdown?.getProject(context.projectId);
+              const runIds = production
+                ? (await production.list()).runs.filter(run => run.projectId === context.projectId).map(run => run.id).slice(0, 5)
+                : [];
+              if (context.runId && !runIds.includes(context.runId)) runIds.unshift(context.runId);
+              return {
+                ...base, projectId: context.projectId,
+                ...(project ? { projectTitle: project.title } : {}),
+                ...(project?.currentScriptVersionId ? { scriptVersionId: project.currentScriptVersionId } : {}),
+                ...(project?.activeStoryboardRevisionId
+                  ? { storyboardRevisionId: project.activeStoryboardRevisionId } : {}),
+                productionRunIds: runIds,
+              };
+            } catch {
+              return base;
+            }
+          },
+        });
+      }
+      // 生产画布：只引用正式对象；布局与领域事实分离；付费必须经报价与确认。
+      if (await database.hasMigrations(['032']) && breakdownService instanceof BreakdownService && storyboardService) {
+        const breakdown = breakdownService;
+        const storyboards = storyboardService;
+        const assets = assetService;
+        const production = productionService;
+        const storyboardPort: CanvasStoryboardPort = {
+          async loadAdopted(projectId, workspaceId) {
+            const project = await breakdown.getProject(projectId);
+            if (!project.activeStoryboardRevisionId) return null;
+            const board = await storyboards.get(project.activeStoryboardRevisionId);
+            return {
+              workspaceId, projectId,
+              storyboardRevisionId: board.id,
+              storyboardDigest: board.inputDigest,
+              scriptVersionId: board.scriptVersionId,
+              planRevisionId: board.sourcePlanRevisionId,
+              shots: board.shots.map(shot => ({
+                id: shot.id, sceneId: shot.sceneId, order: shot.order,
+                shotSize: shot.design.shotSize, cameraMovement: shot.design.cameraMovement,
+                durationMs: shot.design.durationMs, visualDescription: shot.design.visualDescription,
+              })),
+            };
+          },
+        };
+        const resolveReference: CanvasReferenceResolver = async ref => {
+          try {
+            switch (ref.resourceType) {
+              case 'project':
+                return (await breakdown.getProject(ref.resourceId)).id === ref.resourceId;
+              case 'scriptVersion':
+                await breakdown.getScriptVersion(ref.projectId, ref.resourceId);
+                return true;
+              case 'storyboardRevision':
+                return (await storyboards.get(ref.resourceId)).id === ref.resourceId;
+              case 'shotSpec': {
+                const board = await storyboards.get(ref.versionId ?? '');
+                return board.shots.some(shot => shot.id === ref.resourceId);
+              }
+              case 'asset':
+                return assets ? (await assets.get(ref.resourceId)).id === ref.resourceId : undefined;
+              case 'productionRun':
+                if (!production) return undefined;
+                return (await production.get(ref.resourceId)).id === ref.resourceId;
+              default:
+                return undefined;
+            }
+          } catch {
+            return false;
+          }
+        };
+        // 领域命令端口：画布只能提出，V1 不代替分镜/资产服务创建版本。
+        const domainPort: CanvasDomainPort = {};
+        canvasService = new CanvasService(
+          new PostgresCanvasStore(database), new PostgresCanvasQuoteStore(database),
+          new PostgresCanvasRunStore(database),
+          {
+            storyboard: storyboardPort,
+            resolveReference,
+            domain: domainPort,
+            ...(production ? {
+              production: {
+                async createRun(input: {
+                  projectId: string; scriptVersionId: string; budgetMicros: number;
+                  clientRequestId: string; currency: string;
+                }) {
+                  // 画布的 clientRequestId 允许 ':' 与 '.'，生产契约只接受 [A-Za-z0-9_-]。
+                  // 用稳定散列派生生产侧幂等键，重复提交仍命中同一运行。
+                  const derived = `canvas_${createHash('sha256')
+                    .update(`${input.projectId}:${input.clientRequestId}`).digest('hex').slice(0, 32)}`;
+                  const run = await production.create({
+                    projectId: input.projectId, scriptVersionId: input.scriptVersionId,
+                    ratio: '9:16', targetDurationSec: 90, visualStyle: 'cartoon',
+                    qualityPreset: 'balanced', automationMode: 'checkpoints',
+                    candidatePolicy: 'direct', candidateLimit: 1, directorPolicy: 'auto',
+                    budgetMicros: input.budgetMicros, currency: input.currency,
+                    allowPaid: true, clientRequestId: derived,
+                  });
+                  return { id: run.id };
+                },
+                async getRun(runId: string) {
+                  try {
+                    const run = await production.get(runId);
+                    return {
+                      id: run.id, status: run.status, updatedAt: run.updatedAt,
+                      shotMatrix: run.shotMatrix.flatMap(shot => shot.shotId === null ? [] : [{
+                        shotId: shot.shotId, completed: shot.completed,
+                        stages: shot.stages as Record<string, string | null>,
+                      }]),
+                    };
+                  } catch { return null; }
+                },
+              },
+            } : {}),
+          },
+        );
       }
       if (stage1RuntimeMigrated) {
         const jobs = stage1Jobs!;
@@ -451,6 +578,7 @@ async function main() {
     productionMediaStore,
     productionMediaObjectService,
     assistantService,
+    canvasService,
     evolutionService,
     evaluationService,
     promptPacksService,

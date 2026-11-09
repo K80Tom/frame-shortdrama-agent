@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrozenAssetRetrievalPolicy } from './asset-retrieval';
 import type { FrozenMethodPack } from './prompt-packs';
+import type { ProductionInputBinding } from './production-input-snapshot';
 
 export const PRODUCTION_WORKFLOW_VERSION = 'ohao-production/1';
 export const productionStageOrder = [
@@ -213,6 +214,8 @@ export interface OutboxEvent {
 }
 
 export interface StoredProductionRun extends CreateProductionRun {
+  /** Missing only on explicit legacy runs. Never replace/remove once persisted. */
+  inputSnapshot?: ProductionInputBinding;
   /** Absent on legacy runs. Resume and retry use only the original snapshot. */
   methodPacks?: FrozenMethodPack[];
   id: string;

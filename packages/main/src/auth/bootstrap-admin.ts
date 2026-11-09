@@ -21,8 +21,8 @@ function label(name: string, max: number): string {
 async function main() {
   const database = new PostgresDatabase(requireDatabaseConfig());
   try {
-    if (!await database.hasMigrations(['025', '028', '030', '031', '032'])) {
-      throw new Error('migrations 025, 028, 030, 031 and 032 are required');
+    if (!await database.hasMigrations(['025', '028', '030', '031', '042'])) {
+      throw new Error('migrations 025, 028, 030, 031 and 042 are required');
     }
     const email = normalizeEmail(required('LYRA_BOOTSTRAP_EMAIL'));
     const password = validatePassword(process.env.LYRA_BOOTSTRAP_PASSWORD, 12);
