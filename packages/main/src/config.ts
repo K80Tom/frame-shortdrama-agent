@@ -3,6 +3,7 @@ import type { ModelConnections } from './models/connections';
 
 export type RuntimeRole = 'all' | 'api' | 'worker';
 export type AuthMode = 'disabled' | 'session';
+export type RegistrationMode = 'disabled' | 'workspace';
 
 export interface AppConfig {
   port: number;
@@ -14,6 +15,8 @@ export interface AppConfig {
   runtimeRole: RuntimeRole;
   /** Session auth is required by the Stage 1 deployment; disabled keeps explicit legacy/dev compatibility. */
   authMode: AuthMode;
+  /** Self-service workspace creation is an explicit trusted self-hosting opt-in. */
+  registrationMode: RegistrationMode;
   /** Canonical browser origin used for Host/Origin validation behind the edge proxy. */
   publicOrigin?: string;
   sessionTtlSeconds: number;
@@ -78,6 +81,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!['all', 'api', 'worker'].includes(runtimeRole)) throw new Error('Invalid LYRA_RUNTIME_ROLE');
   const authMode = (env.LYRA_AUTH_MODE?.trim().toLowerCase() || 'disabled') as AuthMode;
   if (!['disabled', 'session'].includes(authMode)) throw new Error('Invalid LYRA_AUTH_MODE');
+  const registrationMode = (env.LYRA_REGISTRATION_MODE?.trim().toLowerCase() || 'disabled') as RegistrationMode;
+  if (!['disabled', 'workspace'].includes(registrationMode)) throw new Error('Invalid LYRA_REGISTRATION_MODE');
+  if (registrationMode === 'workspace' && authMode !== 'session') {
+    throw new Error('LYRA_REGISTRATION_MODE=workspace requires LYRA_AUTH_MODE=session');
+  }
   let publicOrigin: string | undefined;
   if (env.LYRA_PUBLIC_ORIGIN?.trim()) {
     let origin: URL;
@@ -110,7 +118,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (intranetFlag !== undefined && !['1', 'true', '0', 'false'].includes(intranetFlag.trim().toLowerCase())) {
     throw new Error('Invalid MEDIA_ALLOW_INTRANET_SOURCES');
   }
-  return Object.freeze({ port, runtimeRole, authMode,
+  return Object.freeze({ port, runtimeRole, authMode, registrationMode,
     ...(publicOrigin ? { publicOrigin } : {}),
     sessionTtlSeconds: integer('LYRA_SESSION_TTL_SECONDS', 7 * 24 * 60 * 60, 300, 31 * 24 * 60 * 60),
     sessionCookieSecure: publicOrigin?.startsWith('https://') ?? false,

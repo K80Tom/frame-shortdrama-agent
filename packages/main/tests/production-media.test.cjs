@@ -918,3 +918,39 @@ test('DNS deadline rejects invalid and overflowing timer settings', async t => {
       rejectsCode('REMOTE_MEDIA_INGEST_CONFIG_INVALID'));
   }
 });
+
+for (const late of ['resolve', 'reject']) test('concurrent DNS deadlines isolate fast work and a later explicit request after late ' + late, async t => {
+  const f = await fixture(t);
+  let complete, fail, slowLookups = 0, fastLookups = 0;
+  const fetched = [];
+  const addresses = [{ address: '93.184.216.34', family: 4 }];
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve(hostname) {
+    if (hostname === 'slow.provider.example' && ++slowLookups === 1) {
+      return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+    }
+    if (hostname === 'fast.provider.example') fastLookups++;
+    return Promise.resolve(addresses);
+  } }, { async fetch(url, options) {
+    fetched.push(url.hostname);
+    assert.deepEqual(options.addresses, addresses);
+    return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') };
+  } }, { dnsTimeoutMs: 20 });
+  // Attach the rejection observer immediately; the independent fast request
+  // must neither clear nor consume the pending request's deadline.
+  const timedOut = assert.rejects(ingestor.ingestProviderUrl('https://slow.provider.example/one.mp4'), rejectsCode('REMOTE_MEDIA_DNS_TIMEOUT'));
+  const fast = await ingestor.ingestProviderUrl('https://fast.provider.example/two.mp4');
+  assert.equal(fast.sourceKind, 'providerDownload');
+  await timedOut;
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  assert.equal(slowLookups, 1);
+  assert.equal(fastLookups, 1);
+  if (late === 'resolve') complete(addresses);
+  else fail(new Error('private late DNS result must not escape'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  // This is an explicit new call, not an automatic retry or model submission.
+  const recovered = await ingestor.ingestProviderUrl('https://slow.provider.example/three.mp4');
+  assert.equal(recovered.sourceKind, 'providerDownload');
+  assert.deepEqual(fetched, ['fast.provider.example', 'slow.provider.example']);
+  assert.equal(slowLookups, 2);
+});

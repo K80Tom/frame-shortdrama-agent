@@ -5,6 +5,7 @@ import {
   type AssistantQuoteStatus,
   type AssistantRepository,
   type AssistantSession,
+  type AssistantTurn,
 } from '@lyra/agent';
 import type { PostgresAssistantRepository } from '../../assistant/postgres-repository';
 import { tenantExecutionScope } from '../../tenancy/scope';
@@ -33,6 +34,17 @@ export class CachedAssistantRepository implements AssistantRepository {
   }
 
   getSession(id: string): Promise<AssistantSession> { return this.postgres.getSession(id); }
+  listSessions(query?: { includeArchived?: boolean; limit?: number }): Promise<AssistantSession[]> {
+    return this.postgres.listSessions(query);
+  }
+  updateSession(id: string, patch: { title?: string; archived?: boolean }): Promise<AssistantSession> {
+    return this.postgres.updateSession(id, patch);
+  }
+  createTurn(turn: AssistantTurn): Promise<AssistantTurn> { return this.postgres.createTurn(turn); }
+  listTurnsAfter(sessionId: string, cursor: number, limit?: number): Promise<AssistantTurn[]> {
+    return this.postgres.listTurnsAfter(sessionId, cursor, limit);
+  }
+  lastTurnCursor(sessionId: string): Promise<number> { return this.postgres.lastTurnCursor(sessionId); }
 
   async listMessages(sessionId: string): Promise<AssistantMessage[]> {
     const scope = this.scope();
