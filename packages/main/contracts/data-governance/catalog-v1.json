@@ -4,15 +4,33 @@
   "status": "accepted",
   "sourceIssue": 48,
   "owners": {
-    "novel": { "module": "packages/main/src/novel" },
-    "script": { "module": "packages/main/src/breakdown" },
-    "asset": { "module": "packages/main/src/assets" },
-    "production": { "module": "packages/main/src/production" },
-    "external": { "module": "packages/main/src/models" },
-    "quality": { "module": "packages/main/src/review" },
-    "delivery": { "module": "packages/main/src/production-media" },
-    "cost": { "module": "packages/main/src/production" },
-    "evaluation": { "module": "packages/main/src/evolution" }
+    "novel": {
+      "module": "packages/main/src/novel"
+    },
+    "script": {
+      "module": "packages/main/src/breakdown"
+    },
+    "asset": {
+      "module": "packages/main/src/assets"
+    },
+    "production": {
+      "module": "packages/main/src/production"
+    },
+    "external": {
+      "module": "packages/main/src/models"
+    },
+    "quality": {
+      "module": "packages/main/src/review"
+    },
+    "delivery": {
+      "module": "packages/main/src/production-media"
+    },
+    "cost": {
+      "module": "packages/main/src/production"
+    },
+    "evaluation": {
+      "module": "packages/main/src/evolution"
+    }
   },
   "policies": {
     "retention": {
@@ -65,11 +83,19 @@
           "id": "novel.source",
           "schemaRef": "packages/main/migrations/008_novel_chapters.sql#/novel_sources",
           "systemOfRecord": "novel_sources",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "content_sha256",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "raw_text", "content_sha256", "source_url", "created_at"],
+          "immutableFields": [
+            "id",
+            "raw_text",
+            "content_sha256",
+            "source_url",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -77,11 +103,21 @@
           "id": "novel.chapter_revision",
           "schemaRef": "packages/main/migrations/008_novel_chapters.sql#/novel_revisions",
           "systemOfRecord": "novel_revisions",
-          "key": ["chapter_id", "id"],
+          "key": [
+            "chapter_id",
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "chapter_id", "parent_revision_id", "created_by", "content_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "chapter_id",
+            "parent_revision_id",
+            "created_by",
+            "content_json",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -89,11 +125,19 @@
           "id": "novel.current_chapter_revision",
           "schemaRef": "packages/main/migrations/008_novel_chapters.sql#/novel_chapters.latest_revision_id",
           "systemOfRecord": "novel_chapters.latest_revision_id",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "latest_revision_id",
           "eventTime": "novel_revisions.created_at",
           "recordTime": "novel_revisions.created_at",
-          "immutableFields": ["id", "document_id", "chapter_order", "start_offset", "end_offset"],
+          "immutableFields": [
+            "id",
+            "document_id",
+            "chapter_order",
+            "start_offset",
+            "end_offset"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "internal"
         }
@@ -109,11 +153,19 @@
           "id": "script.project_source",
           "schemaRef": "packages/shared/src/novel-adaptation.ts#/NovelAdaptationSource",
           "systemOfRecord": "projects.source_json",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "documentSha256+chapters[].revisionId",
           "eventTime": "projects.created_at",
           "recordTime": "projects.created_at",
-          "immutableFields": ["kind", "format", "documentId", "documentSha256", "chapters"],
+          "immutableFields": [
+            "kind",
+            "format",
+            "documentId",
+            "documentSha256",
+            "chapters"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -121,11 +173,21 @@
           "id": "script.version",
           "schemaRef": "packages/main/migrations/001_breakdown_p0.sql#/script_versions",
           "systemOfRecord": "script_versions",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "project_id", "version", "raw_text", "content_sha256", "source_index_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "project_id",
+            "version",
+            "raw_text",
+            "content_sha256",
+            "source_index_json",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -133,7 +195,9 @@
           "id": "script.current_version",
           "schemaRef": "packages/main/migrations/001_breakdown_p0.sql#/projects.current_script_version_id",
           "systemOfRecord": "projects.current_script_version_id",
-          "key": ["project_id"],
+          "key": [
+            "project_id"
+          ],
           "versionKey": "current_script_version_id",
           "eventTime": "script_versions.created_at",
           "recordTime": "script_versions.created_at",
@@ -145,11 +209,22 @@
           "id": "script.plan_revision",
           "schemaRef": "packages/main/migrations/002_candidate_plan_revisions.sql#/plan_revisions",
           "systemOfRecord": "plan_revisions",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "project_id", "script_version_id", "parent_revision_id", "content_json", "requirements_json", "created_by", "created_at"],
+          "immutableFields": [
+            "id",
+            "project_id",
+            "script_version_id",
+            "parent_revision_id",
+            "content_json",
+            "requirements_json",
+            "created_by",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -157,7 +232,9 @@
           "id": "script.current_plan",
           "schemaRef": "packages/main/migrations/002_candidate_plan_revisions.sql#/projects.active_plan_revision_id",
           "systemOfRecord": "projects.active_plan_revision_id",
-          "key": ["project_id"],
+          "key": [
+            "project_id"
+          ],
           "versionKey": "active_plan_revision_id",
           "eventTime": "plan_adoptions.created_at",
           "recordTime": "plan_adoptions.created_at",
@@ -169,11 +246,21 @@
           "id": "script.storyboard_revision",
           "schemaRef": "packages/main/migrations/005_storyboard_revisions.sql#/storyboard_revisions",
           "systemOfRecord": "storyboard_revisions",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "project_id", "script_version_id", "source_plan_revision_id", "content_json", "input_digest", "created_at"],
+          "immutableFields": [
+            "id",
+            "project_id",
+            "script_version_id",
+            "source_plan_revision_id",
+            "content_json",
+            "input_digest",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -181,7 +268,9 @@
           "id": "script.current_storyboard",
           "schemaRef": "packages/main/migrations/005_storyboard_revisions.sql#/projects.active_storyboard_revision_id",
           "systemOfRecord": "projects.active_storyboard_revision_id",
-          "key": ["project_id"],
+          "key": [
+            "project_id"
+          ],
           "versionKey": "active_storyboard_revision_id",
           "eventTime": "storyboard_adoptions.created_at",
           "recordTime": "storyboard_adoptions.created_at",
@@ -201,11 +290,20 @@
           "id": "asset.record",
           "schemaRef": "packages/main/migrations/009_novel_assets.sql#/asset_catalog",
           "systemOfRecord": "asset_catalog",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "kind", "name", "description", "resource_url", "created_at"],
+          "immutableFields": [
+            "id",
+            "kind",
+            "name",
+            "description",
+            "resource_url",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -213,11 +311,18 @@
           "id": "asset.local_media",
           "schemaRef": "packages/main/migrations/010_local_asset_media.sql#/asset_media",
           "systemOfRecord": "asset_media",
-          "key": ["asset_id"],
+          "key": [
+            "asset_id"
+          ],
           "versionKey": "sha256",
           "eventTime": "asset_catalog.created_at",
           "recordTime": "asset_catalog.created_at",
-          "immutableFields": ["asset_id", "mime_type", "sha256", "content"],
+          "immutableFields": [
+            "asset_id",
+            "mime_type",
+            "sha256",
+            "content"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -225,11 +330,19 @@
           "id": "asset.chapter_binding",
           "schemaRef": "packages/shared/src/novel-domain.ts#/NovelContent.assetBindings",
           "systemOfRecord": "novel_revisions.content_json.assetBindings",
-          "key": ["revision_id", "item_id"],
+          "key": [
+            "revision_id",
+            "item_id"
+          ],
           "versionKey": "revision_id",
           "eventTime": "novel_revisions.created_at",
           "recordTime": "novel_revisions.created_at",
-          "immutableFields": ["itemId", "status", "asset", "note"],
+          "immutableFields": [
+            "itemId",
+            "status",
+            "asset",
+            "note"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -237,11 +350,21 @@
           "id": "asset.generation_candidate",
           "schemaRef": "packages/main/migrations/013_asset_generation_candidates.sql#/asset_generation_candidates",
           "systemOfRecord": "asset_generation_candidates",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "updated_at",
           "recordTime": "updated_at",
-          "immutableFields": ["id", "task_id", "asset_id", "chapter_id", "item_id", "provenance_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "task_id",
+            "asset_id",
+            "chapter_id",
+            "item_id",
+            "provenance_json",
+            "created_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -249,11 +372,18 @@
           "id": "asset.generation_job",
           "schemaRef": "packages/main/migrations/011_desktop_asset_jobs.sql#/desktop_asset_jobs",
           "systemOfRecord": "desktop_asset_jobs",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "updated_at",
           "recordTime": "updated_at",
-          "immutableFields": ["id", "job_key", "chapter_id", "created_at"],
+          "immutableFields": [
+            "id",
+            "job_key",
+            "chapter_id",
+            "created_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         }
@@ -269,11 +399,20 @@
           "id": "production.run",
           "schemaRef": "packages/shared/src/production.ts#/StoredProductionRun",
           "systemOfRecord": "production_runs.run_json",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "run_json.updatedAt",
           "recordTime": "updated_at",
-          "immutableFields": ["id", "clientRequestId", "projectId", "scriptVersionId", "workflowVersion", "createdAt"],
+          "immutableFields": [
+            "id",
+            "clientRequestId",
+            "projectId",
+            "scriptVersionId",
+            "workflowVersion",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -281,11 +420,20 @@
           "id": "production.task",
           "schemaRef": "packages/shared/src/production.ts#/ProductionTask",
           "systemOfRecord": "production_runs.run_json.tasks",
-          "key": ["runId", "id"],
+          "key": [
+            "runId",
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "updatedAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "stage", "scope", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "stage",
+            "scope",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "internal"
         },
@@ -293,11 +441,23 @@
           "id": "production.attempt",
           "schemaRef": "packages/shared/src/production.ts#/TaskAttempt",
           "systemOfRecord": "production_runs.run_json.attempts",
-          "key": ["runId", "taskId", "number"],
+          "key": [
+            "runId",
+            "taskId",
+            "number"
+          ],
           "versionKey": "id",
           "eventTime": "coalesce(endedAt,startedAt)",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "number", "executor", "inputDigest", "startedAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "number",
+            "executor",
+            "inputDigest",
+            "startedAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "internal"
         },
@@ -305,11 +465,20 @@
           "id": "production.outbox_event",
           "schemaRef": "packages/main/migrations/015_production_orchestration.sql#/production_outbox_events",
           "systemOfRecord": "production_outbox_events",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "run_id+sequence",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "run_id", "sequence", "event_type", "payload_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "run_id",
+            "sequence",
+            "event_type",
+            "payload_json",
+            "created_at"
+          ],
           "retention": "replay_lifetime",
           "sensitivity": "internal"
         }
@@ -325,11 +494,21 @@
           "id": "external.breakdown_model_call",
           "schemaRef": "packages/main/migrations/003_extract_facts_execution.sql#/model_calls",
           "systemOfRecord": "model_calls",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "operation_key",
           "eventTime": "coalesce(ended_at,created_at)",
           "recordTime": "coalesce(ended_at,created_at)",
-          "immutableFields": ["id", "attempt_id", "operation_key", "provider", "model", "request_digest", "created_at"],
+          "immutableFields": [
+            "id",
+            "attempt_id",
+            "operation_key",
+            "provider",
+            "model",
+            "request_digest",
+            "created_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -337,11 +516,21 @@
           "id": "external.production_operation",
           "schemaRef": "packages/shared/src/production.ts#/ExternalOperation",
           "systemOfRecord": "production_runs.run_json.externalOperations",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "operationKey",
           "eventTime": "updatedAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "attemptId", "operationKey", "provider", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "attemptId",
+            "operationKey",
+            "provider",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -349,11 +538,20 @@
           "id": "external.novel_attempt",
           "schemaRef": "packages/main/migrations/008_novel_chapters.sql#/novel_attempts",
           "systemOfRecord": "novel_attempts",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "attempt_order",
           "eventTime": "coalesce(ended_at,started_at)",
           "recordTime": "coalesce(ended_at,started_at)",
-          "immutableFields": ["id", "chapter_id", "expected_revision_id", "model", "attempt_order", "started_at"],
+          "immutableFields": [
+            "id",
+            "chapter_id",
+            "expected_revision_id",
+            "model",
+            "attempt_order",
+            "started_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -361,11 +559,17 @@
           "id": "external.standalone_video_run",
           "schemaRef": "packages/main/migrations/014_video_automation_runs.sql#/video_automation_runs",
           "systemOfRecord": "video_automation_runs.run_json",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "updated_at",
           "recordTime": "updated_at",
-          "immutableFields": ["id", "clientRequestId", "createdAt"],
+          "immutableFields": [
+            "id",
+            "clientRequestId",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         }
@@ -381,11 +585,22 @@
           "id": "quality.plan_check",
           "schemaRef": "packages/main/migrations/004_plan_quality_and_adoption.sql#/plan_checks",
           "systemOfRecord": "plan_checks",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "rule_version+content_digest",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "project_id", "plan_revision_id", "rule_version", "method", "result", "content_digest", "created_at"],
+          "immutableFields": [
+            "id",
+            "project_id",
+            "plan_revision_id",
+            "rule_version",
+            "method",
+            "result",
+            "content_digest",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -393,11 +608,22 @@
           "id": "quality.plan_issue",
           "schemaRef": "packages/main/migrations/004_plan_quality_and_adoption.sql#/plan_issues",
           "systemOfRecord": "plan_issues",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "check_id", "project_id", "plan_revision_id", "kind", "code", "scope_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "check_id",
+            "project_id",
+            "plan_revision_id",
+            "kind",
+            "code",
+            "scope_json",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -405,11 +631,23 @@
           "id": "quality.production_check",
           "schemaRef": "packages/shared/src/production.ts#/QualityCheck",
           "systemOfRecord": "production_runs.run_json.qualityChecks",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "ruleVersion",
           "eventTime": "createdAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "level", "result", "ruleVersion", "summary", "issues", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "level",
+            "result",
+            "ruleVersion",
+            "summary",
+            "issues",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -417,11 +655,22 @@
           "id": "quality.production_issue",
           "schemaRef": "packages/shared/src/production.ts#/ProductionIssue",
           "systemOfRecord": "production_runs.run_json.issues",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "productionRun.version",
           "eventTime": "coalesce(resolvedAt,createdAt)",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "stage", "scope", "severity", "code", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "stage",
+            "scope",
+            "severity",
+            "code",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -429,11 +678,22 @@
           "id": "quality.production_review",
           "schemaRef": "packages/shared/src/production.ts#/ReviewDecision",
           "systemOfRecord": "production_runs.run_json.reviews",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "createdAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "issueId", "candidateId", "decision", "feedback", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "issueId",
+            "candidateId",
+            "decision",
+            "feedback",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         }
@@ -449,11 +709,22 @@
           "id": "delivery.artifact",
           "schemaRef": "packages/shared/src/production.ts#/ProductionArtifact",
           "systemOfRecord": "production_runs.run_json.artifacts",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id+sha256",
           "eventTime": "createdAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "kind", "uri", "sha256", "metadata", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "kind",
+            "uri",
+            "sha256",
+            "metadata",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -461,11 +732,21 @@
           "id": "delivery.timeline",
           "schemaRef": "packages/shared/src/production.ts#/TimelineRevision",
           "systemOfRecord": "production_runs.run_json.timeline",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "version",
           "eventTime": "createdAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "version", "tracks", "durationSec", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "version",
+            "tracks",
+            "durationSec",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -473,11 +754,20 @@
           "id": "delivery.delivery",
           "schemaRef": "packages/shared/src/production.ts#/ProductionDelivery",
           "systemOfRecord": "production_runs.run_json.delivery",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "artifactId",
           "eventTime": "coalesce(verifiedAt,createdAt)",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "artifactId", "spec", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "artifactId",
+            "spec",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -485,11 +775,22 @@
           "id": "delivery.local_video",
           "schemaRef": "packages/main/src/production-media/contracts.ts#/LocalVideoObject",
           "systemOfRecord": "private-media://objects/{sha256}",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "sha256",
           "eventTime": "createdAt",
           "recordTime": "createdAt",
-          "immutableFields": ["schemaVersion", "id", "sha256", "bytes", "mimeType", "relativePath", "sourceKind", "createdAt"],
+          "immutableFields": [
+            "schemaVersion",
+            "id",
+            "sha256",
+            "bytes",
+            "mimeType",
+            "relativePath",
+            "sourceKind",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         }
@@ -505,11 +806,16 @@
           "id": "cost.run_budget",
           "schemaRef": "packages/shared/src/production.ts#/CreateProductionRun",
           "systemOfRecord": "production_runs.run_json.budgetMicros",
-          "key": ["runId"],
+          "key": [
+            "runId"
+          ],
           "versionKey": "productionRun.version",
           "eventTime": "production_outbox_events.created_at",
           "recordTime": "production_outbox_events.created_at",
-          "immutableFields": ["currency", "allowPaid"],
+          "immutableFields": [
+            "currency",
+            "allowPaid"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -517,11 +823,24 @@
           "id": "cost.budget_entry",
           "schemaRef": "packages/shared/src/production.ts#/BudgetEntry",
           "systemOfRecord": "production_runs.run_json.budgetLedger",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "createdAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["id", "runId", "taskId", "attemptId", "kind", "basis", "amountMicros", "currency", "note", "createdAt"],
+          "immutableFields": [
+            "id",
+            "runId",
+            "taskId",
+            "attemptId",
+            "kind",
+            "basis",
+            "amountMicros",
+            "currency",
+            "note",
+            "createdAt"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -529,11 +848,17 @@
           "id": "cost.operation_observation",
           "schemaRef": "packages/shared/src/production.ts#/ExternalOperation.actualCostMicros",
           "systemOfRecord": "production_runs.run_json.externalOperations.actualCostMicros",
-          "key": ["operationId"],
+          "key": [
+            "operationId"
+          ],
           "versionKey": "operationKey",
           "eventTime": "updatedAt",
           "recordTime": "production_runs.updated_at",
-          "immutableFields": ["operationId", "operationKey", "billingBasis"],
+          "immutableFields": [
+            "operationId",
+            "operationKey",
+            "billingBasis"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         }
@@ -549,11 +874,18 @@
           "id": "evaluation.evidence",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetRunEvidence",
           "systemOfRecord": "evolution_evidence",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "evidence_json.runDigest",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "run_id", "evidence_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "run_id",
+            "evidence_json",
+            "created_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -561,11 +893,18 @@
           "id": "evaluation.proposal",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetImprovementProposal",
           "systemOfRecord": "evolution_proposals",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "key+updated_at",
           "eventTime": "updated_at",
           "recordTime": "updated_at",
-          "immutableFields": ["id", "key", "proposal_json.evidenceIds", "proposal_json.sourceRunIds"],
+          "immutableFields": [
+            "id",
+            "key",
+            "proposal_json.evidenceIds",
+            "proposal_json.sourceRunIds"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -573,11 +912,19 @@
           "id": "evaluation.candidate",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetRetrievalCandidate",
           "systemOfRecord": "evolution_candidates",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "policy_digest",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "proposal_id", "base_policy_digest", "policy_digest", "created_at"],
+          "immutableFields": [
+            "id",
+            "proposal_id",
+            "base_policy_digest",
+            "policy_digest",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -585,11 +932,18 @@
           "id": "evaluation.probe",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetProbeReport",
           "systemOfRecord": "evolution_probes",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "probe_json.fixtureVersion+probe_json.candidatePolicyDigest",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "candidate_id", "probe_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "candidate_id",
+            "probe_json",
+            "created_at"
+          ],
           "retention": "run_lifetime",
           "sensitivity": "confidential"
         },
@@ -597,11 +951,15 @@
           "id": "evaluation.registry",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetPolicyRegistry",
           "systemOfRecord": "evolution_registry",
-          "key": ["domain"],
+          "key": [
+            "domain"
+          ],
           "versionKey": "policy_json.revision",
           "eventTime": "updated_at",
           "recordTime": "updated_at",
-          "immutableFields": ["domain"],
+          "immutableFields": [
+            "domain"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -609,11 +967,19 @@
           "id": "evaluation.registry_event",
           "schemaRef": "packages/shared/src/evolution.ts#/AssetRegistryEvent",
           "systemOfRecord": "evolution_registry_events",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "domain+revision",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "domain", "revision", "event_json", "created_at"],
+          "immutableFields": [
+            "id",
+            "domain",
+            "revision",
+            "event_json",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "internal"
         },
@@ -621,11 +987,17 @@
           "id": "evaluation.dataset",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_datasets",
           "systemOfRecord": "evaluation_datasets",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "kind", "created_at"],
+          "immutableFields": [
+            "id",
+            "kind",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -633,11 +1005,28 @@
           "id": "evaluation.dataset_revision",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_dataset_revisions",
           "systemOfRecord": "evaluation_dataset_revisions",
-          "key": ["dataset_id", "revision"],
+          "key": [
+            "dataset_id",
+            "revision"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "dataset_id", "revision", "kind", "note", "content_summary", "slices", "tags", "authorization_json", "sensitivity", "provenance_json", "content_digest", "digest"],
+          "immutableFields": [
+            "id",
+            "dataset_id",
+            "revision",
+            "kind",
+            "note",
+            "content_summary",
+            "slices",
+            "tags",
+            "authorization_json",
+            "sensitivity",
+            "provenance_json",
+            "content_digest",
+            "digest"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -645,11 +1034,32 @@
           "id": "evaluation.dataset_case",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_cases",
           "systemOfRecord": "evaluation_cases",
-          "key": ["revision_id", "case_id"],
+          "key": [
+            "revision_id",
+            "case_id"
+          ],
           "versionKey": "content_digest",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["revision_id", "case_id", "ordinal", "kind", "title", "intent", "input_json", "expectation_json", "source_json", "version_refs_json", "content_summary", "authorization_json", "sensitivity", "tags", "slices", "input_digest", "content_digest"],
+          "immutableFields": [
+            "revision_id",
+            "case_id",
+            "ordinal",
+            "kind",
+            "title",
+            "intent",
+            "input_json",
+            "expectation_json",
+            "source_json",
+            "version_refs_json",
+            "content_summary",
+            "authorization_json",
+            "sensitivity",
+            "tags",
+            "slices",
+            "input_digest",
+            "content_digest"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -657,11 +1067,17 @@
           "id": "evaluation.rubric",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubrics",
           "systemOfRecord": "evaluation_rubrics",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "kind", "created_at"],
+          "immutableFields": [
+            "id",
+            "kind",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -669,11 +1085,24 @@
           "id": "evaluation.rubric_revision",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubric_revisions",
           "systemOfRecord": "evaluation_rubric_revisions",
-          "key": ["rubric_id", "revision"],
+          "key": [
+            "rubric_id",
+            "revision"
+          ],
           "versionKey": "id",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "rubric_id", "revision", "kind", "note", "summary", "missing_result_policy", "content_digest", "digest"],
+          "immutableFields": [
+            "id",
+            "rubric_id",
+            "revision",
+            "kind",
+            "note",
+            "summary",
+            "missing_result_policy",
+            "content_digest",
+            "digest"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -681,11 +1110,23 @@
           "id": "evaluation.rubric_dimension",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_rubric_dimensions",
           "systemOfRecord": "evaluation_rubric_dimensions",
-          "key": ["revision_id", "dimension_key"],
+          "key": [
+            "revision_id",
+            "dimension_key"
+          ],
           "versionKey": "dimension_key",
           "eventTime": "rubric_revision.created_at",
           "recordTime": "rubric_revision.created_at",
-          "immutableFields": ["revision_id", "dimension_key", "ordinal", "label", "description", "scale_json", "thresholds_json", "evidence_json"],
+          "immutableFields": [
+            "revision_id",
+            "dimension_key",
+            "ordinal",
+            "label",
+            "description",
+            "scale_json",
+            "thresholds_json",
+            "evidence_json"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "confidential"
         },
@@ -693,11 +1134,21 @@
           "id": "evaluation.revision_usage",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_revision_usage",
           "systemOfRecord": "evaluation_revision_usage",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "usage_kind+usage_ref",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "dataset_revision_id", "rubric_revision_id", "usage_kind", "usage_ref", "note", "created_at"],
+          "immutableFields": [
+            "id",
+            "dataset_revision_id",
+            "rubric_revision_id",
+            "usage_kind",
+            "usage_ref",
+            "note",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "internal"
         },
@@ -705,40 +1156,194 @@
           "id": "evaluation.lifecycle_event",
           "schemaRef": "packages/main/migrations/022_evaluation_catalog.sql#/evaluation_lifecycle_events",
           "systemOfRecord": "evaluation_lifecycle_events",
-          "key": ["id"],
+          "key": [
+            "id"
+          ],
           "versionKey": "action+created_at",
           "eventTime": "created_at",
           "recordTime": "created_at",
-          "immutableFields": ["id", "target_kind", "dataset_revision_id", "rubric_revision_id", "action", "actor", "reason", "created_at"],
+          "immutableFields": [
+            "id",
+            "target_kind",
+            "dataset_revision_id",
+            "rubric_revision_id",
+            "action",
+            "actor",
+            "reason",
+            "created_at"
+          ],
           "retention": "project_lifetime",
           "sensitivity": "internal"
+        },
+        {
+          "id": "evaluation.result",
+          "schemaRef": "packages/shared/src/evaluator.ts#/EvaluationResult",
+          "systemOfRecord": "evaluation_results",
+          "key": [
+            "result_id"
+          ],
+          "versionKey": "result_digest",
+          "eventTime": "occurred_at",
+          "recordTime": "recorded_at",
+          "immutableFields": [
+            "result_id",
+            "result_digest",
+            "run_id",
+            "case_id",
+            "sample_index",
+            "subject_kind",
+            "subject_id",
+            "subject_revision_id",
+            "subject_digest",
+            "evaluator_id",
+            "evaluator_version",
+            "evaluator_digest",
+            "status",
+            "evidence_json",
+            "metrics_json",
+            "result_json",
+            "occurred_at",
+            "recorded_at"
+          ],
+          "retention": "project_lifetime",
+          "sensitivity": "confidential"
         }
       ]
     }
   ],
   "fields": [
-    { "path": "novel_sources.raw_text", "owner": "novel", "sensitivity": "confidential", "eventForm": "id+contentSha256" },
-    { "path": "script_versions.raw_text", "owner": "script", "sensitivity": "confidential", "eventForm": "id+contentSha256" },
-    { "path": "*.sourceRefs[].quote", "owner": "script", "sensitivity": "confidential", "eventForm": "forbidden" },
-    { "path": "plan_revisions.content_json", "owner": "script", "sensitivity": "confidential", "eventForm": "revisionId+digest" },
-    { "path": "storyboard_revisions.content_json", "owner": "script", "sensitivity": "confidential", "eventForm": "revisionId+digest" },
-    { "path": "asset_media.content", "owner": "asset", "sensitivity": "confidential", "eventForm": "assetId+sha256+mimeType+bytes" },
-    { "path": "desktop_asset_jobs.task_json", "owner": "asset", "sensitivity": "confidential", "eventForm": "taskId+status+candidateId" },
-    { "path": "asset_generation_candidates.provenance_json.promptSnapshot", "owner": "asset", "sensitivity": "confidential", "eventForm": "forbidden" },
-    { "path": "model_calls.response_json", "owner": "external", "sensitivity": "confidential", "eventForm": "safeError+usage+resultDigest" },
-    { "path": "modelConnections.*.apiKey", "owner": "external", "sensitivity": "secret", "eventForm": "forbidden" },
-    { "path": "production_runs.run_json.tasks", "owner": "production", "sensitivity": "internal", "eventForm": "id+version+status+timestamps" },
-    { "path": "production_runs.run_json.externalOperations", "owner": "external", "sensitivity": "confidential", "eventForm": "operationKey+status+costBasis" },
-    { "path": "production_runs.run_json.qualityChecks", "owner": "quality", "sensitivity": "confidential", "eventForm": "id+result+method+ruleVersion+scope" },
-    { "path": "production_runs.run_json.reviews", "owner": "quality", "sensitivity": "confidential", "eventForm": "decision+targetId+createdAt" },
-    { "path": "production_runs.run_json.artifacts", "owner": "delivery", "sensitivity": "confidential", "eventForm": "artifactId+mediaId+sha256+status" },
-    { "path": "production_runs.run_json.budgetLedger", "owner": "cost", "sensitivity": "confidential", "eventForm": "kind+amountMicros+currency+basis" },
-    { "path": "evolution_evidence.evidence_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "evidenceId+runDigest" },
-    { "path": "evolution_probes.probe_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "probeId+fixtureVersion+verdict+safeMetrics" },
-    { "path": "evaluation_dataset_revisions.authorization_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "authorizationStatus+expiresAt" },
-    { "path": "evaluation_cases.input_json/expectation_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "caseId+inputDigest+contentDigest" },
-    { "path": "evaluation_rubric_revisions.missing_result_policy", "owner": "evaluation", "sensitivity": "internal", "eventForm": "uncertain+skipped+evaluator_error" },
-    { "path": "evaluation_rubric_dimensions.scale_json/thresholds_json/evidence_json", "owner": "evaluation", "sensitivity": "confidential", "eventForm": "dimensionKey+label" }
+    {
+      "path": "novel_sources.raw_text",
+      "owner": "novel",
+      "sensitivity": "confidential",
+      "eventForm": "id+contentSha256"
+    },
+    {
+      "path": "script_versions.raw_text",
+      "owner": "script",
+      "sensitivity": "confidential",
+      "eventForm": "id+contentSha256"
+    },
+    {
+      "path": "*.sourceRefs[].quote",
+      "owner": "script",
+      "sensitivity": "confidential",
+      "eventForm": "forbidden"
+    },
+    {
+      "path": "plan_revisions.content_json",
+      "owner": "script",
+      "sensitivity": "confidential",
+      "eventForm": "revisionId+digest"
+    },
+    {
+      "path": "storyboard_revisions.content_json",
+      "owner": "script",
+      "sensitivity": "confidential",
+      "eventForm": "revisionId+digest"
+    },
+    {
+      "path": "asset_media.content",
+      "owner": "asset",
+      "sensitivity": "confidential",
+      "eventForm": "assetId+sha256+mimeType+bytes"
+    },
+    {
+      "path": "desktop_asset_jobs.task_json",
+      "owner": "asset",
+      "sensitivity": "confidential",
+      "eventForm": "taskId+status+candidateId"
+    },
+    {
+      "path": "asset_generation_candidates.provenance_json.promptSnapshot",
+      "owner": "asset",
+      "sensitivity": "confidential",
+      "eventForm": "forbidden"
+    },
+    {
+      "path": "model_calls.response_json",
+      "owner": "external",
+      "sensitivity": "confidential",
+      "eventForm": "safeError+usage+resultDigest"
+    },
+    {
+      "path": "modelConnections.*.apiKey",
+      "owner": "external",
+      "sensitivity": "secret",
+      "eventForm": "forbidden"
+    },
+    {
+      "path": "production_runs.run_json.tasks",
+      "owner": "production",
+      "sensitivity": "internal",
+      "eventForm": "id+version+status+timestamps"
+    },
+    {
+      "path": "production_runs.run_json.externalOperations",
+      "owner": "external",
+      "sensitivity": "confidential",
+      "eventForm": "operationKey+status+costBasis"
+    },
+    {
+      "path": "production_runs.run_json.qualityChecks",
+      "owner": "quality",
+      "sensitivity": "confidential",
+      "eventForm": "id+result+method+ruleVersion+scope"
+    },
+    {
+      "path": "production_runs.run_json.reviews",
+      "owner": "quality",
+      "sensitivity": "confidential",
+      "eventForm": "decision+targetId+createdAt"
+    },
+    {
+      "path": "production_runs.run_json.artifacts",
+      "owner": "delivery",
+      "sensitivity": "confidential",
+      "eventForm": "artifactId+mediaId+sha256+status"
+    },
+    {
+      "path": "production_runs.run_json.budgetLedger",
+      "owner": "cost",
+      "sensitivity": "confidential",
+      "eventForm": "kind+amountMicros+currency+basis"
+    },
+    {
+      "path": "evolution_evidence.evidence_json",
+      "owner": "evaluation",
+      "sensitivity": "confidential",
+      "eventForm": "evidenceId+runDigest"
+    },
+    {
+      "path": "evolution_probes.probe_json",
+      "owner": "evaluation",
+      "sensitivity": "confidential",
+      "eventForm": "probeId+fixtureVersion+verdict+safeMetrics"
+    },
+    {
+      "path": "evaluation_dataset_revisions.authorization_json",
+      "owner": "evaluation",
+      "sensitivity": "confidential",
+      "eventForm": "authorizationStatus+expiresAt"
+    },
+    {
+      "path": "evaluation_cases.input_json/expectation_json",
+      "owner": "evaluation",
+      "sensitivity": "confidential",
+      "eventForm": "caseId+inputDigest+contentDigest"
+    },
+    {
+      "path": "evaluation_rubric_revisions.missing_result_policy",
+      "owner": "evaluation",
+      "sensitivity": "internal",
+      "eventForm": "uncertain+skipped+evaluator_error"
+    },
+    {
+      "path": "evaluation_rubric_dimensions.scale_json/thresholds_json/evidence_json",
+      "owner": "evaluation",
+      "sensitivity": "confidential",
+      "eventForm": "dimensionKey+label"
+    }
   ],
   "metrics": [
     {
@@ -746,7 +1351,9 @@
       "owner": "production",
       "sourceFact": "production.run",
       "aggregation": "countDistinct",
-      "groupBy": ["status"],
+      "groupBy": [
+        "status"
+      ],
       "unknownRule": "missingStatus=unknown"
     },
     {
@@ -754,7 +1361,10 @@
       "owner": "production",
       "sourceFact": "production.task",
       "aggregation": "countDistinct(runId+taskId)",
-      "groupBy": ["status", "stage"],
+      "groupBy": [
+        "status",
+        "stage"
+      ],
       "unknownRule": "invalidatedAndSupersededSeparate"
     },
     {
@@ -762,7 +1372,9 @@
       "owner": "external",
       "sourceFact": "external.production_operation",
       "aggregation": "countWhere(status=unknown)",
-      "groupBy": ["provider"],
+      "groupBy": [
+        "provider"
+      ],
       "unknownRule": "neverCountAsFailure"
     },
     {
@@ -770,7 +1382,10 @@
       "owner": "delivery",
       "sourceFact": "delivery.delivery",
       "aggregation": "countWhere(status=ready AND verifiedAt IS NOT NULL AND artifactValid)",
-      "groupBy": ["spec.ratio", "spec.container"],
+      "groupBy": [
+        "spec.ratio",
+        "spec.container"
+      ],
       "unknownRule": "invalidArtifactExcludedAndReported"
     },
     {
@@ -778,7 +1393,12 @@
       "owner": "quality",
       "sourceFact": "quality.production_check",
       "aggregation": "countDistinct(checkId)",
-      "groupBy": ["level", "result", "ruleVersion", "method"],
+      "groupBy": [
+        "level",
+        "result",
+        "ruleVersion",
+        "method"
+      ],
       "unknownRule": "technicalAndSemanticSeparate"
     },
     {
@@ -786,7 +1406,11 @@
       "owner": "cost",
       "sourceFact": "cost.budget_entry",
       "aggregation": "sumWhere(kind=charge)",
-      "groupBy": ["runId", "currency", "basis"],
+      "groupBy": [
+        "runId",
+        "currency",
+        "basis"
+      ],
       "unknownRule": "missingCurrencyOrBasis=unknownNotZero"
     },
     {
@@ -794,7 +1418,10 @@
       "owner": "cost",
       "sourceFact": "cost.budget_entry",
       "aggregation": "sum(charge)+sum(unreleasedReserve)",
-      "groupBy": ["runId", "currency"],
+      "groupBy": [
+        "runId",
+        "currency"
+      ],
       "unknownRule": "notSupplierInvoice"
     },
     {
@@ -802,10 +1429,33 @@
       "owner": "evaluation",
       "sourceFact": "evaluation.probe",
       "aggregation": "countCases",
-      "groupBy": ["fixtureVersion", "verdict"],
+      "groupBy": [
+        "fixtureVersion",
+        "verdict"
+      ],
       "unknownRule": "offlineProbeOnly"
+    },
+    {
+      "id": "lyra.evaluation.result_status_count.v1",
+      "owner": "evaluation",
+      "sourceFact": "evaluation.result",
+      "aggregation": "countByStatus",
+      "groupBy": [
+        "status",
+        "evaluatorId",
+        "layer"
+      ],
+      "unknownRule": "evaluatorErrorIsNotObjectFail"
     }
   ],
-  "requiredConsumers": ["#49", "#50", "#51", "#52", "#53", "#54", "#55"],
+  "requiredConsumers": [
+    "#49",
+    "#50",
+    "#51",
+    "#52",
+    "#53",
+    "#54",
+    "#55"
+  ],
   "consumerRule": "后续设计与 PR 必须引用 lyra-data-governance/1；偏离前先修订 ADR、矩阵和目录。"
 }

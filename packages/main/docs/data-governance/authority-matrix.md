@@ -123,8 +123,9 @@
 | 量表维度 | `evaluation_rubric_dimensions` | `(revision_id,dimension_key)` / `dimension_key` | 所属 revision 的 `created_at` | `revision_id/dimension_key/ordinal/label/description/scale_json/thresholds_json/evidence_json` | `project_lifetime` / `confidential` |
 | 评测引用账本 | `evaluation_revision_usage` | `id`；`(dataset_revision_id 或 rubric_revision_id,usage_kind,usage_ref)` 唯一 | `created_at` | `id/dataset_revision_id/rubric_revision_id/usage_kind/usage_ref/note/created_at`；只 INSERT | `project_lifetime` / `internal` |
 | 评测生命周期事件 | `evaluation_lifecycle_events` | `id`；`(target_kind,dataset_revision_id 或 rubric_revision_id,action,created_at)` 定位 | `created_at` | `id/target_kind/dataset_revision_id/rubric_revision_id/action/actor/reason/created_at`；只 INSERT | `project_lifetime` / `internal` |
+| 统一评估结果（#42） | `evaluation_results` | `id` / `result_digest`（幂等） | `occurred_at` 为业务发生、`recorded_at` 为记录 | `result_id/result_digest/run_id/case_id/sample_index/subject_*/evaluator_*/status/evidence_json/metrics_json/result_json/occurred_at/recorded_at`；BEFORE UPDATE/DELETE 触发器只允许 INSERT，`evaluator_error` 不是对象 fail | `project_lifetime` / `confidential` |
 
-这里同时覆盖当前资产检索离线评测事实和 022 已落地的通用评测目录（数据集/量表身份、不可变 revision、case、dimension、引用账本与生命周期事件）。通用评测的标注、授权登记、split 与评分仍由 #53/#17 扩展；但已落地目录事实以本节为唯一权威来源，不得在 #53 另建同义表，也不得直接把 Probe 结果当作通用质量分。
+这里同时覆盖当前资产检索离线评测事实和 022 已落地的通用评测目录（数据集/量表身份、不可变 revision、case、dimension、引用账本与生命周期事件），以及 025 统一评估结果（五态 pass/fail/uncertain/skipped/evaluator_error、证据引用与分层指标）。通用评测的标注、授权登记、split 与评分仍由 #53/#17 扩展；但已落地目录事实以本节为唯一权威来源，不得在 #53 另建同义表，也不得直接把 Probe 结果当作通用质量分。`evaluation_results` 是结果层事实，复用 023 的 run/case/sample 定位，不新建第二套运行；评估器自身异常保留为 `evaluator_error`，不计为对象 fail，未知/缺失永远是 null 而不是 0。
 
 ## 3. 字段 Owner 与扩散规则
 
@@ -164,6 +165,7 @@
 | `lyra.cost.charge_micros.v1` | 按 `runId/currency/basis` 汇总 `budgetLedger.kind=charge`；reserve/release/estimate 不计入 | `run_json.budgetLedger` | `cost` |
 | `lyra.cost.budget_debit_micros.v1` | `charge` 加未释放 `reserve`，按运行和币种分组；表示预算占用，不表示供应商账单 | `run_json.budgetLedger` | `cost` |
 | `lyra.evaluation.probe_case_count.v1` | 按 `fixtureVersion/verdict` 统计 Probe case；离线 Probe 与模型/人工评测分开 | `evolution_probes` | `evaluation` |
+| `lyra.evaluation.result_status_count.v1` | 按严格五态 `status/evaluatorId/layer` 计数；`evaluator_error` 单列、不计 pass/fail；低于 `minSampleSize` 的聚合结论只能 `uncertain` | `evaluation_results` | `evaluation` |
 
 比率指标若后续增加，必须显式写出分子、分母、排除状态、快照时间和缺失值处理。不能把 `partial` 当成功，也不能把未知成本当 0。
 

@@ -8,6 +8,7 @@ if (!process.env.DATABASE_URL) {
     'tests/breakdown-persistence.db.test.cjs', 'tests/production-persistence.db.test.cjs',
     'tests/production-e2e.db.test.cjs', 'tests/evaluation-catalog.db.test.cjs',
     'tests/evaluation-run-persistence.db.test.cjs',
+    'tests/evaluation-results-persistence.db.test.cjs',
     'tests/data-outbox-persistence.db.test.cjs',
     'tests/data-projection.db.test.cjs'], {
     stdio: 'inherit',

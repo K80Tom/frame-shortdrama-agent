@@ -21,3 +21,6 @@ export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
 
 /** Unified transactional outbox; production writes require it before starting. */
 export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
+
+/** Unified append-only evaluation results, evidence, and layered metrics (#42). */
+export const EVALUATION_RESULTS_MIGRATIONS = ["025"] as const;
