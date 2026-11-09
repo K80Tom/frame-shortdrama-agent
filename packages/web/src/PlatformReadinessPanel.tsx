@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
-import { parsePlatformPreflightReport, type PlatformPreflightReport } from '@lyra/shared/dist/platform-preflight';
+import type { PlatformPreflightReport } from '@lyra/shared/dist/platform-preflight';
+import * as preflightPkg from '@lyra/shared/dist/platform-preflight';
 import { productionApi } from './production-automation';
+
+const parsePlatformPreflightReport: (value: unknown) => PlatformPreflightReport =
+  (preflightPkg as any).parsePlatformPreflightReport ?? (preflightPkg as any).default?.parsePlatformPreflightReport;
 
 const labels = { ready: '本地检查通过', degraded: '部分能力降级', blocked: '发现阻断项' };
 export function PlatformReadinessPanel() {
