@@ -1,0 +1,171 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { Client } = require('pg');
+const { randomBytes, createHash } = require('node:crypto');
+const { PostgresDatabase } = require('../dist/db/client');
+const { PostgresProductionInputSourceReader } = require('../dist/production/input-source-reader');
+const { PostgresShotSpecRepository } = require('../dist/production/shot-spec-repository');
+const { sealShotSpecV2 } = require('../dist/production/shot-spec');
+const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
+const { ProductionInputObjectVerifier } = require('../dist/production/input-object-verifier');
+const { PostgresProductionInputReferenceReader } = require('../dist/production/input-reference-reader');
+const { PostgresProductionInputSnapshotRepository } = require('../dist/production/input-snapshot-repository');
+const { sealProductionInputSnapshot } = require('../dist/production/input-snapshot');
+const { PostgresProductionInputLifecycle } = require('../dist/production/input-lifecycle');
+const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
+const token = () => randomBytes(16).toString('hex');
+const hash = value => createHash('sha256').update(value).digest('hex');
+test('real PostgreSQL input reader isolates tenants and reads exact historical Unicode source without following current pointers', {
+  skip: adminUrl && appUrl ? false : 'DATABASE_ADMIN_URL and non-privileged DATABASE_URL are required',
+}, async t => {
+  const admin = new Client({ connectionString: adminUrl }); await admin.connect();
+  await admin.query("SELECT set_config('lyra.system_bypass','on',false)"); // dedicated fixture administrator only
+  const db = new PostgresDatabase({ connectionString: appUrl }, { unscopedAccess: 'deny' });
+  t.after(async () => { await db.close(); await admin.end(); });
+  await db.verifyTenantRole();
+  const tenants = [];
+  for (let i = 0; i < 2; i++) {
+    const suffix = token(), userId = 'usr_' + suffix, workspaceId = 'ws_' + suffix;
+    await admin.query(`INSERT INTO users(id,subject,display_name,kind,status,created_at,updated_at)
+      VALUES($1,$2,'Input test','human','active',now(),now())`, [userId, 'input-test:' + suffix]);
+    await admin.query(`INSERT INTO workspaces(id,slug,name,status,created_by_user_id,created_at,updated_at)
+      VALUES($1,$2,'Input test','active',$3,now(),now())`, [workspaceId, 'input-' + suffix, userId]);
+    tenants.push({ userId, workspaceId, role: 'owner', requestId: 'input-test:' + suffix });
+  }
+  const [a, b] = tenants, projectId = 'project_' + token(), scriptId = 'script_' + token(), raw = '甲😀乙';
+  await admin.query('INSERT INTO projects(id,title,workspace_id,created_at) VALUES($1,$2,$3,now())', [projectId, 'Input test', a.workspaceId]);
+  await admin.query(`INSERT INTO script_versions(id,project_id,version,raw_text,content_sha256,source_index_json,workspace_id,created_at)
+    VALUES($1,$2,1,$3,$4,'{}'::jsonb,$5,now())`, [scriptId, projectId, raw, hash(raw), a.workspaceId]);
+  await admin.query('UPDATE projects SET current_script_version_id=$1 WHERE id=$2', [scriptId, projectId]);
+  const reader = new PostgresProductionInputSourceReader(db);
+  const first = await reader.readCurrentProjectInputs(a, projectId);
+  assert.equal(first.script.rawText, raw); assert.equal(first.plan, null); assert.equal(first.storyboard, null);
+  assert.equal(first.versions.scriptVersionId, scriptId);
+  assert.equal(first.projectRevision, '1');
+  await admin.query('UPDATE projects SET title=$1,input_revision=999 WHERE id=$2', ['Display-only change', projectId]);
+  assert.equal((await reader.readCurrentProjectInputs(a, projectId)).projectRevision, '1');
+  assert.equal(await reader.readCurrentProjectInputs(b, projectId), null);
+  const ref = { scriptVersionId: scriptId, start: 1, end: 2, quote: '😀' };
+  assert.equal(await reader.checkSource(a, projectId, ref), null);
+  await db.runWithTenant(a, () => db.transaction(async client => {
+    const references = new PostgresProductionInputReferenceReader(client, a, projectId);
+    assert.equal(await references.authorizeProject(), true);
+    assert.equal(await references.checkVersion('script', { id: scriptId, versionId: scriptId, digest: hash(raw) }), null);
+    for (const kind of ['plan', 'storyboard']) assert.equal(await references.checkVersion(kind,
+      { id: 'revision_missing', versionId: 'revision_missing', digest: 'a'.repeat(64) }), 'REFERENCE_NOT_FOUND');
+    assert.equal(await references.checkSource(ref), null);
+  }));
+  await db.runWithTenant(b, () => db.transaction(async client => {
+    const references = new PostgresProductionInputReferenceReader(client, b, projectId);
+    assert.equal(await references.authorizeProject(), false);
+    assert.equal(await references.checkVersion('script', { id: scriptId, versionId: scriptId, digest: hash(raw) }), 'REFERENCE_NOT_FOUND');
+  }));
+  assert.equal(await reader.checkSource(b, projectId, ref), 'REFERENCE_NOT_FOUND');
+  assert.equal(await reader.checkSource(a, 'project_' + token(), ref), 'REFERENCE_NOT_FOUND');
+  assert.equal(await reader.checkSource(a, projectId, { ...ref, end: 3 }), 'DIGEST_MISMATCH');
+  const newer = 'script_' + token(), newRaw = '新的原文';
+  await admin.query(`INSERT INTO script_versions(id,project_id,version,raw_text,content_sha256,source_index_json,workspace_id,created_at)
+    VALUES($1,$2,2,$3,$4,'{}'::jsonb,$5,now())`, [newer, projectId, newRaw, hash(newRaw), a.workspaceId]);
+  await admin.query('UPDATE projects SET current_script_version_id=$1 WHERE id=$2', [newer, projectId]);
+  const second = await reader.readCurrentProjectInputs(a, projectId);
+  assert.equal(second.projectRevision, '2');
+  assert.notEqual(second.inputSetDigest, first.inputSetDigest);
+  assert.equal(first.script.rawText, raw); // previously captured view is not a live pointer
+  assert.equal(await reader.checkSource(a, projectId, ref), null); // exact historical version
+  await admin.query('UPDATE script_versions SET content_sha256=$1 WHERE id=$2', ['0'.repeat(64), newer]);
+  await assert.rejects(reader.readCurrentProjectInputs(a, projectId), e => e.code === 'DIGEST_MISMATCH');
+  assert.equal(await reader.checkSource(a, projectId, { scriptVersionId: newer, start: 0, end: 1, quote: '新' }), 'DIGEST_MISMATCH');
+  const episodeId = 'episode_' + token(), versionId = 'shotspec_' + token(), shotId = 'shot_' + token();
+  await db.runWithTenant(a, () => db.query(`INSERT INTO production_episodes(workspace_id,id,project_id,title,created_by,created_at)
+    VALUES($1,$2,$3,'Test episode',$4,now())`, [a.workspaceId, episodeId, projectId, a.userId]));
+  // SQL-level envelope constraints tested separately from the full DTO parser.
+  const envelope = { schemaVersion: 'lyra-shot-spec/2', workspaceId: a.workspaceId, projectId, episodeId,
+    shotId, revisionId: versionId, contentDigest: 'a'.repeat(64) };
+  const insert = (id, json) => db.query(`INSERT INTO shot_spec_versions(workspace_id,id,project_id,episode_id,shot_id,
+    content_digest,spec_json,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())`,
+  [a.workspaceId, id, projectId, episodeId, shotId, 'a'.repeat(64), json, a.userId]);
+  await db.runWithTenant(a, () => insert(versionId, envelope));
+  await assert.rejects(db.runWithTenant(a, () => insert('invalid_' + token(), { ...envelope, revisionId: null })), e => e.code === '23514');
+  assert.equal((await db.runWithTenant(b, () => db.query('SELECT id FROM shot_spec_versions WHERE id=$1', [versionId]))).rowCount, 0);
+  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE shot_spec_versions SET spec_json=spec_json WHERE id=$1', [versionId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query(`INSERT INTO shot_spec_heads(workspace_id,project_id,episode_id,shot_id,
+    current_version_id,adopted_by,adopted_at,reason) VALUES($1,$2,$3,$4,$5,$6,now(),'bad target')`,
+  [a.workspaceId, projectId, episodeId, 'shot_wrong', versionId, a.userId])), e => e.code === '23503');
+  const repository = new PostgresShotSpecRepository(db), realId = 'shotspec_' + token();
+  const version = { id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) };
+  const spec = sealShotSpecV2({ schemaVersion: 'lyra-shot-spec/2', revisionId: realId, workspaceId: a.workspaceId,
+    projectId, episodeId, scriptVersionId: scriptId, planRevisionId: 'plan-one', storyboardRevisionId: 'board-one',
+    shotId, sceneId: 'scene-one', order: 1, durationMs: 5000, ratio: '9:16', shotSize: 'wide',
+    camera: { description: null, movement: 'still', focalLengthMm: null, composition: null }, dialogue: [], actions: [], assetPacks: [], controls: [],
+    visualStyle: 'offline', negativeConstraints: [], continuity: { before: [], after: [] }, timeline: [], sourceRefs: [],
+    generation: { methodPackRevisions: [], promptPackRevision: version, modelCapabilityRevision: version, candidatePolicy: { mode: 'direct', limit: 1 } },
+    source: { kind: 'user', actor: a.userId, sourceRevisionId: null }, createdAt: '2026-11-09T00:00:00.000Z' });
+  await repository.create(a, spec); await repository.create(a, spec);
+  assert.equal(await repository.get(b, realId), null);
+  const createdEvents = await admin.query('SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2', [a.workspaceId, realId]);
+  assert.equal(createdEvents.rowCount, 1, 'duplicate create must not duplicate event');
+  const adoption = { revisionId: realId, expectedCurrentVersion: null, expectedProjectRevision: '2', reason: 'offline CAS test', at: spec.createdAt };
+  await assert.rejects(repository.adopt(a, adoption, async () => { throw new Error('validation failed'); }));
+  assert.equal((await admin.query('SELECT input_revision::text FROM projects WHERE id=$1', [projectId])).rows[0].input_revision, '2');
+  // Read-only validator is stubbed here: this test proves transaction/CAS, not production reference authorization.
+  const results = await Promise.allSettled([0, 1].map(() => repository.adopt(a, adoption, async () => {})));
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(results.find(r => r.status === 'rejected').reason.code, 'REVISION_CONFLICT');
+  assert.equal((await admin.query('SELECT input_revision::text FROM projects WHERE id=$1', [projectId])).rows[0].input_revision, '3');
+  const adoptedEvents = await admin.query("SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND event_type='shot_spec.adopted.v2'", [a.workspaceId]);
+  assert.equal(adoptedEvents.rowCount, 1);
+  const replay = await repository.adopt(a, { ...adoption, expectedCurrentVersion: realId, expectedProjectRevision: '3' }, async () => {});
+  assert.equal(replay.projectRevision, '3', 'same-head no-op must not advance project');
+  await admin.query('UPDATE script_versions SET content_sha256=$1 WHERE id=$2', [hash(newRaw), newer]);
+  const adoptedView = await reader.readCurrentProjectInputs(a, projectId, episodeId);
+  assert.equal(adoptedView.projectRevision, '3'); assert.equal(adoptedView.shotVersions[0].revisionId, realId);
+  assert.equal(await reader.readCurrentProjectInputs(b, projectId, episodeId), null);
+  assert.equal(await reader.readCurrentProjectInputs(a, projectId, 'episode_missing'), null);
+  const compiled = await new ProductionInputCandidateCompiler(reader).compile(a, projectId, episodeId, {});
+  assert.equal(compiled.state, 'blocked'); assert.equal(compiled.candidate, null); // real project has no adopted plan/board
+  await assert.rejects(repository.create({ ...a, role: 'viewer' }, spec), e => e.code === 'REFERENCE_FORBIDDEN');
+  const objectId = 'obj_' + token(), key = 'media/test-' + token(), checksum = 'e'.repeat(64);
+  await admin.query(`INSERT INTO object_records(id,workspace_id,provider,bucket,object_key,version_id,sha256,size_bytes,
+    content_type,purpose,owner_type,owner_id,status,created_at,updated_at,verified_at)
+    VALUES($1,$2,'s3','private-test',$3,'version-one',$4,100,'image/png','production.input','production_input_test',$5,'ready',now(),now(),now())`,
+  [objectId, a.workspaceId, key, checksum, projectId]);
+  let headCalls = 0;
+  const objectStorageStub = { provider: 's3', bucket: 'private-test', async head() {
+    headCalls++; return { provider: 's3', bucket: 'private-test', key, versionId: 'version-one', sha256: checksum, size: 100, contentType: 'image/png', etag: null };
+  } };
+  const checkObject = ctx => db.runWithTenant(ctx, () => db.transaction(client =>
+    new ProductionInputObjectVerifier(client, objectStorageStub).check(ctx, { objectId, versionId: 'version-one', checksum })));
+  assert.equal(await checkObject(a), null);
+  assert.equal(await checkObject(b), 'REFERENCE_NOT_FOUND'); assert.equal(headCalls, 1);
+  await admin.query('UPDATE object_records SET version_id=NULL WHERE id=$1', [objectId]);
+  assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 1);
+  const snapshots = new PostgresProductionInputSnapshotRepository(db), snapshotId = 'snapshot_' + token();
+  const manifestRef = { id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) };
+  // Persistence fixture only; intentionally unresolved source refs may be saved as draft, never as ready.
+  const draft = { schemaVersion: 'lyra-production-input/1', id: snapshotId, workspaceId: a.workspaceId, projectId, episodeId,
+    baseProjectRevision: '3', state: 'draft', shots: [{ shotId, revisionId: realId, contentDigest: spec.contentDigest }],
+    script: manifestRef, plan: manifestRef, storyboard: manifestRef, assetPacks: [], directorScenes: [], controls: [], methodPacks: [], promptPacks: [],
+    modelConnections: [], retrievalPolicy: manifestRef, qualityGates: [], budgetPolicy: { version: manifestRef, limitMicros: 0, currency: 'CNY', allowPaid: false },
+    candidatePolicy: { mode: 'direct', limit: 1 }, automationMode: 'auto', findings: [], createdBy: a.userId, createdAt: spec.createdAt, reason: 'Persistence test' };
+  const snapshot = sealProductionInputSnapshot(draft);
+  await snapshots.create(a, snapshot); await snapshots.create(a, snapshot);
+  let factoryCalls = 0;
+  const lifecycle = new PostgresProductionInputLifecycle(db, () => { factoryCalls++; throw new Error('must not authorize forged source pointers'); });
+  await assert.rejects(lifecycle.validate(a, snapshotId, 1, spec.createdAt), e => e.code === 'REVISION_CONFLICT');
+  await assert.rejects(lifecycle.validate(b, snapshotId, 1, spec.createdAt), e => e.code === 'REFERENCE_NOT_FOUND');
+  await assert.rejects(lifecycle.freeze({ ...a, role: 'viewer' }, snapshotId, 1, spec.createdAt), e => e.code === 'REFERENCE_FORBIDDEN');
+  assert.equal(factoryCalls, 0);
+  assert.equal((await snapshots.get(a, snapshotId)).state, 'draft'); assert.equal(await snapshots.get(b, snapshotId), null);
+  assert.equal((await admin.query('SELECT event_id FROM data_outbox_events WHERE workspace_id=$1 AND aggregate_id=$2', [a.workspaceId, snapshotId])).rowCount, 1);
+  await assert.rejects(snapshots.create(a, sealProductionInputSnapshot({ ...draft, id: 'snapshot_' + token(), baseProjectRevision: '2' })), e => e.code === 'REVISION_CONFLICT');
+  await assert.rejects(snapshots.create(a, sealProductionInputSnapshot({ ...draft, state: 'frozen' })), e => e.code === 'SNAPSHOT_NOT_READY');
+  await assert.rejects(db.runWithTenant(a, () => db.query('UPDATE production_input_snapshots SET snapshot_json=snapshot_json WHERE id=$1', [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query('DELETE FROM production_input_shots WHERE snapshot_id=$1', [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='frozen',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '55000');
+  // Direct SQL here tests database transition guards, not production authorization or the unfinished freeze service.
+  await db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='validating',version=version+1 WHERE snapshot_id=$1", [snapshotId]));
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=2 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '55000');
+  await assert.rejects(db.runWithTenant(a, () => db.query("UPDATE production_input_states SET state='ready',version=version+1,validated_project_revision=3 WHERE snapshot_id=$1", [snapshotId])), e => e.code === '23503');
+  // A draft fixture with unresolved source IDs cannot bypass physical source retention by raw state updates.
+  assert.equal((await snapshots.get(a, snapshotId)).state, 'validating');
+});

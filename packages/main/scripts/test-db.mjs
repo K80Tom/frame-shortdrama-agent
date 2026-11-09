@@ -13,6 +13,8 @@ if (!process.env.DATABASE_URL) {
     'tests/stage1-data-foundation.db.test.cjs',
     'tests/stage1-storage-migration.db.test.cjs',
     'tests/production-media-object-projection.db.test.cjs',
+    'tests/agent-runtime-persistence.db.test.cjs',
+    'tests/agent-budget-concurrency.db.test.cjs',
     'tests/infra-outbox.db.test.cjs'], {
     stdio: 'inherit',
     env: process.env,

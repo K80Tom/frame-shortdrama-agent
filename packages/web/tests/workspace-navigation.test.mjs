@@ -28,7 +28,7 @@ test('workspace routes preserve legacy flow links and safely decode project iden
 test('project workspace links preserve the project identity and map sections onto existing editors', () => {
   const mappings = {
     overview: 'projects', source: 'production', screenplay: 'production', storyboard: 'storyboard',
-    director: 'director', production: 'automation', review: 'projects', history: 'projects',
+    canvas: 'canvas', director: 'director', production: 'automation', review: 'projects', history: 'projects',
   };
   for (const [projectSection, page] of Object.entries(mappings)) {
     const hash = projectWorkspaceHash('story/\u4e00', projectSection);
@@ -43,10 +43,12 @@ test('project workspace links preserve the project identity and map sections ont
 
 test('global navigation contains only workspace-level destinations while commands preserve creation tools', () => {
   assert.deepEqual(workspaceNavigation.map(item => item.id), ['studio', 'projects', 'assets', 'methods', 'evolution']);
-  assert.deepEqual(creationNavigation.map(item => item.id), ['automation', 'novel', 'production', 'storyboard', 'director']);
-  for (const id of ['methods', 'evolution', 'automation', 'novel', 'production', 'storyboard', 'director']) {
+  assert.deepEqual(creationNavigation.map(item => item.id), ['automation', 'novel', 'production', 'storyboard', 'canvas', 'director']);
+  for (const id of ['methods', 'evolution', 'automation', 'novel', 'production', 'storyboard', 'canvas', 'director']) {
     assert.ok(commands.some(item => item.id === id));
   }
+  assert.deepEqual(routeFromHash('#/canvas/prj_canvas'), { page: 'canvas', step: 1, resourceId: 'prj_canvas' });
+  assert.deepEqual(routeFromHash('#/canvas'), { page: 'canvas', step: 1 });
 });
 
 test('switching to another item in the same editor cannot discard a dirty draft without confirmation', () => {

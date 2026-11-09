@@ -1,6 +1,7 @@
 import { parseCreateProductionRun } from '@lyra/shared';
 import {
-  AssistantError, newAssistantId, type AssistantEvent, type AssistantMessage, type AssistantQuote, type AssistantSession,
+  AssistantError, newAssistantId, type AssistantContextSnapshot, type AssistantEvent, type AssistantMessage,
+  type AssistantQuote, type AssistantSession,
 } from './contracts';
 import { ASSISTANT_TOOLS, executeAssistantTool, type AssistantToolPorts } from './tools';
 
@@ -31,6 +32,27 @@ const DEFAULT_MAX_QUOTE_BUDGET = 50_000_000; // 50 元
 const DEFAULT_QUOTE_TTL_MS = 15 * 60 * 1000;
 const MAX_TOOL_CALLS = 2;
 const MAX_HISTORY_MESSAGES = 12;
+
+/**
+ * 冻结的助手估价价格表。估价不是预算：预算由用户给定，估价由服务端按
+ * 时长与候选数推算，二者在确认卡上分开显示。供应商接入后替换此 revision。
+ */
+const ASSISTANT_PRICE_REVISION = 'assistant-price/2026-11';
+const ESTIMATE_BASE_MICROS = 2_000_000;
+const ESTIMATE_SECOND_MICROS = 150_000;
+const ESTIMATE_CANDIDATE_MICROS = 4_000_000;
+
+export function estimateProductionMicros(targetDurationSec: number, candidateLimit: number): {
+  estimateMicros: number; range: { lowMicros: number; highMicros: number };
+} {
+  const seconds = Math.max(15, Math.min(900, targetDurationSec));
+  const estimateMicros = Math.round(ESTIMATE_BASE_MICROS + ESTIMATE_SECOND_MICROS * seconds
+    + Math.max(0, candidateLimit - 1) * ESTIMATE_CANDIDATE_MICROS);
+  return {
+    estimateMicros,
+    range: { lowMicros: Math.round(estimateMicros * 0.82), highMicros: Math.round(estimateMicros * 1.28) },
+  };
+}
 
 const CREATE_RUN_SHAPE = `{
   "projectId": "项目ID", "scriptVersionId": "剧本版本ID", "ratio": "9:16",
@@ -113,14 +135,23 @@ function parseDecision(text: string): Decision {
   return { reply, toolCalls, quote };
 }
 
-function historyMessages(session: AssistantSession, history: AssistantMessage[], content: string) {
+function historyMessages(session: AssistantSession, history: AssistantMessage[], content: string,
+  snapshot?: AssistantContextSnapshot) {
   const past = history
     .filter(message => message.role === 'user' || (message.role === 'assistant' && message.status === 'complete'))
     .slice(-MAX_HISTORY_MESSAGES)
     .map(message => ({ role: message.role, content: message.content.slice(0, 2000) }));
+  const facts = snapshot
+    ? `后端上下文快照（只读，以此为准）：${JSON.stringify({
+      projectId: snapshot.projectId ?? null, projectTitle: snapshot.projectTitle ?? null,
+      scriptVersionId: snapshot.scriptVersionId ?? null,
+      storyboardRevisionId: snapshot.storyboardRevisionId ?? null,
+      productionRunIds: snapshot.productionRunIds.slice(0, 5), canvasId: snapshot.canvasId ?? null,
+    })}。不要编造快照里没有的 ID。`
+    : '本次没有可用的后端上下文快照；涉及具体 ID 时必须先查询，不要猜测。';
   return [
     { role: 'system', content: systemPrompt() },
-    { role: 'system', content: `当前界面上下文：${session.context.label}。projectId=${session.context.projectId ?? '无'}，runId=${session.context.runId ?? '无'}。` },
+    { role: 'system', content: `当前界面上下文：${session.context.label}。projectId=${session.context.projectId ?? '无'}，runId=${session.context.runId ?? '无'}。${facts}` },
     ...past,
     { role: 'user', content },
   ];
@@ -149,19 +180,21 @@ export class AssistantOrchestrator {
     this.now = options.now ?? (() => new Date());
   }
 
-  async decide(session: AssistantSession, history: AssistantMessage[], content: string): Promise<Decision> {
+  async decide(session: AssistantSession, history: AssistantMessage[], content: string,
+    snapshot?: AssistantContextSnapshot): Promise<Decision> {
     const response = await this.brain.call({
-      messages: historyMessages(session, history, content), jsonOutput: true, maxOutputTokens: 2200,
+      messages: historyMessages(session, history, content, snapshot), jsonOutput: true, maxOutputTokens: 2200,
     });
     return parseDecision(response.text);
   }
 
   private async finalize(session: AssistantSession, history: AssistantMessage[], content: string,
-    decision: Decision, observations: Array<{ name: string; observation: string }>): Promise<string> {
+    decision: Decision, observations: Array<{ name: string; observation: string }>,
+    snapshot?: AssistantContextSnapshot): Promise<string> {
     if (!observations.length) return decision.reply.trim();
     const response = await this.brain.call({
       messages: [
-        ...historyMessages(session, history, content),
+        ...historyMessages(session, history, content, snapshot),
         { role: 'assistant', content: JSON.stringify({ reply: decision.reply, toolCalls: decision.toolCalls, quote: null }) },
         { role: 'user', content: `以下是工具真实返回的观察结果（JSON），请据此用中文回答用户最初的问题；不要编造观察里没有的信息，不要再次调用工具。\n${observations.map(item => `【${item.name}】${item.observation}`).join('\n')}` },
       ],
@@ -187,33 +220,61 @@ export class AssistantOrchestrator {
     const id = newAssistantId('quote');
     // 幂等键由服务端生成；费用以预算为上限，不信任模型自报金额。
     const request = { ...parsed, clientRequestId: `assistant_${id}` } as unknown as Record<string, unknown>;
+    const estimate = estimateProductionMicros(parsed.targetDurationSec, parsed.candidateLimit);
+    if (parsed.budgetMicros < estimate.estimateMicros) {
+      throw new AssistantError(400, 'ASSISTANT_QUOTE_BUDGET_TOO_LOW',
+        `预算 ${parsed.budgetMicros / 1_000_000} 元低于系统估价 ${estimate.estimateMicros / 1_000_000} 元。`
+        + '请提高预算，或缩短成片时长后重试。');
+    }
     return this.hooks.createQuote(session.id, {
       id, sessionId: session.id, kind: 'production_run', request,
-      summary: draft.summary, estimateCostMicros: parsed.budgetMicros, currency: parsed.currency,
+      summary: draft.summary,
+      estimateCostMicros: estimate.estimateMicros,
+      estimateRangeMicros: estimate.range,
+      budgetMicros: parsed.budgetMicros,
+      priceRevision: ASSISTANT_PRICE_REVISION,
+      assumptions: [
+        `按 ${parsed.targetDurationSec} 秒成片、${parsed.candidateLimit} 个候选估算`,
+        `质量档位 ${parsed.qualityPreset}，自动化模式 ${parsed.automationMode}`,
+        '估价为离线价格表推算，不含人工复剪；提交后以生产运行冻结预算为准',
+      ],
+      currency: parsed.currency,
       status: 'pending', expiresAt: new Date(this.now().getTime() + this.quoteTtlMs).toISOString(),
     });
   }
 
-  async *respond(session: AssistantSession, history: AssistantMessage[], content: string): AsyncGenerator<AssistantEvent> {
-    const decision = await this.decide(session, history, content);
+  async *respond(session: AssistantSession, history: AssistantMessage[], content: string,
+    turn: { turnId: string; context?: AssistantContextSnapshot }): AsyncGenerator<AssistantEvent> {
+    const turnId = turn.turnId;
+    const snapshot = turn.context;
+    const decision = await this.decide(session, history, content, snapshot);
     const observations: Array<{ name: string; observation: string }> = [];
     for (const call of decision.toolCalls.slice(0, this.maxToolCalls)) {
-      yield { type: 'tool_start', toolName: call.name };
+      const callId = newAssistantId('call');
+      // 先“提议”再执行：前端可先展示待执行工具，而不是执行后才出现。
+      yield { type: 'tool.proposed', turnId, callId, toolName: call.name, arguments: call.arguments };
+      yield { type: 'tool_start', toolName: call.name, turnId, callId };
       try {
         const result = await executeAssistantTool(this.ports, call.name, call.arguments);
         observations.push({ name: call.name, observation: result.observation });
-        yield { type: 'tool_end', toolName: call.name, isError: false, summary: '查询完成' };
+        yield { type: 'tool_end', toolName: call.name, isError: false, summary: '查询完成', turnId, callId };
       } catch (error) {
         const message = error instanceof AssistantError ? error.message : '工具查询失败，请稍后重试。';
         observations.push({ name: call.name, observation: `查询失败：${message}` });
-        yield { type: 'tool_end', toolName: call.name, isError: true, summary: message };
+        yield { type: 'tool_end', toolName: call.name, isError: true, summary: message, turnId, callId };
       }
     }
     if (decision.quote) {
       const quote = await this.buildQuote(session, decision.quote);
-      yield { type: 'generation_quote', quote };
+      yield { type: 'generation_quote', quote, turnId };
+      // 需要人工确认：建卡不扣费，只有确认后才调用付费提交。
+      yield { type: 'confirmation.required', quote, turnId };
     }
-    const reply = await this.finalize(session, history, content, decision, observations);
-    for (const delta of deltas(reply || '好的。')) yield { type: 'text_delta', delta };
+    const reply = await this.finalize(session, history, content, decision, observations, snapshot);
+    for (const delta of deltas(reply || '好的。')) {
+      yield { type: 'model.delta', turnId, delta };
+      // 兼容旧事件名；前端只消费其中一种，避免重复拼接。
+      yield { type: 'text_delta', delta, turnId };
+    }
   }
 }
