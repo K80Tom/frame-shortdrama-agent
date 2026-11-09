@@ -53,6 +53,10 @@ if (!process.env.DATABASE_URL) {
         version: 1,
         createdAt: occurredAt,
         tasks: [{ id: taskId, createdAt: occurredAt, updatedAt: occurredAt }],
+        outbox: [],
+        issues: [],
+        candidateSets: [],
+        budgetLedger: [],
         attempts: [{ id: attemptId, taskId, startedAt: occurredAt, endedAt: occurredAt }],
         externalOperations: [],
         artifacts: [{ id: artifactId, taskId, sha256: d64(artifactId), createdAt: occurredAt }],
@@ -116,6 +120,8 @@ if (!process.env.DATABASE_URL) {
       assert.ok(downstreamKinds.has('production_run'));
       assert.ok(downstreamKinds.has('script_version'));
     } finally {
+      if (runId) await database.query('DELETE FROM production_runs WHERE id=$1', [runId]).catch(() => {});
+      if (projectId) await database.query('DELETE FROM projects WHERE id=$1', [projectId]).catch(() => {});
       await database.close();
     }
   });
