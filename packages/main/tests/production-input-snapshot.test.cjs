@@ -6,6 +6,13 @@ const vm = require('node:vm');
 const { parseProductionInputSnapshotDraft: parse } = require('../../shared/dist/production-input-snapshot');
 const { sealProductionInputSnapshot: seal, verifyProductionInputSnapshot: verify } = require('../dist/production/input-snapshot');
 const ref = () => ({ id: 'resource-one', versionId: 'version-one', digest: 'a'.repeat(64) });
+test('production input contracts are available from the public shared entry point', () => {
+  const shared = require('@lyra/shared');
+  assert.equal(shared.parseProductionInputSnapshotDraft, parse);
+  assert.equal(typeof shared.parseShotSpecV2, 'function');
+  assert.equal(shared.PRODUCTION_INPUT_SCHEMA_VERSION, 'lyra-production-input/1');
+  assert.equal(shared.SHOT_SPEC_SCHEMA_VERSION, 'lyra-shot-spec/2');
+});
 function fixture() {
   return { schemaVersion: 'lyra-production-input/1', id: 'snapshot-one', workspaceId: 'ws_' + 'a'.repeat(32),
     projectId: 'project-one', episodeId: 'episode-one', baseProjectRevision: '1', state: 'draft',

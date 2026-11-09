@@ -1,6 +1,6 @@
 import { ProductionError } from '@lyra/shared';
-import type { InputVersionRef } from '@lyra/shared/dist/shot-spec';
-import type { ProductionInputFinding, ProductionInputSnapshotDraft } from '@lyra/shared/dist/production-input-snapshot';
+import type { InputVersionRef } from '@lyra/shared';
+import type { ProductionInputFinding, ProductionInputSnapshotDraft } from '@lyra/shared';
 import { parseTenantContext } from '../tenancy/context';
 import type { PostgresProductionInputSourceReader } from './input-source-reader';
 import { verifyShotSpecV2 } from './shot-spec';

@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import { canonicalDigest, ProductionError } from '@lyra/shared';
-import type { ShotSpecV2 } from '@lyra/shared/dist/shot-spec';
+import type { ShotSpecV2 } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 import { DataOutbox, type OutboxTransaction } from '../data/outbox';
 import { createDataEventV2 } from '../data/tenant-event';

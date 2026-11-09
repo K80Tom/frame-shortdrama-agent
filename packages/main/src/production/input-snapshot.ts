@@ -1,6 +1,6 @@
 import { canonicalDigest, ProductionError } from '@lyra/shared';
 import { parseProductionInputSnapshot, parseProductionInputSnapshotDraft,
-  type ProductionInputSnapshotDraft, type ProductionInputSnapshot } from '@lyra/shared/dist/production-input-snapshot';
+  type ProductionInputSnapshotDraft, type ProductionInputSnapshot } from '@lyra/shared';
 
 function content(value: ProductionInputSnapshotDraft) {
   const { id: _id, state: _state, findings: _findings, createdBy: _createdBy, createdAt: _createdAt, reason: _reason, ...inputs } = value;

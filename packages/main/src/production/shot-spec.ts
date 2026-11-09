@@ -1,5 +1,5 @@
 import { canonicalDigest, ProductionError } from '@lyra/shared';
-import { parseShotSpecV2, parseShotSpecV2Draft, type ShotSpecV2 } from '@lyra/shared/dist/shot-spec';
+import { parseShotSpecV2, parseShotSpecV2Draft, type ShotSpecV2 } from '@lyra/shared';
 
 function body(spec: ShotSpecV2) { const { contentDigest: _digest, ...value } = spec; return value; }
 function content(value: ReturnType<typeof parseShotSpecV2Draft>) {

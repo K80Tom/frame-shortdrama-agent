@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { canonicalDigest } from '@lyra/shared';
-import type { InputVersionRef, ShotSourceRef } from '@lyra/shared/dist/shot-spec';
-import type { ProductionInputErrorCode } from '@lyra/shared/dist/production-input-snapshot';
+import type { InputVersionRef, ShotSourceRef } from '@lyra/shared';
+import type { ProductionInputErrorCode } from '@lyra/shared';
 import { parseTenantContext } from '../tenancy/context';
 import type { InputReferenceKind } from './input-validation';
 import { verifyShotSpecV2 } from './shot-spec';

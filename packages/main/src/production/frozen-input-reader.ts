@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalDigest, ProductionError } from '@lyra/shared';
-import type { FrozenProductionInput } from '@lyra/shared/dist/production-input-snapshot';
+import type { FrozenProductionInput } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 import { parseTenantContext } from '../tenancy/context';
 import { verifyProductionInputSnapshot } from './input-snapshot';

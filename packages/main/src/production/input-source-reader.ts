@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalDigest, ProductionError } from '@lyra/shared';
-import type { ShotSourceRef } from '@lyra/shared/dist/shot-spec';
+import type { ShotSourceRef } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 import { parseTenantContext } from '../tenancy/context';
 import { PostgresProductionInputReferenceReader } from './input-reference-reader';

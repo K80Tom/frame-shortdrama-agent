@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import { ProductionError } from '@lyra/shared';
-import type { ProductionInputSnapshot } from '@lyra/shared/dist/production-input-snapshot';
+import type { ProductionInputSnapshot } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 import { DataOutbox } from '../data/outbox';
 import { createDataEventV2 } from '../data/tenant-event';

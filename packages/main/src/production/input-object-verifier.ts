@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import type { ProductionInputErrorCode } from '@lyra/shared/dist/production-input-snapshot';
+import type { ProductionInputErrorCode } from '@lyra/shared';
 import type { ObjectStorage } from '../infrastructure/object-storage';
 import { parseTenantContext } from '../tenancy/context';
 

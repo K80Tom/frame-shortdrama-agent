@@ -1,127 +1,44 @@
-# #123 冻结输入开发检查点
+# #123：冻结输入基础库（分阶段交付）
 
-日期：2026-11-09。基线：dev ceacfa9。状态：本地开发中，尚未提 PR，不代表完成阶段 A 或整个 Issue。
+基线：`origin/dev` 的 `ceacfa9`。本改动交付阶段 A 的契约/编译核心及阶段 B 的持久化/事务服务；**不关闭 #123，不代表生产 Run 已切换到冻结输入**。
 
-已对照新版十五项路线修正 ShotSpecV2 原型：浏览器安全 shared DTO/闭合解析器覆盖 episode、来源版本、机位/焦段/构图、对白语气、版本化资产包与对象版本/checksum、七类控制（含 edge）、连续性、声音时间窗、生成策略和根 sourceRefs。未知机位/构图明确为 null，不冒充已验证控制。
+## 已实现范围
 
-main 计算/复核 contentDigest；规范化内容不含版本记录 ID、创建时间和创建者，字段顺序不影响摘要。不可变记录检查另比较完整记录，不能因内容摘要相同就允许原地修改审计字段。单镜头比较可区别画面、对白、字幕、时长等对下游节点的影响，但还不是跨镜头完整依赖图。
+- shared 公共入口导出 ShotSpecV2、ProductionInputSnapshot、引用、错误、解析器与冻结输入 DTO。解析器无 Node 依赖，闭合字段、有界复制并拒绝 getter、稀疏数组、循环与未知字段。
+- main 计算/核验规范化 digest；镜头字段比较提供单镜头下游影响摘要，尚非跨镜头影响图。
+- PostgreSQL 权威来源 Reader 以单 MVCC 查询读取正式来源与有序镜头 head；Compiler 只读生成 draft，不执行模型、不自行采用、不伪造缺失版本。
+- 不可变 ShotSpec、分集、正式 head、Snapshot 正文/有序引用/独立状态。采用执行版本与 project revision 双 CAS；变更原子推进 project revision。
+- 同事务验证/冻结：draft → validating → ready/blocked；freeze 对 ready 重新校验。失败回滚状态及事件；frozen 不可变，同版本重试幂等。
+- 复用统一 DataOutbox，不另建队列；事实事件带 workspace、稳定 ID、摘要与最小审计信息。
+- workspace 复合外键、FORCE RLS；来源保留 FK 防止已验证/冻结快照的 script/plan/board 被删。
+- Frozen Reader 只按冻结 ID 和 digest 恢复历史来源/镜头；项目采用新剧本后不跟随 current/active 指针。
 
-shared/main 构建通过，定向回归实际验证；未调用任何供应商。解析/摘要通过不是来源授权、许可、审核、对象存在或真实媒体验真。它们必须由后续 Repository/编译器与 PostgreSQL/对象存储共同检查，不能只凭客户端提交的 digest 宣称正式快照 ready。
+## 未实现与安全边界
 
-仍待交付：ProductionInputSnapshot/比较/错误公共 DTO、当前项目只读候选编译、真实引用与来源校验；随后阶段 B 的不可变持久化/CAS/Outbox、阶段 C 的强制 Run 冻结与执行器改造、阶段 D 影响投影、阶段 E 显式 V1 兼容/灰度/回滚。现有 Production runtime 尚未切换；不能把新增文件存在当作历史运行漂移问题已解决。
+- 尚无 Controller、HTTP/客户端入口、正式 profile 解析/领域 owner 装配；这些类不会改变现有 Run 创建路径。
+- Run 创建、报价、预算预留、Worker/Director/资产/视频执行器尚未接入，当前 Run 读取可变项目的根问题仍待后续阶段解决。
+- 检索策略、方法/Prompt 包、模型能力、预算策略、质量 Gate 等精确版本由各领域 owner 提供。默认未注册 adapter 明确 blocked，不能把测试 oracle 当作生产准入证据。
+- 对象验真读取真实 PG 元数据，HEAD 为桩测试；未实际验证 S3/MinIO。无 provider versionId 的后端返回 CAPABILITY_INCOMPATIBLE，不以 ETag/本地路径伪造版本。
+- 冻结记录不是永久授权凭证；真实执行前仍须重新检查权限、能力、预算与人工付费确认。
+- 尚无跨镜头影响图、局部派生、V1CompatibilityReader、历史 Run 回填、灰度切换或完整 E2E。
+- Snapshot 契约本次为尚未发布的基础版本；后续执行策略/Run 绑定变化必须审查 schema 兼容，不能从当前项目补充字段后冒充冻结事实。
 
-根共享入口暂不导出新运行时模块；未来 Web/CLI 复用浏览器安全子入口，避免引入旧 shared 总入口的 Node crypto 依赖。最终提交 PR 前需完成可执行闭环及全套相关验证，而非提交空契约 PR。
+## 迁移、兼容与回滚
 
-## Snapshot 契约检查点
+新增 033–036，不修改旧 Run JSON 或旧业务读取器。033 为既有项目增加 input_revision，旧来源采用路径也通过触发器推进它；034/035 扩展现有 Outbox 聚合枚举。036 对 ready/frozen 保留精确历史来源，孤儿链导致整笔迁移失败回滚，不能跳过或猜测替代来源。
 
-已补 ProductionInputSnapshot、版本引用、状态/缺失项及公共错误分类 DTO，以及 main 的内容摘要计算/复核。摘要覆盖有序镜头版本、来源版本、预算、策略、模型与能力等冻结输入，排除快照自身 ID、审核状态、findings 和创建审计；状态与审批权限仍必须由受信事务决定，计算摘要不能把客户端 ready 标记变成有效凭证。
+部署须先备份并在隔离 PostgreSQL 演练全部迁移；与 #124 的实际运行时/对象存储/Worker 契约对齐后才可批准合并。不要在已有验证数据上直接 DROP 或删除保留引用。应用回滚保留新增事实和约束，旧应用不启用本次服务；未来启用新入口时需独立功能开关与回滚演练。本次没有开启付费入口，也没有完成线上回滚演练。
 
-shared/main 构建通过，镜头+快照契约回归 18/18（含真实浏览器 realm 的无 Node 加载）。仍未接通只读项目编译、引用授权/对象校验、数据库持久化和 Run；这些测试不能证明完整阶段 A 或历史冻结闭环已经完成。
+shared 新增导出不删除旧 DTO；Outbox 枚举是向前扩展，下游不认识的新事件不得当成已投影成功。合并前必须由非作者真人审查当前 head（公共契约、迁移和权限均属高风险）。
 
-## 引用验证核心检查点
+## 本地验证（2026-11-09）
 
-新增 main 只读验证核心：先校验受信 tenant/project 访问，再解析精确 ShotSpec 版本、摘要和来源链，检查清单闭包、对象版本/checksum、资产包与媒体绑定、控制产物与对象绑定、原文范围、模型能力和 Gate；越权、缺失、篡改与能力不兼容分别报告。客户端即使提供 frozen 标志也必须重新执行全部检查。没有数据库写入或付费调用。
+- 根目录 `npm run build`：shared/agent/main/cli/web 全部成功（现有 Vite 大 chunk 警告保留）。
+- ShotSpec/production-input 定向单测：38 通过；无 DB 环境的同次命令另有 3 个 DB 测试跳过，**不计为通过**。真实 DB 测试另行运行如下。
+- 非特权应用角色 `test:rls`：4/4，通过真实来源生成/采用、冻结、撤权转 blocked、并发 CAS、事务回滚、跨租户拒绝、新连接恢复历史内容、来源保留和 036 回填/孤儿原子回滚。
+- 既有 PostgreSQL `test:db`：27/27（管理连接执行旧测试）；RLS 证据仅来自上述非特权测试。
+- 前端：131/131。
+- 后端全量：689 通过、1 失败、3 跳过；失败为既有 Windows FFmpeg drawtext 字体问题，同步 dev 的独立 #132 worktree 可复现同一失败，修复由 #111 处理。本 PR 未改媒体路径、未删除/跳过该断言；不能声明本地全量通过，交付还需 Linux CI 验证当前 head。
+- 模型 transport 为固定桩；策略/能力域显式 oracle；没有真实付费调用，没有真实云对象 HEAD，也没有进程级 Worker 接管演练。
 
-当前回归总计 24/24；其中验证适配器使用明确的服务桩，不能把它们当真实 Repository/ObjectStorage 授权证据。仍需实现实际项目读取/候选编译与这些只读端口的正式适配，然后才能称阶段 A 可执行闭环完成。验证报告不直接修改快照状态，不是可重用的授权凭证；采用/冻结时仍须在事务中重新检查项目 revision 和授权。
-
-## 真实 PostgreSQL 来源读取检查点
-
-新增 PostgresProductionInputSourceReader，直接复用 projects/script_versions/plan_revisions/storyboard_revisions，单条 MVCC SQL 读取同一视图的当前采用输入，JOIN 同时限制 workspace/project/script/plan 血缘。缺失或不匹配的来源返回 null，不能编造已就绪版本。inputSetDigest 仅是输入集合指纹，不冒充数据库单调 project revision 或 CAS 计数器。
-
-历史原文校验按精确 scriptVersionId 查询，不跟随当前项目指针，复核原文字节摘要及 Unicode 码点引用。真实本地 PostgreSQL 17.6 + 非特权 NOBYPASSRLS 应用角色测试通过：跨租户不可读、错误项目不可读、emoji 范围精确、项目切换后历史引用仍有效、原文摘要错误被阻断。test:rls 2/2（含既有隔离回归），相关契约测试 24/24；已接入既有 test:rls 入口。没有真实模型调用。
-
-这还不是完整编译器：仍需版本化 ShotSpec 读取/采用、episode 与 project revision 正式模型、对象/资产包/方法包/模型能力等正式验证适配，以及候选 Snapshot 构造；不能把来源 reader 或 inputSetDigest 当作完整 Run 冻结已完成。
-
-## 不可变版本底座检查点（033，尚未发布）
-
-新增正式 episode 归属、不可变 shot_spec_versions、带版本 FK 的 shot_spec_heads。全部使用 workspace 复合 FK 和 FORCE RLS；版本 JSON 的身份/digest envelope 必须与列一致（包括拒绝 JSON null），不可 UPDATE/DELETE。只是数据库底座，尚无可用的采用 API/Repository，也未发布领域事件，不能因此宣称完整采用已交付。
-
-projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboard 指针变化由数据库 trigger 自动递增，展示字段变化和外部直接伪改计数器不会递增。Snapshot 的 baseProjectRevision 改为无精度损失的十进制字符串；reader 返回真实计数器而不是拿 inputSetDigest 冒充 revision。后续 ShotSpec head 正式采用还必须接通同事务的项目 revision 推进与 Outbox，当前计数器只覆盖旧三类采用指针，不能声称覆盖新正式镜头采用。
-
-已在全新专用 PostgreSQL 17.6 数据库实际应用 001–031、033（没有依赖未合并的 #132/032）。非特权角色 test:rls 2/2，额外验证计数器、episode/version 租户 FK、null 身份拒绝、版本不可变、错误 shot/version head 外键拒绝；相关契约24/24。第一次本地迁移草案数据库不继续复用，新验证库名为 lyra_input_versions_test。无真实模型调用。
-
-## 采用事务与统一 Outbox 检查点（以本节覆盖早期 counter 限制）
-
-已修订尚未发布的 033：正式 ShotSpec head 插入/变更通过嵌套 trigger 原子推进 projects.input_revision；同版本 no-op 不推进，外部直接伪改 counter 仍被抑制。增加 PostgresShotSpecRepository 的 episode/create/get/adopt：不可变版本重复创建不追加事件，采用要求 expectedCurrentVersion + expectedProjectRevision，锁定项目/当前 head，校验失败回滚，viewer 写入拒绝。采用事务接受 main 内部的同事务只读引用验证回调，绝不作为客户端代码执行入口。
-
-创建和采用使用既有 DataOutbox transaction 发布 shot_spec.created.v2 / shot_spec.adopted.v2，不新建队列。shared 聚合枚举新增 shot_spec，034 对既有 Outbox 的 aggregate_type CHECK 做兼容扩展；旧事件/摘要不重写。真实数据库发现缺少该 CHECK 扩展会使 Outbox 插入失败，现已通过 034 修正，不隐藏失败或跳过事件。
-
-已在全新 lyra_shot_adoption_test 库执行 001–031/033/034；非特权 PostgreSQL 验证创建幂等、一事件、跨租户读取拒绝、校验失败回滚、并发采用仅一个成功、项目 revision 2→3、旧 CAS 冲突、同 head no-op 不额外推进、只追加一次采用事件。test:rls2/2；既有 DB 矩阵27/27；契约/事件相关31/31；构建通过。采用回调在此事务测试中是桩，仅证明事务/CAS/Outbox，不证明真实资产授权已接通。
-
-旧测试库上的 033 草案不再用于当前迁移 checksum 验证。仍需正式引用验证适配、候选编译、Snapshot 记录/采用/冻结、HTTP/客户端与 Run 执行器切换后，才能交付整个 #123。
-
-## 当前项目只读候选编译检查点
-
-来源 reader 的同一条 MVCC SQL 已包含指定分集与其正式 ShotSpec heads/版本（有序、workspace/project/episode/shot 多重关联、2001 项显式超限哨兵）。编译器从这个服务端视图派生剧本/计划/分镜/镜头版本及引用清单；不接收浏览器任意 ID 清单，不把未知来源伪造成默认版本，不写数据库，不升为 ready/frozen。缺少采用计划/分镜/正式镜头时返回 blocked + candidate:null；同资源混入不同版本或跨租户镜头会被拒绝。编译用的预算/模型等 profile 只能来自 main 服务端版本解析，尚未接通其正式解析器。
-
-构建通过；相关27/27（编译器成功分支使用明确的服务端视图夹具）；真实 PG test:rls2/2 验证同视图正式 head、项目revision、分集越权拒绝，以及实际无正式计划/分镜时编译 blocked。不能把夹具成功分支当作全部真实资源/模型能力已就绪，也不能把 draft 当作生产授权完成。
-
-下一步是正式 profile/版本/对象/能力适配、同事务验证和 Snapshot 持久化/冻结，再接 Run。旧运行依然未切换，整个 #123 尚未达到 PR 交付闭环。
-
-## 对象版本验证适配检查点
-
-新增 ProductionInputObjectVerifier：使用采用事务的 PG client 对 object_records 精确 workspace/id 执行 FOR SHARE，要求 ready/verified/未删除、版本/checksum/存储身份匹配，再通过只读 ObjectStorage HEAD 核对物理版本、checksum、大小、类型和 key。元数据存在本身不等于物理对象可用。跨租户和待验真/删除对象在任何存储请求前阻断，driver/provider 原始异常不输出。没有上传、删除、签名或模型调用。
-
-当前路径严格要求存储真实 versionId；versionless local/未启用版本的对象明确返回 CAPABILITY_INCOMPATIBLE，不伪造 provider version（不拿 ETag/路径/可变行号代替）。这意味着尚未具备显式不可变对象版本契约的后端不能由此宣称可生产使用；必须与 #124 的存储版本能力对齐，不能把本适配当作所有本地/云后端支持已完成。
-
-相关31/31；真实PG test:rls2/2额外证明 workspace metadata 隔离、FOR SHARE 查询、versionless阻断。这里 HEAD 为明确的 ObjectStorage 服务桩，**未验证真实 S3/OSS/COS/MinIO**。真实对象服务端到端和正式能力/包/配置版本适配仍待完成；完整候选验证、采用API和运行冻结仍未接通。
-
-## 同事务正式来源版本适配检查点
-
-新增 PostgresProductionInputReferenceReader，显式使用采用/冻结事务的 client，不另开不相关连接。复用现有项目、不可变剧本/计划/分镜和采用记录：精确 workspace/project/version 查询并 FOR SHARE；原文字节 SHA、Unicode 引用与计划/分镜内容摘要复核；从未采用的计划/分镜不能仅凭 hash 通过。历史采用记录允许历史版本被验证，不强迫历史运行改读当前指针。未知资源域明确返回 CAPABILITY_INCOMPATIBLE，不把模型、Prompt、资产等尚未接通的版本域伪装为通过。
-
-原 reader 的 checkSource 已复用该适配，消除两套原文校验实现。main 构建通过，相关34/34；真实非特权 PG test:rls2/2新增同事务 project/script/source 检查、跨租户拒绝与 plan/board 缺失查询。plan/board 的已采用成功/未采用阻断分支当前为明确的 SQL row 夹具测试，不是完整真实计划采用 E2E。对象 HEAD 和其他未实现资源域仍未完成真实外部验收。
-
-尚未发布 PR：需要统一组装正式验证 ports、解析缺失领域的服务端版本，完成 Snapshot 持久化/冻结/API/客户端和 Run/Executor 切换。不得在 #123 平行重建 #126/#131/#134/#135 所拥有的资产包、方法准入或治理状态机。
-
-## Snapshot 不可变持久化检查点（035）
-
-新增 production_input_snapshots、production_input_shots、production_input_states：正文和有序镜头关联不可改写，状态独立记录、版本化并受数据库 transition guard 约束；首次只能 draft，ready/frozen 必须无 findings 且验证 revision 匹配正文，禁止 draft 直接 frozen，frozen 状态行也不可 UPDATE/DELETE。全部使用 workspace RLS 和复合外键，复用现有 Outbox，并兼容扩展 production_input 聚合类型，不重写旧事件。
-
-Repository 只能保存 draft，要求 Actor/workspace 一致、真实项目 revision 未变化、分集正式 head 集合完整且镜头内容摘要一致；创建重试不重复事件，重试读取返回实际状态而不是过期 draft。该 Repository 还没有提供 ready/frozen API，不会信任客户端标志。
-
-035 已在独立真实 PG17.6 测试库执行。非特权 test:rls2/2覆盖保存/重试/跨租户拒绝/陈旧项目拒绝/伪造frozen拒绝、正文与关联不可变及状态转换约束。测试里的 ready→frozen 是明确的直接SQL guard测试，未冒充完整真实资源验证或正式冻结服务；候选源引用夹具允许尚未解析的版本，不能作为 ready 的证据。既有 DB 矩阵与相关契约仍需以本次工具运行输出为证。
-
-下一步必须接通正式事务验证/冻结服务、资源授权适配与 HTTP，并把 Run 和所有执行器切到快照读取；整个 #123 仍未完成，不因新增表/Repository就提空壳 PR。
-
-## 事务验证/冻结服务开发检查点（成功路径仍待真实 E2E）
-
-新增 PostgresProductionInputLifecycle：项目锁→状态锁、expectedStateVersion CAS、真实 project revision 和 script/plan/storyboard 指针一致性检查、同事务 ports 工厂、重新执行引用验证、验证失败持久化 blocked、验证成功 ready、freeze 前重新验证后才 frozen；每次状态变化复用统一 Outbox，事务异常不留下半个 validating。客户端不能上传一个 ready 报告直接冻结。
-
-main 构建通过；真实非特权 PG test:rls2/2 新增证明：即便 Snapshot hash 正确，来源指针不匹配也在调用验证工厂之前拒绝；跨租户与 viewer 操作拒绝、没有验证事件副作用。相关34/34。**这些只是新增生命周期的负向/隔离证据，不证明成功验证/冻结 E2E 已通过。**
-
-下一轮必须使用真实 BreakdownService/StoryboardService 的固定桩模型建立并采用完整来源，再覆盖生命周期的正向 ready→重验证→frozen、验证后撤权/失效转 blocked、并发 state CAS、工厂异常全事务回滚及 Outbox 次数；不得把旧测试里直接 SQL 改状态冒充该服务成功路径。
-
-## 生命周期真实来源正向链路检查点
-
-新增独立 PostgreSQL lifecycle 集成测试：实际调用 BreakdownService 创建项目/原文/候选计划、确定性检查与采用；实际调用 StoryboardService 生成并采用分镜（仅固定本地 transport 桩，不连接真实模型）；实际采用 ShotSpec、从单MVCC来源编译快照并保存，再走 Lifecycle validate/freeze，而不是直接 SQL 改状态。
-
-源 script/plan/board、采用记录、sourceRef 和 ShotSpec 验证使用真实事务 Reader。尚未落地的策略/Prompt/模型能力等域使用明确的测试 oracle，这些域通过不能作为正式授权证明。测试覆盖：ready3 → 撤权后 freeze 变 blocked5（无 frozen 事件）→ 重新验证 ready7 → 重新验证后 frozen10；事件版本1–10连续、只有一次 frozen；同 frozen 请求无新验证/事件；工厂异常回滚到 draft1 并且只有创建事件；并发同状态CAS只有一个成功；项目后来切换原文导致未冻候选冲突，而已冻快照与精确历史原文保持不变。
-
-真实非特权 test:rls3/3，既有数据库矩阵27/27，构建通过。最初夹具因缺 synopsis 被正式质量门禁拒绝，现补上来自原文的 synopsis，未跳过或放宽质量断言。整个 #123 仍缺正式资源域适配/HTTP/客户端及 Run/Executor 消费，不能把这条带 oracle 的测试链称为完整生产验收。
-
-## 生产验证端口组装检查点
-
-新增 createProductionInputValidationPorts，正式组合当前事务的 PostgreSQL 来源 Reader 与对象 Verifier；绑定 tenant/user/role/project/snapshot，拒绝换主体/换项目复用端口。script/plan/storyboard 永远使用现有事实和采用记录，领域 hook 即使运行时带同名键也不能覆盖这些核心检查。其他版本域及资产绑定/控制绑定/能力必须由其领域 owner 的 main 内部工厂接入；未注册或对象存储缺失明确 CAPABILITY_INCOMPATIBLE，绝无默认成功。没有新增通用 Registry 或客户端代码执行入口。
-
-Lifecycle 正向集成已改用此生产工厂，只有尚未完成领域 owner 仍是明确 oracle；另实际用不带任何 oracle 的默认生产工厂验证同一真实 PG 来源候选，结果 blocked 且全为 CAPABILITY_INCOMPATIBLE，不能 freeze。这样不会把“仅有合法剧本和镜头”误标成所有生产能力已就绪。真实非特权RLS3/3、相关37/37、main构建通过；无真实供应商请求。
-
-正式领域适配、可用的服务器版本 profile 解析、HTTP/客户端和 Run 消费仍待接通；默认阻断是安全边界，不是整个 #123 完成，更不是所有领域能力都已实现。
-
-## 冻结输入恢复读取检查点
-
-新增 PostgresFrozenProductionInputReader：单条租户化 MVCC SQL 只读取 snapshot 中的精确版本及有序不可变镜头关联，不读取 projects 的 current/active 指针、不依赖浏览器；只允许 frozen 状态，复核 snapshotDigest、ShotSpec 摘要和归属、实际 script/plan/board 内容摘要与血缘，并逐项核验原文码点引用。返回 main 内部消费用的冻结事实副本，不把这个读取动作当作“今日仍具付费授权/模型能力”的凭证。
-
-真实 PG lifecycle 测试新增：expectedDigest 错误拒绝、跨租户拒绝、draft 拒绝；项目后来切换新剧本后，使用全新 PostgreSQL client 仍恢复原 script/board/ShotSpec 内容。RLS3/3、相关37/37、shared/main构建通过。这里只证明 Reader 的新连接恢复，不宣称已经完成真实 Worker 进程杀死/重启演练，或所有执行器都已切换。
-
-下一步需要 Run 创建保存并保护 snapshot ID/digest、Worker/Director/资产/视频执行器实际消费，以及显式 V1 CompatibilityReader。另需补 legacy script/plan/board 的快照引用保留约束（当前 JSON 指针缺少完整物理 FK），避免旧资源清理破坏历史；读取器发现丢失会阻断，但“阻断”不等于保留问题已解决。正式资源域与版本 profile 仍需完成。
-
-## 冻结来源保留约束检查点（036）
-
-已补 production_input_source_refs：验证进入 ready 时自动建立不可变的 script→plan→board 精确复合外键，要求 workspace/project/episode/版本链与 Snapshot 正文一致；后续 blocked/frozen 仍保留原来源，禁止删除关联来绕开保护。不是新增版本事实源，而是现有版本表的保留/关联约束。这样历史读取不再仅仅“找不到就阻断”，还阻止普通旧资源清理删除已验证快照所需来源。
-
-036 会回填既有 ready/frozen；如果来源已经遗失，则整个迁移失败并回滚，不猜测替代版本、不跳过孤儿、不重写历史 JSON。升级前须备份、审计和从权威备份修复孤儿；没有自动接受坏历史的降级通道。曾用于早期开发的孤儿夹具不能作为合法升级数据，新验证库为 lyra_snapshot_retention_test。
-
-已实际应用完整当前迁移序列并通过非特权 test:rls4/4；新增测试在事务隔离 schema 中执行原始036 SQL，证明有效来源精确回填、无效来源失败后无残留表/约束、旧正文不变；真实生命周期中项目切换后 board 删除被FK拒绝、关联删除被不可变guard拒绝，而新连接仍恢复旧输入。原 source-reader 测试的“未解析假来源直接 SQL 置 ready”现在必须失败；同样的 ready/frozen 正向断言已保留在完整真实来源生命周期测试，未删断言来制造绿灯。
-
-既有DB矩阵27/27，相关44/44，构建通过。尚未接 Run 创建/执行器、HTTP/客户端及真实领域版本/授权适配，仍不把 #123 标成完成。
+测试专用 PostgreSQL 与业务服务隔离。不得把上述库级/数据库验证描述为完整生产编辑→执行→交付 E2E。

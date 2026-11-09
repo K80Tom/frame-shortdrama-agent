@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import { ProductionError } from '@lyra/shared';
-import type { InputVersionRef, ShotAssetPack, ShotControl, ShotSpecV2 } from '@lyra/shared/dist/shot-spec';
-import type { ProductionInputFinding, ProductionInputSnapshot } from '@lyra/shared/dist/production-input-snapshot';
+import type { InputVersionRef, ShotAssetPack, ShotControl, ShotSpecV2 } from '@lyra/shared';
+import type { ProductionInputFinding, ProductionInputSnapshot } from '@lyra/shared';
 import type { ObjectStorage } from '../infrastructure/object-storage';
 import { parseTenantContext, type TenantContext } from '../tenancy/context';
 import { verifyProductionInputSnapshot } from './input-snapshot';

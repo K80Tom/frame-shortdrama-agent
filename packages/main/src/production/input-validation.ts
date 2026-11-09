@@ -1,6 +1,6 @@
 import { ProductionError } from '@lyra/shared';
-import type { InputVersionRef, ShotSpecV2, ShotSourceRef, ShotControl, ShotAssetPack } from '@lyra/shared/dist/shot-spec';
-import { PRODUCTION_INPUT_ERROR_CODES, type ProductionInputFinding, type ProductionInputSnapshot } from '@lyra/shared/dist/production-input-snapshot';
+import type { InputVersionRef, ShotSpecV2, ShotSourceRef, ShotControl, ShotAssetPack } from '@lyra/shared';
+import { PRODUCTION_INPUT_ERROR_CODES, type ProductionInputFinding, type ProductionInputSnapshot } from '@lyra/shared';
 import { parseTenantContext, type TenantContext } from '../tenancy/context';
 import { verifyProductionInputSnapshot } from './input-snapshot';
 import { verifyShotSpecV2 } from './shot-spec';
