@@ -61,6 +61,10 @@ export interface AssistantQuote {
   estimateRangeMicros?: { lowMicros: number; highMicros: number };
   /** 用户设置的预算上限；与估价分开显示。 */
   budgetMicros?: number;
+  /** 服务端给出的预计耗时（秒），仅展示，旧卡片可能没有。 */
+  estimatedDurationSec?: number;
+  /** 服务端给出的费用明细，合计应等于 estimateCostMicros。 */
+  costBreakdown?: Array<{ label: string; amountMicros: number; note?: string }>;
   priceRevision?: string;
   assumptions?: string[];
   currency: string;

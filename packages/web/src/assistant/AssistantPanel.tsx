@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Archive, Bot, Check, CircleAlert, LoaderCircle, Receipt, SendHorizonal, Wrench, X,
+  Archive, Bot, Check, CircleAlert, LoaderCircle, Receipt, SendHorizonal, Timer, Wrench, X,
 } from 'lucide-react';
 import {
   assistantHistory, createAssistantSession, listAssistantSessions, resumeAssistantSession,
@@ -34,6 +34,15 @@ function estimateText(quote: AssistantQuote): string {
   return range
     ? `${yuan(quote.estimateCostMicros)}（区间 ${yuan(range.lowMicros)}–${yuan(range.highMicros)}）`
     : yuan(quote.estimateCostMicros);
+}
+
+/** 只展示服务端给出的预计耗时；旧估价卡没有该字段时不猜测。 */
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分钟`;
 }
 
 export default function AssistantPanel({ open, onClose, context, notify }: {
@@ -329,6 +338,16 @@ export default function AssistantPanel({ open, onClose, context, notify }: {
       {pendingQuotes.map(quote => <div key={quote.id} className="assistant-quote">
         <div className="assistant-quote-head"><Receipt size={15} /><strong>生成估价确认</strong><span>预计 {estimateText(quote)}</span></div>
         <p>{quote.summary}</p>
+        {quote.estimatedDurationSec !== undefined && <div className="assistant-quote-duration">
+          <Timer size={13} />预计耗时 {formatDuration(quote.estimatedDurationSec)}
+        </div>}
+        {quote.costBreakdown?.length ? <ul className="assistant-quote-breakdown">
+          {quote.costBreakdown.map(item => <li key={item.label}>
+            <span>{item.label}{item.note ? <em>{item.note}</em> : null}</span>
+            <strong>{yuan(item.amountMicros)}</strong>
+          </li>)}
+          <li className="total"><span>合计（系统估价）</span><strong>{yuan(quote.estimateCostMicros)}</strong></li>
+        </ul> : null}
         <div className="assistant-quote-meta">
           预算上限 {quote.budgetMicros === undefined ? '未设置' : yuan(quote.budgetMicros)}
           {quote.priceRevision ? ` · 价格版本 ${quote.priceRevision}` : ''}

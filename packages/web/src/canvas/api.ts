@@ -85,6 +85,19 @@ export function confirmBudgetAndCreateRun(canvasId: string, revision: number, bo
   });
 }
 
+/**
+ * 节点驱动：分镜节点一键异步生成。仍需 quoteId 证明估价卡已确认；
+ * 同一 revision 已有运行时后端直接复用，不会重复扣费。
+ */
+export function generateCanvasNode(canvasId: string, revision: number, nodeId: string, body: {
+  quoteId: string; clientRequestId: string;
+}): Promise<{ id: string; nodeId: string; revisionId: string; createdAt: string }> {
+  return request(
+    `/api/canvases/${encodeURIComponent(canvasId)}/revisions/${revision}/nodes/${encodeURIComponent(nodeId)}/generate`,
+    { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) },
+  );
+}
+
 export function canvasRuntimeView(canvasId: string, revision: number, cursor?: string | null): Promise<CanvasRuntimeView> {
   const params = new URLSearchParams({ revision: String(revision) });
   if (cursor) params.set('cursor', cursor);
