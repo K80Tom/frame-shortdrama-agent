@@ -44,13 +44,26 @@ const ESTIMATE_CANDIDATE_MICROS = 4_000_000;
 
 export function estimateProductionMicros(targetDurationSec: number, candidateLimit: number): {
   estimateMicros: number; range: { lowMicros: number; highMicros: number };
+  durationSec: number; breakdown: Array<{ label: string; amountMicros: number; note?: string }>;
 } {
   const seconds = Math.max(15, Math.min(900, targetDurationSec));
-  const estimateMicros = Math.round(ESTIMATE_BASE_MICROS + ESTIMATE_SECOND_MICROS * seconds
-    + Math.max(0, candidateLimit - 1) * ESTIMATE_CANDIDATE_MICROS);
+  const baseMicros = ESTIMATE_BASE_MICROS;
+  const durationMicros = Math.round(ESTIMATE_SECOND_MICROS * seconds);
+  const candidateMicros = Math.max(0, candidateLimit - 1) * ESTIMATE_CANDIDATE_MICROS;
+  const estimateMicros = Math.round(baseMicros + durationMicros + candidateMicros);
+  // 仅供确认卡展示的离线耗时推算：编排 + 每 1.5 秒成片 1 秒渲染 + 每个候选 20 秒。
+  const durationSec = Math.round(30 + seconds * 1.5 + Math.max(0, candidateLimit - 1) * 20);
   return {
     estimateMicros,
     range: { lowMicros: Math.round(estimateMicros * 0.82), highMicros: Math.round(estimateMicros * 1.28) },
+    durationSec,
+    breakdown: [
+      { label: '编排与质检', amountMicros: baseMicros, note: '拆解、分镜与流程编排' },
+      { label: `成片渲染 ${seconds}s`, amountMicros: durationMicros, note: '按冻结价格表每秒单价' },
+      ...(candidateMicros > 0
+        ? [{ label: `额外候选 ${candidateLimit - 1} 个`, amountMicros: candidateMicros, note: '每个候选的抽卡成本' }]
+        : []),
+    ],
   };
 }
 
@@ -231,6 +244,8 @@ export class AssistantOrchestrator {
       summary: draft.summary,
       estimateCostMicros: estimate.estimateMicros,
       estimateRangeMicros: estimate.range,
+      estimatedDurationSec: estimate.durationSec,
+      costBreakdown: estimate.breakdown,
       budgetMicros: parsed.budgetMicros,
       priceRevision: ASSISTANT_PRICE_REVISION,
       assumptions: [

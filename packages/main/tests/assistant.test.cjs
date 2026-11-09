@@ -119,6 +119,13 @@ test('估价卡：预算上限与系统估价分开冻结，幂等键由服务�
   assert.ok(quoteEvent.quote.estimateCostMicros < quoteEvent.quote.budgetMicros);
   assert.ok(quoteEvent.quote.estimateRangeMicros.lowMicros < quoteEvent.quote.estimateRangeMicros.highMicros);
   assert.equal(quoteEvent.quote.priceRevision, 'assistant-price/2026-11');
+  // 确认卡必须给出预计耗时与可核对的费用明细，且明细合计等于系统估价。
+  assert.ok(quoteEvent.quote.estimatedDurationSec > 0);
+  assert.ok(Array.isArray(quoteEvent.quote.costBreakdown) && quoteEvent.quote.costBreakdown.length >= 2);
+  assert.equal(
+    quoteEvent.quote.costBreakdown.reduce((sum, item) => sum + item.amountMicros, 0),
+    quoteEvent.quote.estimateCostMicros,
+  );
   assert.equal(quoteEvent.quote.status, 'pending');
   assert.ok(events.some(event => event.type === 'confirmation.required'), '必须发出人工确认事件');
   assert.equal(quoteEvent.quote.request.clientRequestId, `assistant_${quoteEvent.quote.id}`);
