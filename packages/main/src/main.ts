@@ -41,8 +41,10 @@ import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
 import {
   AssistantOrchestrator, type AssistantMessage, AssistantService, createAssistantToolRegistry,
-  type AssistantToolPorts,
+  type AssistantToolPorts, attachProductionTools,
 } from '@lyra/agent';
+import { ProductionToolService, ToolRegistryViewService } from './tool-registry/service';
+import { McpManagementService } from './mcp-management/service';
 import {
   CanvasService, type CanvasReferenceResolver, type CanvasDomainPort, type CanvasStoryboardPort,
 } from './canvas/service';
@@ -174,6 +176,8 @@ async function main() {
   let assistantService: AssistantService | undefined;
   let canvasService: CanvasService | undefined;
   let agentTooling: AgentTooling | undefined;
+  let toolRegistryView: ToolRegistryViewService | undefined;
+  const mcpManagement = new McpManagementService();
   let evolutionService: AssetEvolutionService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
@@ -390,7 +394,15 @@ async function main() {
         // #137：把助手四个只读工具映射为版本化 ToolDefinition，并由 main 注入
         // Postgres Invocation/Budget 端口；agent 包仍然不接触数据库。
         if (await database.hasMigrations(AGENT_PERSISTENCE_MIGRATIONS)) {
-          agentTooling = createAgentTooling(database, createAssistantToolRegistry(assistantPorts));
+          const registry = createAssistantToolRegistry(assistantPorts);
+          // #137：19 个生产 Tool 只发布不可变 manifest；真实读写端口按现有 Service 注入。
+          attachProductionTools(registry, new ProductionToolService({
+            projects: breakdown, productionRuns: production, assets,
+          }));
+          agentTooling = createAgentTooling(database, registry);
+          toolRegistryView = new ToolRegistryViewService(
+            () => registry.all(), definition => registry.publicView(definition),
+          );
         }
       }
       // 生产画布：只引用正式对象；布局与领域事实分离；付费必须经报价与确认。
@@ -601,6 +613,8 @@ async function main() {
     canvasService,
     agentRuntime: agentTooling?.runtime,
     agentToolKernel: agentTooling?.toolKernel,
+    toolRegistryView,
+    mcpManagement,
     evolutionService,
     evaluationService,
     promptPacksService,
