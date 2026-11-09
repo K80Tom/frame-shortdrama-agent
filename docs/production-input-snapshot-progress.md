@@ -57,3 +57,11 @@ projects.input_revision 为真实 bigint 计数器，现有 script/plan/storyboa
 构建通过；相关27/27（编译器成功分支使用明确的服务端视图夹具）；真实 PG test:rls2/2 验证同视图正式 head、项目revision、分集越权拒绝，以及实际无正式计划/分镜时编译 blocked。不能把夹具成功分支当作全部真实资源/模型能力已就绪，也不能把 draft 当作生产授权完成。
 
 下一步是正式 profile/版本/对象/能力适配、同事务验证和 Snapshot 持久化/冻结，再接 Run。旧运行依然未切换，整个 #123 尚未达到 PR 交付闭环。
+
+## 对象版本验证适配检查点
+
+新增 ProductionInputObjectVerifier：使用采用事务的 PG client 对 object_records 精确 workspace/id 执行 FOR SHARE，要求 ready/verified/未删除、版本/checksum/存储身份匹配，再通过只读 ObjectStorage HEAD 核对物理版本、checksum、大小、类型和 key。元数据存在本身不等于物理对象可用。跨租户和待验真/删除对象在任何存储请求前阻断，driver/provider 原始异常不输出。没有上传、删除、签名或模型调用。
+
+当前路径严格要求存储真实 versionId；versionless local/未启用版本的对象明确返回 CAPABILITY_INCOMPATIBLE，不伪造 provider version（不拿 ETag/路径/可变行号代替）。这意味着尚未具备显式不可变对象版本契约的后端不能由此宣称可生产使用；必须与 #124 的存储版本能力对齐，不能把本适配当作所有本地/云后端支持已完成。
+
+相关31/31；真实PG test:rls2/2额外证明 workspace metadata 隔离、FOR SHARE 查询、versionless阻断。这里 HEAD 为明确的 ObjectStorage 服务桩，**未验证真实 S3/OSS/COS/MinIO**。真实对象服务端到端和正式能力/包/配置版本适配仍待完成；完整候选验证、采用API和运行冻结仍未接通。

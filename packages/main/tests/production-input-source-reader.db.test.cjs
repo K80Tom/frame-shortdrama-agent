@@ -7,6 +7,7 @@ const { PostgresProductionInputSourceReader } = require('../dist/production/inpu
 const { PostgresShotSpecRepository } = require('../dist/production/shot-spec-repository');
 const { sealShotSpecV2 } = require('../dist/production/shot-spec');
 const { ProductionInputCandidateCompiler } = require('../dist/production/input-compiler');
+const { ProductionInputObjectVerifier } = require('../dist/production/input-object-verifier');
 const adminUrl = process.env.DATABASE_ADMIN_URL, appUrl = process.env.DATABASE_URL;
 const token = () => randomBytes(16).toString('hex');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -106,4 +107,19 @@ test('real PostgreSQL input reader isolates tenants and reads exact historical U
   const compiled = await new ProductionInputCandidateCompiler(reader).compile(a, projectId, episodeId, {});
   assert.equal(compiled.state, 'blocked'); assert.equal(compiled.candidate, null); // real project has no adopted plan/board
   await assert.rejects(repository.create({ ...a, role: 'viewer' }, spec), e => e.code === 'REFERENCE_FORBIDDEN');
+  const objectId = 'obj_' + token(), key = 'media/test-' + token(), checksum = 'e'.repeat(64);
+  await admin.query(`INSERT INTO object_records(id,workspace_id,provider,bucket,object_key,version_id,sha256,size_bytes,
+    content_type,purpose,owner_type,owner_id,status,created_at,updated_at,verified_at)
+    VALUES($1,$2,'s3','private-test',$3,'version-one',$4,100,'image/png','production.input','production_input_test',$5,'ready',now(),now(),now())`,
+  [objectId, a.workspaceId, key, checksum, projectId]);
+  let headCalls = 0;
+  const objectStorageStub = { provider: 's3', bucket: 'private-test', async head() {
+    headCalls++; return { provider: 's3', bucket: 'private-test', key, versionId: 'version-one', sha256: checksum, size: 100, contentType: 'image/png', etag: null };
+  } };
+  const checkObject = ctx => db.runWithTenant(ctx, () => db.transaction(client =>
+    new ProductionInputObjectVerifier(client, objectStorageStub).check(ctx, { objectId, versionId: 'version-one', checksum })));
+  assert.equal(await checkObject(a), null);
+  assert.equal(await checkObject(b), 'REFERENCE_NOT_FOUND'); assert.equal(headCalls, 1);
+  await admin.query('UPDATE object_records SET version_id=NULL WHERE id=$1', [objectId]);
+  assert.equal(await checkObject(a), 'CAPABILITY_INCOMPATIBLE'); assert.equal(headCalls, 1);
 });
