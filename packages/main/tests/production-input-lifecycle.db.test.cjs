@@ -22,6 +22,10 @@ const { PostgresProductionRepository } = require('../dist/production/repository'
 const { PostgresRunFrozenInputReader } = require('../dist/production/run-frozen-input-reader');
 const { ProductionService } = require('../dist/production/service');
 const { BreakdownProductionExecutor, StoryboardProductionExecutor } = require('../dist/production/runtime');
+const { DirectorProductionExecutor } = require('../dist/production/executors/director');
+const { PostgresDirectorSceneRepository, PostgresDirectorSceneReferenceReader } = require('../dist/production/director-scene-repository');
+const { sealDirectorSceneVersion } = require('../dist/production/director-scene');
+const { sceneDraft } = require('./helpers/director-scene-fixture.cjs');
 const { DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY, productionId, TENANT_DATA_EVENT_SCHEMA_VERSION } = require('@lyra/shared');
 const token = () => randomBytes(16).toString('hex');
 test('real adopted source chain compiles, validates, blocks revoked policy and freezes transactionally', {
@@ -61,10 +65,16 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   const reader = new PostgresProductionInputSourceReader(database), shots = new PostgresShotSpecRepository(database);
   const episodeId = 'episode_' + token(), at = '2026-11-09T08:00:00.000Z', ref = id => ({ id,versionId:id,digest:'a'.repeat(64) });
   await shots.createEpisode(tenant,{id:episodeId,projectId:project.id,title:'Episode',createdAt:at});
+  const scenes=new PostgresDirectorSceneRepository(database);
+  const sceneScope={workspaceId:tenant.workspaceId,projectId:project.id,episodeId,shotId:board.shots[0].id,
+    scriptVersionId:script.id,planRevisionId:plan.id,storyboardRevisionId:board.id,createdBy:tenant.userId,createdAt:at};
+  const sceneVersion=sealDirectorSceneVersion(sceneDraft(sceneScope,'director_version_'+token(),'director_scene_'+token()));
+  await scenes.create(tenant,sceneVersion);await scenes.create(tenant,sceneVersion);
+  const sceneRef={id:sceneVersion.sceneId,versionId:sceneVersion.revisionId,digest:sceneVersion.contentDigest};
   const spec = sealShotSpecV2({ schemaVersion:'lyra-shot-spec/2',revisionId:'shotspec_' + token(),workspaceId:tenant.workspaceId,projectId:project.id,episodeId,
     scriptVersionId:script.id,planRevisionId:plan.id,storyboardRevisionId:board.id,shotId:board.shots[0].id,sceneId:plan.content.scenes[0].id,
     order:1,durationMs:5000,ratio:'9:16',shotSize:'wide',camera:{description:null,movement:'still',focalLengthMm:null,composition:null},
-    dialogue:[],actions:[],assetPacks:[],controls:[],visualStyle:'offline',negativeConstraints:[],continuity:{before:[],after:[]},timeline:[],sourceRefs:[sourceRef],
+    dialogue:[],actions:[],assetPacks:[],controls:[{kind:'director_scene',artifact:sceneRef,objectId:null,timeMs:null}],visualStyle:'offline',negativeConstraints:[],continuity:{before:[],after:[]},timeline:[],sourceRefs:[sourceRef],
     generation:{methodPackRevisions:[],promptPackRevision:ref('prompt-one'),modelCapabilityRevision:ref('capability-one'),candidatePolicy:{mode:'direct',limit:1}},
     source:{kind:'user',actor:tenant.userId,sourceRevisionId:board.id},createdAt:at });
   await shots.create(tenant,spec);
@@ -74,12 +84,13 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
     assert.equal(await refs.checkVersion('plan',{id:plan.id,versionId:plan.id,digest:canonicalDigest(plan.content)}),null);
     assert.equal(await refs.checkVersion('storyboard',{id:board.id,versionId:board.id,digest:initial.storyboard.digest}),null);
     assert.equal(await refs.checkSource(sourceRef),null);
+    assert.equal(await new PostgresDirectorSceneReferenceReader(client,tenant,project.id).checkBinding(spec.controls[0],spec),null);
   });
   const compiler = new ProductionInputCandidateCompiler(reader), snapshots = new PostgresProductionInputSnapshotRepository(database);
   const profile = {id:'snapshot_' + token(),createdAt:at,reason:'Lifecycle test',modelConnections:[{role:'video',connection:ref('model-one'),capability:ref('capability-one')}],
     retrievalPolicy:{...ref('retrieval-one'),digest:DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY.policyDigest},qualityGates:[ref('gate-one')],
     budgetPolicy:{version:ref('budget-one'),limitMicros:0,currency:'CNY',allowPaid:true},
-    executionPolicy:{ratio:'9:16',visualStyle:'offline',targetDurationSec:15,qualityPreset:'balanced',directorPolicy:'never'},
+    executionPolicy:{ratio:'9:16',visualStyle:'offline',targetDurationSec:15,qualityPreset:'balanced',directorPolicy:'always'},
     candidatePolicy:{mode:'direct',limit:1},automationMode:'auto'};
   const makeCandidate = async () => {
     const result = await compiler.compile(tenant,project.id,episodeId,{...profile,id:'snapshot_' + token()});
@@ -90,7 +101,7 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
     factories++;
     // Concrete production wiring always owns the PostgreSQL base checks. Only missing domain owners are test oracles.
     return createProductionInputValidationPorts(client,ctx,snapshot,undefined,async()=>({
-      versions:Object.fromEntries(['asset_pack','director_scene','control','method_pack','prompt_pack','model_connection','model_capability','retrieval_policy','quality_gate','budget_policy']
+      versions:Object.fromEntries(['asset_pack','control','method_pack','prompt_pack','model_connection','model_capability','retrieval_policy','quality_gate','budget_policy']
         .map(kind=>[kind,async()=>revoked?'REFERENCE_FORBIDDEN':null])),capabilities:async()=>[] }));
   });
   const candidate = await makeCandidate();
@@ -130,6 +141,27 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
   assert.equal(unsupported.snapshot.state,'blocked'); assert.ok(unsupported.snapshot.findings.length>0);
   assert.ok(unsupported.snapshot.findings.every(f=>f.code==='CAPABILITY_INCOMPATIBLE'));
   await assert.rejects(productionDefault.freeze(tenant,missingDomains.id,unsupported.stateVersion,at),e=>e.code==='SNAPSHOT_NOT_READY');
+  const newerDraft=sceneDraft(sceneScope,'director_version_'+token(),sceneVersion.sceneId);newerDraft.scene.cameras[0].position.x=99;
+  const newerScene=sealDirectorSceneVersion(newerDraft);await scenes.create(tenant,newerScene);
+  const {contentDigest:oldDigest,...nextShot}=spec;nextShot.revisionId='shotspec_'+token();
+  nextShot.controls=[{kind:'director_scene',artifact:{id:newerScene.sceneId,versionId:newerScene.revisionId,digest:newerScene.contentDigest},objectId:null,timeMs:null}];
+  const nextSpec=sealShotSpecV2(nextShot);await shots.create(tenant,nextSpec);
+  const beforeSceneAdoption=await reader.readCurrentProjectInputs(tenant,project.id,episodeId);
+  await shots.adopt(tenant,{revisionId:nextSpec.revisionId,expectedCurrentVersion:spec.revisionId,expectedProjectRevision:beforeSceneAdoption.projectRevision,reason:'adopt newer camera',at},async client=>{
+    assert.equal(await new PostgresDirectorSceneReferenceReader(client,tenant,project.id).checkBinding(nextSpec.controls[0],nextSpec),null);
+  });
+  const retainedScenes=(await scope(()=>database.query('SELECT scene_version_id FROM production_input_director_scene_refs WHERE snapshot_id=$1',[candidate.id]))).rows;
+  assert.deepEqual(retainedScenes.map(r=>r.scene_version_id),[sceneVersion.revisionId]);
+  await assert.rejects(scope(()=>database.query(`INSERT INTO production_input_director_scene_refs
+    (workspace_id,snapshot_id,project_id,episode_id,scene_id,scene_version_id,content_digest) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    [tenant.workspaceId,candidate.id,project.id,episodeId,newerScene.sceneId,newerScene.revisionId,newerScene.contentDigest])),e=>e.code==='55000');
+  await assert.rejects(scope(()=>database.query('UPDATE director_scene_versions SET scene_json=scene_json WHERE id=$1',[sceneVersion.revisionId])),e=>e.code==='55000');
+  await assert.rejects(scope(()=>database.query('DELETE FROM director_scene_versions WHERE id=$1',[sceneVersion.revisionId])),e=>e.code==='55000');
+  await assert.rejects(scope(()=>database.query('DELETE FROM production_input_director_scene_refs WHERE snapshot_id=$1',[candidate.id])),e=>e.code==='55000');
+  assert.equal(await scenes.get({...tenant,workspaceId:'ws_'+token()},sceneVersion.revisionId),null);
+  const duplicate=structuredClone(sceneVersion);duplicate.scene.cameras[0].name='changed display';
+  await assert.rejects(scenes.create(tenant,duplicate),e=>e.code==='REVISION_CONFLICT');
+  assert.equal((await admin.query('SELECT event_id FROM data_outbox_events WHERE aggregate_id=$1',[sceneVersion.revisionId])).rowCount,1);
   await scope(()=>breakdown.createScriptVersion(project.id,{rawText:'新空房'}));
   await assert.rejects(scope(()=>database.query('DELETE FROM storyboard_revisions WHERE id=$1',[board.id])),e=>e.code==='23503');
   await assert.rejects(lifecycle.freeze(tenant,concurrent.id,3,at),e=>e.code==='REVISION_CONFLICT');
@@ -177,17 +209,28 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
     assert.equal((await scoped(()=>production.replace(changed,0))).version,1);
     let forbiddenCalls=0;
     const forbidden=new Proxy({}, {get(){return ()=>{forbiddenCalls++;throw Error('no current-project source or paid generation is permitted');};}});
+    const nativeDirector=new DirectorProductionExecutor({breakdown:forbidden,storyboards:forbidden,
+      frozenSceneLoader:async(run,ref)=>new PostgresDirectorSceneRepository(recoveredDatabase).get(tenant,ref.versionId)});
     const runtimeOptions={frozenInputLoader:async persisted=>new PostgresRunFrozenInputReader(recoveredDatabase).load(tenant,persisted.id),
       executors:[new BreakdownProductionExecutor(forbidden,forbidden,{estimateCostMicros:100}),
-        new StoryboardProductionExecutor(forbidden,forbidden,{estimateCostMicros:100})]};
+        new StoryboardProductionExecutor(forbidden,forbidden,{estimateCostMicros:100}),nativeDirector]};
     await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // actual deterministic preflight
     await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // fresh service consumes historical plan
     await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // fresh service expands exact frozen shots
+    await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // frozen director coordinator, no re-design
     const executed=await scoped(()=>production.get(saved.id));
     assert.equal(executed.tasks.find(t=>t.stage==='storyboard'&&t.scope.kind==='episode').status,'succeeded');
     assert.ok(executed.tasks.some(t=>t.stage==='video'&&t.scope.kind==='shot'&&t.scope.id===spec.shotId));
     assert.equal(executed.artifacts.find(a=>a.metadata.key==='storyboard').metadata.shots[0].revisionId,spec.revisionId);
     assert.equal(executed.inputSnapshot.snapshotDigest,candidate.snapshotDigest);
     assert.equal(executed.externalOperations.length,0);assert.equal(executed.budgetLedger.length,0);assert.equal(forbiddenCalls,0);
+    const directorTask=executed.tasks.find(t=>t.stage==='director'&&t.scope.kind==='shot');
+    // Isolated native shot adapter verification, NOT a claim that the asset/media DAG has executed.
+    const directorContext={run:executed,task:directorTask,frozenInput:runInputs,attemptId:'test_director',inputDigest:'test',operationKey:null};
+    assert.equal((await nativeDirector.prepare(directorContext)).requiresPaid,false);
+    const rendered=await nativeDirector.execute(directorContext);
+    assert.equal(rendered.state,'succeeded');assert.equal(rendered.artifacts[0].metadata.directorSceneVersionId,sceneVersion.revisionId);
+    assert.equal(rendered.artifacts[0].metadata.snapshot.cameras[0].transform.position.x,2);
+    assert.equal((await scenes.get(tenant,newerScene.revisionId)).scene.cameras[0].position.x,99);
   } finally { await recoveredDatabase.close(); }
 });

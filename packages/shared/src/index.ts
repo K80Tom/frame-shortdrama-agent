@@ -20,3 +20,4 @@ export * from './novel-registry';
 export * from './novel-adaptation';
 export * from './shot-spec';
 export * from './production-input-snapshot';
+export * from './director-scene';

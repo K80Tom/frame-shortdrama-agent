@@ -7,15 +7,16 @@ import { parseTenantContext, type TenantContext } from '../tenancy/context';
 import { verifyProductionInputSnapshot } from './input-snapshot';
 import { PostgresProductionInputReferenceReader } from './input-reference-reader';
 import { ProductionInputObjectVerifier } from './input-object-verifier';
+import { PostgresDirectorSceneReferenceReader } from './director-scene-repository';
 import type { InputReferenceKind, ProductionInputValidationPorts } from './input-validation';
 
-type DomainReferenceKind = Exclude<InputReferenceKind,'script'|'plan'|'storyboard'>;
+type DomainReferenceKind = Exclude<InputReferenceKind,'script'|'plan'|'storyboard'|'director_scene'>;
 type Check = ProductionInputFinding['code'] | null;
 /** Implemented by domain owners (#126/#127/#131/#134/#135), not by a second registry inside production. */
 export interface ProductionInputDomainValidators {
   versions?: Partial<Record<DomainReferenceKind,(ref: InputVersionRef) => Promise<Check>>>;
   assetBinding?: (binding: ShotAssetPack) => Promise<Check>;
-  controlBinding?: (control: ShotControl) => Promise<Check>;
+  controlBinding?: (control: ShotControl, shot: Readonly<ShotSpecV2>) => Promise<Check>;
   capabilities?: (snapshot: ProductionInputSnapshot, shots: readonly ShotSpecV2[]) => Promise<ProductionInputFinding[]>;
 }
 export type ProductionInputDomainValidatorsFactory = (client: PoolClient, tenant: TenantContext, snapshot: ProductionInputSnapshot)
@@ -28,6 +29,7 @@ export async function createProductionInputValidationPorts(client: PoolClient, t
   const denied = (): never => { throw new ProductionError(404,'REFERENCE_NOT_FOUND','生产输入资源不存在。'); };
   if (snapshot.workspaceId !== tenant.workspaceId) denied();
   const source = new PostgresProductionInputReferenceReader(client,tenant,snapshot.projectId);
+  const scenes = new PostgresDirectorSceneReferenceReader(client,tenant,snapshot.projectId);
   const objectVerifier = objects ? new ProductionInputObjectVerifier(client,objects) : null;
   const domains = domainsFactory ? await domainsFactory(client,tenant,snapshot) : {};
   const bound = (value: TenantContext) => {
@@ -40,12 +42,17 @@ export async function createProductionInputValidationPorts(client: PoolClient, t
     async checkVersion(ctx,kind,ref) {
       bound(ctx);
       if (kind === 'script' || kind === 'plan' || kind === 'storyboard') return source.checkVersion(kind,ref);
+      if (kind === 'director_scene') return scenes.checkVersion(ref);
       const check = domains.versions?.[kind]; return check ? check(ref) : 'CAPABILITY_INCOMPATIBLE';
     },
     async checkSource(ctx,ref) { bound(ctx); return source.checkSource(ref); },
     async checkObject(ctx,ref) { bound(ctx); return objectVerifier ? objectVerifier.check(tenant,ref) : 'CAPABILITY_INCOMPATIBLE'; },
     async checkAssetBinding(ctx,binding) { bound(ctx); return domains.assetBinding ? domains.assetBinding(binding) : 'CAPABILITY_INCOMPATIBLE'; },
-    async checkControl(ctx,control) { bound(ctx); return domains.controlBinding ? domains.controlBinding(control) : 'CAPABILITY_INCOMPATIBLE'; },
+    async checkControl(ctx,control,shot) {
+      bound(ctx);
+      if(control.kind==='director_scene')return scenes.checkBinding(control,shot);
+      return domains.controlBinding ? domains.controlBinding(control,shot) : 'CAPABILITY_INCOMPATIBLE';
+    },
     async checkCapabilities(ctx,value,shots) {
       bound(ctx);
       if (value.workspaceId !== tenant.workspaceId || value.projectId !== snapshot.projectId || value.id !== snapshot.id

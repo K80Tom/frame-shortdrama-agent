@@ -15,7 +15,7 @@ export interface ProductionInputValidationPorts {
   checkObject(tenant: TenantContext, value: { objectId: string; versionId: string; checksum: string }): Promise<ProductionInputFinding['code'] | null>;
   checkSource(tenant: TenantContext, ref: ShotSourceRef): Promise<ProductionInputFinding['code'] | null>;
   checkAssetBinding(tenant: TenantContext, binding: ShotAssetPack): Promise<ProductionInputFinding['code'] | null>;
-  checkControl(tenant: TenantContext, control: ShotControl): Promise<ProductionInputFinding['code'] | null>;
+  checkControl(tenant: TenantContext, control: ShotControl, shot: Readonly<ShotSpecV2>): Promise<ProductionInputFinding['code'] | null>;
   checkCapabilities(tenant: TenantContext, snapshot: ProductionInputSnapshot, shots: readonly ShotSpecV2[]): Promise<ProductionInputFinding[]>;
 }
 function hidden(): never { throw new ProductionError(404, 'REFERENCE_NOT_FOUND', '生产输入资源不存在。'); }
@@ -81,8 +81,10 @@ export async function validateProductionInputCandidate(tenantValue: unknown, sna
     }
     for (const control of shot.controls) {
       requireListed(control.kind === 'director_scene' ? snapshot.directorScenes : snapshot.controls, control.artifact);
-      await check(() => ports.checkControl(tenant, control), control.artifact.id);
+      await check(() => ports.checkControl(tenant, control, shot), control.artifact.id);
     }
+    const sceneCount=shot.controls.filter(c=>c.kind==='director_scene').length;
+    if(sceneCount>1 || snapshot.executionPolicy?.directorPolicy==='always' && sceneCount!==1) add('CAPABILITY_INCOMPATIBLE',shot.shotId);
     for (const ref of shot.generation.methodPackRevisions) requireListed(snapshot.methodPacks, ref);
     requireListed(snapshot.promptPacks, shot.generation.promptPackRevision);
     requireListed(snapshot.modelConnections.map(m => m.capability), shot.generation.modelCapabilityRevision);
