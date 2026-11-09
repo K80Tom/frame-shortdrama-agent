@@ -1,0 +1,32 @@
+#
+# Lyra web（React 工作台）镜像：Vite 构建产物 + nginx，/api 反代到 main 容器。
+# 构建上下文为仓库根目录：
+#   docker build -f deploy/Dockerfile.web -t lyra-web .
+
+ARG NODE_IMAGE=node:22-bookworm-slim
+ARG NGINX_IMAGE=nginx:1.27-alpine
+FROM ${NODE_IMAGE} AS build
+WORKDIR /src
+
+ENV NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+COPY packages/shared ./packages/shared
+RUN npm --prefix packages/shared ci --install-links --no-audit --no-fund \
+ && npm --prefix packages/shared run build
+
+# web 的示例数据引用 packages/main/examples（仅 JSON 演示素材，不含密钥）
+COPY packages/main/examples ./packages/main/examples
+
+COPY packages/web ./packages/web
+RUN npm --prefix packages/web ci --install-links --no-audit --no-fund \
+ && npm --prefix packages/web run build
+
+FROM ${NGINX_IMAGE} AS runtime
+
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=755 deploy/web-runtime-config.sh /docker-entrypoint.d/30-lyra-runtime-config.sh
+COPY --from=build /src/packages/web/dist /usr/share/nginx/html
+
+EXPOSE 80

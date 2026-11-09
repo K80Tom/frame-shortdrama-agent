@@ -1,11 +1,16 @@
 import { createHash } from 'node:crypto';
-import { DATA_EVENT_SCHEMA_VERSION, type DataEventV1 } from '@lyra/shared';
+import { DATA_EVENT_SCHEMA_VERSION } from '@lyra/shared';
 import type {
   ConsumerCheckpoint,
   ProjectionCommitInput,
   ProjectionRecord,
   ProjectionStore,
 } from './checkpoint';
+import {
+  TENANT_DATA_EVENT_SCHEMA_VERSION,
+  workspaceIdOfDataEvent,
+  type TenantDataEvent,
+} from './tenant-event';
 
 export type ProjectionStatus = 'projected' | 'duplicate' | 'gap' | 'quarantined';
 
@@ -23,7 +28,7 @@ export interface DataProjectorOptions {
   now?: () => Date;
 }
 
-function scalarPayload(event: DataEventV1): Record<string, string | number | boolean | null> {
+function scalarPayload(event: TenantDataEvent): Record<string, string | number | boolean | null> {
   const output: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(event.payload)) {
     if (!/^[a-z][a-zA-Z0-9]{0,63}$/u.test(key)) continue;
@@ -49,15 +54,17 @@ export class DataProjector {
     options: DataProjectorOptions = {},
   ) {
     this.supportedSchemas = new Set(options.supportedSchemas
-      ?? [DATA_EVENT_SCHEMA_VERSION, 'lyra.production.outbox_legacy/v1']);
+      ?? [DATA_EVENT_SCHEMA_VERSION, TENANT_DATA_EVENT_SCHEMA_VERSION, 'lyra.production.outbox_legacy/v1']);
     this.allowInitialVersion = options.allowInitialVersion ?? false;
     this.now = options.now ?? (() => new Date());
   }
 
-  async deliver(event: DataEventV1): Promise<ProjectionResult> {
+  async deliver(event: TenantDataEvent): Promise<ProjectionResult> {
+    const workspaceId = workspaceIdOfDataEvent(event);
     if (!this.supportedSchemas.has(event.schemaVersion)) {
       await this.store.recordQuarantine({
         consumerName: this.consumerName,
+        workspaceId,
         eventId: event.eventId,
         reason: `UNKNOWN_SCHEMA:${event.schemaVersion}`,
         schemaVersion: event.schemaVersion,
@@ -70,7 +77,7 @@ export class DataProjector {
       return { status: 'duplicate', projection: null, checkpoint: null };
     }
     const last = await this.store.getAggregateVersion(this.consumerName,
-      event.aggregateType, event.aggregateId);
+      workspaceId, event.aggregateType, event.aggregateId);
     if (last !== null && event.aggregateVersion <= last) {
       return { status: 'duplicate', projection: null, checkpoint: null };
     }
@@ -85,13 +92,15 @@ export class DataProjector {
 
     const projection: ProjectionRecord = {
       projectionId: `projection_${createHash('sha256')
-        .update(`${this.consumerName}:${event.eventId}`).digest('hex').slice(0, 32)}`,
+        .update(`${this.consumerName}:${workspaceId}:${event.eventId}`).digest('hex').slice(0, 32)}`,
       consumerName: this.consumerName,
+      workspaceId,
       eventId: event.eventId,
       aggregateType: event.aggregateType,
       aggregateId: event.aggregateId,
       aggregateVersion: event.aggregateVersion,
       output: {
+        workspaceId,
         eventType: event.eventType,
         aggregateType: event.aggregateType,
         aggregateId: event.aggregateId,
@@ -102,6 +111,7 @@ export class DataProjector {
     };
     const checkpoint: ConsumerCheckpoint = {
       consumerName: this.consumerName,
+      workspaceId,
       eventId: event.eventId,
       aggregateType: event.aggregateType,
       aggregateId: event.aggregateId,

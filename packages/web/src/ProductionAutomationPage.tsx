@@ -1,3 +1,4 @@
+import { PlatformReadinessPanel } from './PlatformReadinessPanel';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowUpRight, Boxes, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -114,6 +115,7 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
         <label><span>3D 预演</span><select aria-label="3D 预演策略" value={form.directorPolicy} onChange={event => onChange({ directorPolicy: event.target.value as ProductionForm['directorPolicy'] })}><option value="auto">按需判断</option><option value="always">全部预演</option><option value="never">暂不使用</option></select></label>
         <label className="pa-wide"><span>整次预算上限</span><div className="pa-money-input"><b>¥</b><input aria-label="整次预算上限" type="number" min="0" max="1000000" step="1" value={form.budgetYuan} onChange={event => onChange({ budgetYuan: Number(event.target.value) })} /><small>候选、返修与抽帧评估共用此上限</small></div></label>
       </div>
+      <PlatformReadinessPanel />
       <label className="pa-consent"><input type="checkbox" checked={consent} onChange={event => onConsent(event.target.checked)} /><span>授权本次运行在 ¥{form.budgetYuan.toFixed(0)} 上限内调用已配置的模型和媒体服务，可能产生费用；达到上限或遇到未知提交会暂停。</span></label>
       <button className="pa-primary" disabled={loading || !consent || Boolean(error)} onClick={onSubmit}>{loading ? <LoaderCircle size={16} className="pa-spin" /> : <Sparkles size={16} />}{loading ? '正在创建运行…' : '开始自动制作'}</button>
       {error && <p className="pa-field-error">{error}</p>}
@@ -559,10 +561,10 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
   </div>;
 }
 
-export default function ProductionAutomationPage({ onUnsavedChange, initialScript }: {
-  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult;
+export default function ProductionAutomationPage({ onUnsavedChange, initialScript, initialProjectId }: {
+  onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult; initialProjectId?: string;
 }) {
-  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? '' });
+  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? initialProjectId ?? '' });
   const pinnedScript = useRef(initialScript);
   const [projects, setProjects] = useState<ProjectOption[]>([]); const [versions, setVersions] = useState<ScriptVersionOption[]>([]);
   const [runs, setRuns] = useState<ProductionRun[]>([]); const [selectedRunId, setSelectedRunId] = useState('');

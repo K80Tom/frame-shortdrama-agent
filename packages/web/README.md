@@ -1,6 +1,16 @@
 # Lyra · STORY STUDIO
 
-Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 2026-10-22 至 2026-10-23 参考 Liblib 的信息组织方式完成重构：中性黑灰底色、荧绿强调、紧凑卡片和分组侧栏，并统一使用 **Lyra / STORY STUDIO** 品牌。
+Lyra 是面向中文短剧的可部署创作与自动制片工作台。v0.2.0 使用中性深色工作区、金紫氛围背景、紧凑卡片和分组侧栏，并统一使用 **Lyra / STORY STUDIO** 品牌。Stage 1 通过同源 HTTPS 入口连接 `main-api`，浏览器不直连数据库、模型、Redis、Milvus 或对象存储管理面。
+
+## Stage 1 会话与部署交互
+
+- 首屏先请求 `GET /api/auth/session`；只有明确返回 `AUTH_NOT_CONFIGURED` 才进入可见的 Legacy 兼容模式，401 会显示真实登录页，网络或格式错误不会绕过登录。
+- 登录页根据后端公开认证配置决定是否显示注册入口。默认 `LYRA_REGISTRATION_MODE=disabled`；受信自托管显式设为 `workspace` 后，注册会创建独立用户、独立 workspace 和 owner 成员关系，前端不能选择既有租户或自定角色。
+- 会话凭据使用 HttpOnly `lyra_session` Cookie；可读 `lyra_csrf` Cookie 只用于向同源 POST 添加 `X-CSRF-Token`，不是登录凭据。
+- 后端会话返回当前用户可访问的 workspace。切换后所有同源 `/api/**` 请求携带 `X-Workspace-Id`；绝不向跨域 URL 转发 workspace 或 CSRF 上下文。若存在未保存内容，切换前必须再次确认。
+- 设置页的系统状态面板分开展示 API、Worker、PostgreSQL、Redis、Milvus 和对象存储。“Healthy”只表示对应探针成功，不代表队列已清空、回填/历史投影已完成、签名 URL 已公网可达或故障演练已通过；Worker 项来自 PostgreSQL 心跳，不是 Worker 暴露的 HTTP 端点。
+- 退出成功会清理会话与本地 workspace 选择；退出请求失败时保留当前会话并显式报错，不在前端伪造已退出。
+- 仓库和前端不提供默认明文密码。公网开放注册前仍需邮箱验证、CAPTCHA/边缘防滥用和租户额度/计费控制；当前注册模式只面向受信自托管环境。
 
 项目采用 React、TypeScript 和 Vite，使用 hash 路由。既有 `frame:*` 浏览器存储键与内部数据协议继续兼容。
 
@@ -17,7 +27,7 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
   → 技术抽卡与镜头技术复核
   → 携带失败项进行有限局部返修
   → FFmpeg 按分镜顺序合片
-  → 成片复核与本地 MP4 交付
+  → 成片复核与私有对象存储 MP4 交付
 ```
 
 总控界面提供十阶段进度轨道、镜头级任务矩阵、问题收件箱、任务详情、候选采用、整组重做、检查点确认、预算摘要、事件时间线、暂停/继续、局部重试、运行历史和最终交付入口。运行数据保存在 PostgreSQL；刷新页面或重启服务后可继续读取真实状态。
@@ -34,10 +44,12 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 
 ## 工作台界面
 
+- **统一氛围背景**：登录/注册使用可横向推动的视频场景；首页、项目、资产、方法库和质量中心以 `0.2×`、低饱和方式播放同一视觉；编辑器、自动制作、设置和 3D 导演台自动切换为暂停的聚焦背景。手机、系统“减弱动态效果”和省流模式只显示静态 poster/CSS 降级层。
 - **首页**：点阵新建入口、快捷工具、最近项目、特色能力和创作参考，支持快速查找（⌘/Ctrl K）与响应式导航。
 - **项目**：集中展示剧本项目、小说原文和浏览器练习，支持搜索、类型筛选、网格/列表切换及指定 ID 跳转。
 - **资产**：管理人物、场景和道具资产；支持 HTTPS 素材登记、本地 PNG/JPEG/静态 WebP 导入、详情查看和示例参考。小说中确认的实体可关联已有资产或标记待补。
-- **插件**：内置能力目录，集中进入小说拆解、剧本拆解、分镜、自动制作、3D 导演台、草稿导出与单镜头实验；尚未实现的工具明确标为规划中。
+- **方法库**：搜索、查看许可与正文、导入和启停创作方法；创建生产运行时冻结当时启用的方法版本。
+- **质量中心**：汇总真实生产运行、问题、裁决与规则版本，并提供资产检索策略的确定性提案、离线 Probe、人工采用和回滚入口。
 - **自动制作**：把整集运行的配置、阶段、镜头、候选、问题、预算和交付放在同一页面展示。
 
 ## 页面与链接
@@ -48,7 +60,8 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 | `#/projects` | 剧本项目、小说原文与本地练习目录。 |
 | `#/assets` | 已登记的个人资产库。 |
 | `#/assets/references` | 资产工作区的示例参考页签。 |
-| `#/plugins` | 内置工具与能力目录。 |
+| `#/methods` | 方法包搜索、导入、启停与许可信息。 |
+| `#/evolution` | 质量中心、自进化证据与资产检索策略治理。 |
 | `#/automation` | 已实现的整集全流程自动制片总控。 |
 | `#/automation/video` | 独立单条视频连接与任务实验。 |
 | `#/production/<id>` / `#/novel/<id>` | 直接打开指定剧本项目或小说；ID 使用 URL 编码。 |
@@ -68,11 +81,11 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 - 资产视觉简报、逐次授权的单图候选、候选留存、人工接受/拒绝和本地资产导入。
 - 浏览器分镜练习：TXT 导入、原文/对白对照、镜头编辑、本地草稿和 JSON 导出。
 - 3D 导演台：人物体型与姿势、关节微调、几何物体、群众阵列、GLB 导入、机位/焦段、光照、画幅、构图线、场景保存，以及 PNG、机位宫格、深度图和 WebM 运镜导出。
-- 模型连接按用途独立保存于本机后端；密钥不进入浏览器存储或仓库。
+- 模型连接按用途保存于后端私有共享配置；当前 Stage 1 仍是共享卷中的明文 JSON，密钥不进入浏览器存储或仓库，生产验收前仍需迁入 Secret Manager/KMS。
 
 ## 自动制作的真实边界
 
-整集视频请求会带入镜头已绑定的有序参考图片，并请求视频供应商的原生音频。视频完成后必须先安全下载到本地私有媒体库，经过哈希与 `ffprobe` 校验，才能进入候选抽卡、复核、FFmpeg 合片和交付。
+整集视频请求会带入镜头已绑定的有序参考图片，并请求视频供应商的原生音频。视频完成后必须先安全下载到 Worker 的受控私有暂存区，经过哈希与 `ffprobe` 校验，再通过持久任务投影到对象存储，才能进入候选抽卡、复核、FFmpeg 合片和交付。
 
 当前“镜头技术复核”验证容器与哈希，检查画幅、时长和音轨，并读取分辨率参与候选评分。它不表示人物长相、动作、剧情、对白、连续性或审美已通过视觉语义审核，成片仍需要人工观看。
 
@@ -80,68 +93,62 @@ Lyra 是面向中文短剧的本地创作与自动制片工作台。界面在 20
 
 当前时间线保留视频供应商随镜头生成的原生音轨，还没有独立配音、口型同步、音效、配乐、混音和字幕子流程。技术抽卡与返修不会把这些未实现能力描述成已经完成。
 
-完整流程代码和离线验证已经打通，但没有为了验收自动触发真实付费全链路。真实运行需要本机配置相应用途的模型连接，并由用户在创建该次运行时明确勾选授权和设置预算上限。
+完整流程代码和离线验证已经打通，但没有为了验收自动触发真实付费全链路。真实运行需要在部署环境的后端私有配置中提供相应用途的模型连接，并由用户在创建该次运行时明确勾选授权和设置预算上限。
 
-## 本地运行
+## 部署与开发预览
 
-只体验不依赖后端的页面：
+Stage 1 单受信 workspace 试运行由根目录 [`deploy/compose.yaml`](../../deploy/compose.yaml) 构建并由 Web 容器同源反向代理。详细的 HTTPS Origin、管理员 bootstrap、健康检查、备份恢复和待执行验收目标见 [Stage 1 部署手册](../../deploy/README.md)。
 
-```sh
-cd packages/web
-npm ci
-npm run dev
-```
-
-打开 <http://127.0.0.1:5173/>。仅监听本机，尚未部署为公网网站。
-
-使用真实项目、资产和整集自动制作时，先在主工程目录启动 PostgreSQL、应用迁移并运行后端：
-
-```sh
-cd packages/main
-npm ci
-npm run db:setup
-npm run db:up
-npm run db:migrate
-npm run dev
-```
-
-另开终端启动前端：
+仅在贡献代码时使用 Vite 开发服务：
 
 ```sh
 npm --prefix packages/web ci
 npm --prefix packages/web run dev
+npm --prefix packages/web test
+npm --prefix packages/web run build
 ```
 
-整集生产需要迁移 `015_production_orchestration.sql` 与 `016_agent_adoptions.sql`。FFmpeg/ffprobe、数据库或对应模型连接不可用时，受影响节点会明确停止，不会伪造成功产物。
+动态背景素材不内置第三方热链。复制 `packages/web/.env.example` 到 `.env.local` 后，可用公开展示变量配置自有素材：
 
-## 2026-10-23 验证记录
+```sh
+VITE_LYRA_BACKDROP_VIDEO_URL=https://cdn.example.com/lyra/atmosphere.mp4
+VITE_LYRA_BACKDROP_POSTER_URL=https://cdn.example.com/lyra/atmosphere.webp
+```
 
-- 后端离线测试：**392 项通过**。
-- 前端测试：**86 项通过**。
-- PostgreSQL 集成测试：**2 项通过**，覆盖拆解持久化以及生产聚合的 CAS/outbox 原子写入。
-- 前端 TypeScript/Vite 构建通过；3D 懒加载包仍有既有的大包体积提示。
-- 已检查首页、项目、资产、插件和自动制作页面的桌面布局与响应式布局，并验证前后端 API 代理可用。
-- 上述自动化验证未创建真实付费任务，也不能替代配置模型后的人工成片验收。
+这两个 URL 会公开给浏览器，只能用于无密钥的展示资源；生产素材应由自有 OSS/COS/S3 和 CDN 提供。未配置视频时仍保留金紫极光背景，不影响登录和工作台使用。
+
+开发兼容模式不是生产部署方案。FFmpeg/ffprobe、数据库、对象存储或对应模型连接不可用时，受影响节点必须明确停止，不会伪造成功产物。
+
+## 2026-11-08 验证记录
+
+- 前端 131 项自动化测试和 TypeScript/Vite 生产构建通过，覆盖会话恢复、登录/退出、CSRF/workspace 请求头、Legacy 兼容、六项系统状态，以及全局背景分级、`0.2×` 工作区播放和视频 scrub 边界。
+- 自动化验证没有使用真实模型、API Key 或付费媒体调用，不能替代部署环境的 HTTPS/Cookie、租户越权、备份恢复和人工成片验收。
 
 ## 数据与存储
 
 - 示例分镜草稿保存于当前浏览器的 `frame:ui-draft:v1`；它不是生产计划数据库。
 - 3D 白模使用 IndexedDB `frame-director-v1` 保存，清理网站数据会删除本机场景，应通过 JSON 导出备份。
-- 项目、小说、资产、模型任务和整集生产运行由本机后端与 PostgreSQL 持久化。
+- 项目、小说、资产、完整对话、模型任务和整集生产运行由 `main` 与 PostgreSQL 持久化；Redis 只保存可重建快照。
+- Stage 1 已为生产视频/成片接入 local/MinIO/S3/OSS/COS 对象存储端口、租户化 key、`object_records`、持久任务、Outbox、常驻投影 Worker、租户化对象读取和 `/api/production-media/:id/access` 签名入口；API/Worker 共享私有卷只保留本地暂存/过渡/恢复副本。导入资产图片仍保存于 PostgreSQL `asset_media.content`，后续需完成对象化迁移，并验证云环境中浏览器可达的公网 HTTPS 签名 endpoint、授权边界和孤儿对象 GC。
 - 模型密钥仅由后端保存；前端不使用 `VITE_` 变量携带密钥。
 - 外部素材链接仅允许受控 HTTPS 登记；登记本身不证明授权、可达性或长期有效性。
 
 ## 主要文件
 
 - `src/App.tsx` / `src/navigation.ts`：整体布局、侧栏、路由、命令菜单和离页保护。
+- `src/ambient.tsx` / `src/ambient.css`：单实例全局背景、路由动态分级、鼠标 scrub 与移动端/省流降级。
+- `src/AuthBoundary.tsx` / `src/auth.ts`：会话恢复、登录/退出、Legacy 边界与会话用户状态。
+- `src/WorkspaceSwitcher.tsx` / `src/deployment.ts`：workspace 切换、全局租户/CSRF 请求头与部署状态契约。
+- `src/SystemStatusPanel.tsx`：API、Worker、PostgreSQL、Redis、Milvus 和对象存储状态。
 - `src/WorkspaceHome.tsx` / `src/home.css`：首页与最近项目。
 - `src/ProjectsPage.tsx` / `src/projects.css`：项目目录、搜索、筛选和视图切换。
 - `src/AssetWorkspace.tsx` / `src/AssetLibrary.tsx`：个人资产库、示例参考、素材登记与详情。
-- `src/LibraryPages.tsx` / `src/library.css`：插件与内置工具目录。
+- `src/PromptPacksPage.tsx` / `src/prompt-packs.ts` / `src/prompt-packs.css`：方法包目录、导入和启停。
+- `src/EvolutionPage.tsx` / `src/evolution.ts` / `src/evolution.css`：质量中心、运行证据和资产检索策略治理。
 - `src/ProductionAutomationPage.tsx` / `src/production-automation.ts` / `src/production-automation.css`：整集自动制作总控、运行解析、真实进度与操作。
 - `src/VideoAutomationPage.tsx` / `src/video-automation.ts`：保留的独立单条视频工具。
 - `src/production.tsx` / `src/NovelBreakdown.tsx`：真实剧本项目与小说逐章拆解。
 - `src/ModelConnections.tsx` / `src/model-connections.ts`：按用途管理模型连接。
 - `src/director/`：浏览器 3D 白模导演台；来源见 [第三方代码说明](THIRD_PARTY_NOTICES.md)。
 
-整集实现、恢复策略、媒体安全链与详细边界见[全流程自动制片实现](../docs/Lyra全流程自动制片实现-v0.1.md)。旧的独立九步教学页面保留在 `../flow-explainer/`，不属于本次 Lyra 工作台视觉系统。
+整集实现、恢复策略、媒体安全链与详细边界见[全流程自动制片实现](../main/docs/Lyra全流程自动制片实现-v0.1.md)。旧的独立九步教学页面保留在 `../flow-explainer/`，不属于本次 Lyra 工作台视觉系统。

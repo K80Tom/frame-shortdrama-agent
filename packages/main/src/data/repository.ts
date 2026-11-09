@@ -1,12 +1,12 @@
 import type { QueryResultRow } from 'pg';
 import {
   DataEventContractError,
-  parseDataEventV1,
   type DataEventV1,
 } from '@lyra/shared';
 import type { PostgresDatabase } from '../db/client';
 import { DataEventError } from './event';
 import type { DataOutboxStatus, StoredDataEvent } from './outbox';
+import { parseTenantDataEvent } from './tenant-event';
 
 export interface DataOutboxRepository {
   listPending(limit: number, now: string): Promise<StoredDataEvent[]>;
@@ -16,7 +16,7 @@ export interface DataOutboxRepository {
 }
 
 interface OutboxRow extends QueryResultRow {
-  outbox_id: string; event_id: string; event_type: string; schema_version: string;
+  outbox_id: string; workspace_id: string; event_id: string; event_type: string; schema_version: string;
   aggregate_type: DataEventV1['aggregateType']; aggregate_id: string; aggregate_version: number;
   occurred_at: unknown; recorded_at: unknown; correlation_id: string; causation_id: string | null;
   idempotency_key: string; authoritative_ref_json: DataEventV1['authoritativeRef'];
@@ -25,7 +25,7 @@ interface OutboxRow extends QueryResultRow {
   legacy_source: string | null; legacy_event_id: string | null; created_at: unknown;
 }
 
-const COLUMNS = `outbox_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+const COLUMNS = `outbox_id, workspace_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   aggregate_version, occurred_at, recorded_at, correlation_id, causation_id, idempotency_key,
   authoritative_ref_json, payload_json, event_digest, status, attempts, available_at,
   published_at, last_error, legacy_source, legacy_event_id, created_at`;
@@ -39,23 +39,26 @@ function nullIso(value: unknown): string | null { return value === null ? null :
 
 function storedOf(row: OutboxRow): StoredDataEvent {
   try {
+    const body = {
+      eventId: row.event_id,
+      eventType: row.event_type,
+      schemaVersion: row.schema_version,
+      aggregateType: row.aggregate_type,
+      aggregateId: row.aggregate_id,
+      aggregateVersion: row.aggregate_version,
+      occurredAt: iso(row.occurred_at),
+      recordedAt: iso(row.recorded_at),
+      correlationId: row.correlation_id,
+      causationId: row.causation_id,
+      idempotencyKey: row.idempotency_key,
+      authoritativeRef: row.authoritative_ref_json,
+      payload: row.payload_json,
+    };
     return {
       outboxId: row.outbox_id,
-      event: parseDataEventV1({
-        eventId: row.event_id,
-        eventType: row.event_type,
-        schemaVersion: row.schema_version,
-        aggregateType: row.aggregate_type,
-        aggregateId: row.aggregate_id,
-        aggregateVersion: row.aggregate_version,
-        occurredAt: iso(row.occurred_at),
-        recordedAt: iso(row.recorded_at),
-        correlationId: row.correlation_id,
-        causationId: row.causation_id,
-        idempotencyKey: row.idempotency_key,
-        authoritativeRef: row.authoritative_ref_json,
-        payload: row.payload_json,
-      }),
+      workspaceId: row.workspace_id,
+      event: parseTenantDataEvent(row.schema_version === 'lyra.data.event/v2'
+        ? { ...body, workspaceId: row.workspace_id } : body),
       eventDigest: row.event_digest,
       status: row.status,
       attempts: row.attempts,
@@ -84,6 +87,12 @@ export class PostgresDataOutboxRepository implements DataOutboxRepository {
     const result = await this.database.query<OutboxRow>(`
       SELECT ${COLUMNS} FROM data_outbox_events
       WHERE status IN ('pending', 'failed') AND available_at <= $1::timestamptz
+        AND NOT EXISTS (
+          SELECT 1 FROM jobs
+          WHERE jobs.workspace_id = data_outbox_events.workspace_id
+            AND jobs.idempotency_key = 'outbox:' || data_outbox_events.event_id
+            AND jobs.state IN ('queued', 'running')
+        )
       ORDER BY occurred_at, outbox_id
       LIMIT $2
     `, [now, limit]);

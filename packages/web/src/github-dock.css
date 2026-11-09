@@ -1,0 +1,129 @@
+.github-dock {
+  --github-gold: #e8c878;
+  position: relative;
+  width: 100%;
+  margin-bottom: 9px;
+}
+
+.github-dock-heading {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  color: var(--color-label-secondary, #b8b8c2);
+  border-radius: 10px;
+  transition: color 180ms ease, background-color 180ms ease;
+}
+.github-dock-heading:hover { color: var(--github-gold); background: rgb(232 200 120 / 6%); }
+.github-dock-heading:focus-visible { outline: 2px solid var(--github-gold); outline-offset: 2px; }
+
+.github-dock-mark {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid rgb(232 200 120 / 19%);
+  border-radius: 9px;
+  background: rgb(232 200 120 / 8%);
+  color: var(--github-gold);
+}
+
+.github-dock-heading > span:nth-child(2) { min-width: 0; }
+.github-dock-heading strong,
+.github-dock-heading small { display: block; }
+.github-dock-heading strong { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+.github-dock-heading small { margin-top: 2px; color: var(--color-label-tertiary, #6f6f79); font-size: 8px; }
+.github-dock-hint { margin-left: auto; color: #b99d5d; font-size: 8px; }
+
+.github-dock-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 7px;
+  border: 1px solid rgb(255 243 207 / 45%);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d8c394, #b8914e);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 12px 26px rgb(0 0 0 / 22%);
+}
+
+.github-dock-actions a {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: 50%;
+  background: linear-gradient(155deg, #fffef9, #f1e8d8);
+  box-shadow: inset 0 1px 0 #fff, 0 3px 7px rgb(81 55 15 / 24%);
+  color: #b27b16;
+  transition: transform 220ms cubic-bezier(.22, 1, .36, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.github-dock-emoji {
+  display: block;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 18px;
+  line-height: 1;
+  filter: sepia(.34) saturate(1.2) brightness(1.03);
+  transform: translateY(-.5px);
+}
+
+.github-dock-actions a::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 4px) scale(.96);
+  padding: 4px 7px;
+  border: 1px solid rgb(232 200 120 / 22%);
+  border-radius: 7px;
+  background: #171719;
+  color: #ead59f;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 28%);
+  font-size: 8px;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 180ms ease;
+}
+.github-dock-actions a:hover {
+  z-index: 1;
+  transform: translateY(-7px) scale(1.1);
+  border-color: #fff5d8;
+  background: linear-gradient(155deg, #fff, #f6ecd9);
+  box-shadow: inset 0 1px 0 #fff, 0 10px 18px rgb(82 55 12 / 34%), 0 0 0 3px rgb(255 225 157 / 22%);
+}
+.github-dock-actions a:hover::before,
+.github-dock-actions a:focus-visible::before { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.github-dock-actions a:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--github-gold);
+  outline-offset: 2px;
+  transform: translateY(-5px);
+}
+
+@media (hover: none) {
+  .github-dock-actions a::before { display: none; }
+}
+
+@media (max-height: 720px) and (min-width: 721px) {
+  .github-dock-heading small { display: none; }
+  .github-dock-heading { min-height: 30px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-dock,
+  .github-dock-actions a { transition: none; }
+  .github-dock-actions a::before { transition: none; }
+  .github-dock-actions a:hover,
+  .github-dock-actions a:focus-visible { transform: none; }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Draft } from './model';
+import { workspaceFetch } from './deployment';
 
 export type ProjectSummary = {
   id: string; title: string; createdAt: string;
@@ -52,7 +53,7 @@ function useCollection<T>(path: string, key: string, valid: (item: unknown) => i
     setCollection(previous => ({ ...previous, status: 'loading', error: '' }));
     void (async () => {
       try {
-        const response = await fetch(path, { signal: controller.signal });
+        const response = await workspaceFetch(path, { signal: controller.signal });
         if (!response.ok) throw new Error(response.status === 503 ? '本地服务暂不可用，请确认后端与数据库已启动。' : `读取失败（${response.status}），请稍后重试。`);
         const data: unknown = await response.json();
         if (!record(data) || !Array.isArray(data[key]) || !data[key].every(valid)) throw new Error('目录响应格式异常，请重试或检查本地服务。');
@@ -74,6 +75,11 @@ export function formatProjectDate(value: string | null): string {
   return value && Number.isFinite(Date.parse(value)) ? dateFormatter.format(new Date(value)).replaceAll('/', '-') : '本地样例';
 }
 
+/** The practice is an onboarding fallback, not a permanent peer of real projects. */
+export function shouldShowLocalPractice(projects: Pick<CollectionState<unknown>, 'items' | 'status'>): boolean {
+  return projects.items.length === 0 && projects.status !== 'loading';
+}
+
 /** Read-only catalog; saved sources are newest first, with the local practice last. */
 export function useProjectCatalog(draft: Draft): ProjectCatalog {
   const projects = useCollection('/api/projects', 'items', isProject);
@@ -88,5 +94,5 @@ export function useProjectCatalog(draft: Draft): ProjectCatalog {
   ].sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || a.id.localeCompare(b.id));
   const practice: ProjectEntry = { id: 'local-practice', title: '赴约 · 分镜练习', kind: 'practice', date: draft.savedAt,
     status: draft.savedAt ? `草稿 V${draft.revision}` : '手写样例' };
-  return { entries: [...remoteEntries, practice], projects, novels };
+  return { entries: shouldShowLocalPractice(projects) ? [...remoteEntries, practice] : remoteEntries, projects, novels };
 }

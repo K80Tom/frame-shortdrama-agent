@@ -1,7 +1,8 @@
 import type {
   ArtifactKind, CandidateKind, ExternalOperation, ProductionStage, ProductionTask, QualityCheck,
-  ProductionReviewInput, StoredProductionRun, TaskScope,
+  ProductionReviewInput, StoredProductionRun, TaskScope, FrozenProductionInput,
 } from '@lyra/shared';
+import { requireFrozenExecutionInput } from './frozen-execution-input';
 
 export interface ProductionExecutionContext {
   run: Readonly<StoredProductionRun>;
@@ -9,6 +10,7 @@ export interface ProductionExecutionContext {
   attemptId: string;
   inputDigest: string;
   operationKey: string | null;
+  frozenInput?: FrozenProductionInput;
 }
 
 export interface PreparedProductionExecution {
@@ -124,24 +126,29 @@ export type ProductionExecutorOutcome = {
 
 export interface ProductionExecutor {
   readonly stage: ProductionStage;
+  /** Opt-in only after ALL methods avoid mutable project input for a bound Run. */
+  readonly frozenInputVersion?: 1;
   prepare(context: Omit<ProductionExecutionContext, 'attemptId' | 'inputDigest' | 'operationKey'>): Promise<PreparedProductionExecution>;
   execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome>;
   reconcile?(context: ProductionExecutionContext, operation: Readonly<ExternalOperation>): Promise<ProductionExecutorOutcome>;
   /** Hooks must be idempotent: an external adoption can win before the production aggregate CAS. */
   review?(context: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask>;
-    input: Readonly<ProductionReviewInput> }): Promise<void>;
+    input: Readonly<ProductionReviewInput>; frozenInput?: FrozenProductionInput }): Promise<void>;
 }
 
 /** This is the only built-in executor. It performs a real deterministic check
  * of the frozen run input and never calls a model or fabricates media output. */
 export class ProductionPreflightExecutor implements ProductionExecutor {
   readonly stage = 'prepare' as const;
+  readonly frozenInputVersion = 1 as const;
   async prepare(context: Omit<ProductionExecutionContext, 'attemptId' | 'inputDigest' | 'operationKey'>): Promise<PreparedProductionExecution> {
-    return { executor: 'builtin-preflight/1', inputDigest: context.task.inputManifest[0]!.digest,
+    const frozen=context.run.inputSnapshot ? requireFrozenExecutionInput(context.run,context.frozenInput) : undefined;
+    return { executor: 'builtin-preflight/1', inputDigest: frozen?.snapshot.snapshotDigest ?? context.task.inputManifest[0]!.digest,
       estimateCostMicros: 0, requiresPaid: false, provider: null };
   }
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
     const run = context.run;
+    if (run.inputSnapshot) requireFrozenExecutionInput(run,context.frozenInput);
     return { state: 'succeeded', artifacts: [{ key: 'preflight', kind: 'report', title: '生产预检报告',
       metadata: { projectId: run.projectId, scriptVersionId: run.scriptVersionId, ratio: run.ratio,
         targetDurationSec: run.targetDurationSec, workflowVersion: run.workflowVersion,

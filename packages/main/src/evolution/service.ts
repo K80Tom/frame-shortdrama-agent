@@ -7,6 +7,7 @@ import type { ProductionRepository } from '../production/repository';
 import { buildAssetRunEvidence, buildDeterministicProposals, isTerminalEvidenceRun } from './evidence';
 import { runAssetRetrievalProbe } from './probe';
 import { baselineRegistry, evolutionSummary, type EvolutionRepository } from './repository';
+import { tenantExecutionScope } from '../tenancy/scope';
 
 export interface AssetEvolutionServiceOptions { now?: () => Date; }
 
@@ -36,7 +37,8 @@ export class AssetEvolutionService {
       return { evidence: existing, proposals };
     }
     const evidence = buildAssetRunEvidence(run, this.timestamp());
-    const proposals = buildDeterministicProposals(evidence);
+    const scope = tenantExecutionScope.current();
+    const proposals = buildDeterministicProposals(evidence, scope?.kind === 'tenant' ? scope.tenant.workspaceId : undefined);
     await this.repository.recordEvidence(evidence, proposals);
     return { evidence, proposals };
   }

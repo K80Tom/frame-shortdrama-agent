@@ -17,6 +17,13 @@ const {
   parseAssessment,
   parseFfprobe,
 } = require('../dist/production-media');
+const { ProductionMediaObjectProjection } = require('../dist/production-media/object-storage');
+const {
+  LocalObjectStorage,
+  S3CompatibleObjectStorage,
+  createObjectStorageFromEnv,
+  readObjectStorageConfig,
+} = require('../dist/infrastructure/object-storage');
 
 const probe = (changes = {}) => ({ container: 'mp4', durationSeconds: 2, width: 720, height: 1280,
   videoCodec: 'h264', hasAudio: true, audioCodec: 'aac', ...changes });
@@ -64,6 +71,18 @@ test('content-addressed storage accepts backend buffers, deduplicates bytes, and
   const rel = relative(resolve(f.root), resolve(owned.absolutePath));
   assert.ok(rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   assert.ok(f.prober.paths.length >= 3, 'dedupe and reads must not trust old probe metadata');
+});
+
+test('stored hook durably queues both new and deduplicated media before returning', async t => {
+  const f = await fixture(t, { projected: probe() });
+  const queued = [];
+  f.store.setStoredHook(async object => { queued.push(object.id); });
+  const first = await f.store.putVideoBuffer(Buffer.from('projected'));
+  const duplicate = await f.store.putVideoBuffer(Buffer.from('projected'));
+  assert.equal(duplicate.id, first.id);
+  assert.deepEqual(queued, [first.id, first.id]);
+  assert.throws(() => f.store.setStoredHook(async () => undefined),
+    rejectsCode('MEDIA_STORED_HOOK_ALREADY_SET'));
 });
 
 test('owned-file import rejects remote URLs, traversal, symlinks, hardlinks, and non-files', async t => {
@@ -409,7 +428,9 @@ test('auto edit adds title and end cards with crossfades and keeps a determinist
     await writeFile(args.at(-1), 'edited');
     return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   } };
-  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const fontPath = join(f.base, 'fixture-font.ttf');
+  await writeFile(fontPath, 'font fixture for stub runner');
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z'), fontCandidates: [fontPath] });
   const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
     edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
       endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
@@ -440,7 +461,7 @@ test('auto edit adds title and end cards with crossfades and keeps a determinist
   assert.equal(calls.length, 1, 'saved auto-edit timeline must not rerun ffmpeg');
 });
 
-test('auto edit degrades to textless cards when the ffmpeg build lacks drawtext', async t => {
+for (const hasDrawtext of [false, true]) test(`auto edit keeps textless cards when drawtext=${hasDrawtext} but no font exists`, async t => {
   const f = await fixture(t, {
     'clip-a': probe({ durationSeconds: 1, width: 721, height: 1279 }),
     'clip-b': probe({ durationSeconds: 2, width: 1080, height: 1920 }),
@@ -451,14 +472,14 @@ test('auto edit degrades to textless cards when the ffmpeg build lacks drawtext'
   const calls = [];
   const runner = { run: async (command, args) => {
     if (args.includes('-filters')) {
-      return { stdout: Buffer.from(' Filters:\n TSC scale             V->V       Scale the input video size.\n'),
+      return { stdout: Buffer.from(hasDrawtext ? ' TSC drawtext V->V Draw text\n' : ' TSC scale V->V Scale video\n'),
         stderr: Buffer.alloc(0) };
     }
     calls.push([...args]);
     await writeFile(args.at(-1), 'edited');
     return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   } };
-  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z') });
+  const composer = new TimelineComposer(f.store, runner, { now: () => new Date('2026-10-23T01:00:00.000Z'), fontCandidates: [] });
   const manifest = await composer.compose({ videoIds: [first.id, second.id], title: '吞噬星空',
     edit: { titleCardText: '吞噬星空', titleCardSubtitle: 'AI 自动制作短片',
       endCardText: '本片由 AI 流水线自动生成', transitionSeconds: 0.4 } });
@@ -684,4 +705,420 @@ test('frame assessment does not keep a pass the dimension scores do not support'
   }, 'shot_unknown');
   assert.equal(unknown.verdict, 'weak');
   assert.equal(unknown.advice.action, 'keep');
+});
+
+
+const { timelineFontCandidates, findTimelineFont, timelineFontFilterPath } =
+  require('../dist/production-media/timeline-fonts');
+
+test('timeline fonts use Windows system root and preserve Unix fallbacks', () => {
+  assert.deepEqual(timelineFontCandidates('win32', 'D:\\Windows'), [
+    'D:/Windows/Fonts/msyh.ttc', 'D:/Windows/Fonts/simhei.ttf', 'D:/Windows/Fonts/arial.ttf',
+  ]);
+  assert.equal(timelineFontCandidates('win32', 'D:/系统目录')[0], 'D:/系统目录/Fonts/msyh.ttc');
+  for (const root of ['relative', '//server/share', '\\\\server\\share', "C:/Windows';evil", 'C:/Windows;evil', 'C:/Windows\n']) {
+    assert.equal(timelineFontCandidates('win32', root)[0], 'C:/Windows/Fonts/msyh.ttc');
+  }
+  assert.ok(timelineFontCandidates('linux').includes('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'));
+  assert.ok(timelineFontCandidates('darwin').includes('/System/Library/Fonts/PingFang.ttc'));
+  assert.equal(timelineFontCandidates('linux').some(path => path.includes('Windows')), false);
+});
+
+test('timeline font lookup tries missing fonts in order and returns null without a readable font', async () => {
+  const visited = [];
+  assert.equal(await findTimelineFont(['missing', 'valid', 'unused'], async path => {
+    visited.push(path); return path === 'valid';
+  }), 'valid');
+  assert.deepEqual(visited, ['missing', 'valid']);
+  assert.equal(await findTimelineFont(['missing'], async () => false), null);
+  assert.equal(await findTimelineFont([], async () => { throw new Error('must not read'); }), null);
+});
+
+test('drawtext font paths normalize Windows separators and escape drive colons', () => {
+  assert.equal(timelineFontFilterPath('C:\\Windows\\Fonts\\msyh.ttc'), 'C\\:/Windows/Fonts/msyh.ttc');
+  assert.equal(timelineFontFilterPath('/System/Library/Fonts/Hiragino Sans GB.ttc'),
+    '/System/Library/Fonts/Hiragino Sans GB.ttc');
+  for (const path of ["C:/font'bad.ttf", '/font;evil.ttf', '/font,evil.ttf', '/font[evil].ttf', 'relative.ttf', '/font.ttf\n',
+    '//server/share/font.ttf', '\\\\server\\share\\font.ttf', '\\\\.\\pipe\\font.ttf']) {
+    assert.throws(() => timelineFontFilterPath(path), TypeError);
+  }
+});
+
+
+test('real FFmpeg smoke: local font and actual composer produce visible title/end pixels', {
+  skip: process.env.LYRA_TEST_FFMPEG !== '1',
+}, async t => {
+  const { spawnSync } = require('node:child_process');
+  const font = await findTimelineFont(timelineFontCandidates());
+  assert.ok(font, 'local integration environment must provide a readable system font');
+  const filter = `drawtext=fontfile='${timelineFontFilterPath(font)}':text='中文测试':fontcolor=white:fontsize=32:x=10:y=10`;
+  const result = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:s=320x180:d=0.1', '-vf', filter, '-frames:v', '1', '-f', 'rawvideo',
+    '-pix_fmt', 'rgb24', 'pipe:1'], { maxBuffer: 1024 * 1024, timeout: 30_000 });
+  assert.equal(result.status, 0, result.stderr?.toString());
+  assert.equal(result.stdout.length, 320 * 180 * 3);
+  assert.ok(result.stdout.some(channel => channel > 128), 'text must change the black frame');
+
+  // Exercise the actual composer-generated filter, not only a handwritten
+  // drawtext string. All media is generated locally; no provider is called.
+  const base = resolve(tmpdir());
+  const root = await mkdtemp(join(base, 'lyra-timeline-font-'));
+  t.after(async () => {
+    const child = relative(base, resolve(root));
+    if (isAbsolute(child) || child.includes(sep) || !child.startsWith('lyra-timeline-font-')) {
+      throw new Error('测试目录越界，拒绝清理。');
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const { FfprobeVideoProber } = require('../dist/production-media');
+  const runner = new BoundedProcessRunner();
+  const store = new ProductionMediaStore(root, new FfprobeVideoProber(runner));
+  const work = await store.createWorkDirectory('font-smoke');
+  const sourcePath = join(work, 'black.mp4');
+  await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:s=320x180:r=30:d=1', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sourcePath], { timeoutMs: 30_000 });
+  const video = await store.importOwnedVideo(sourcePath);
+  let compositions = 0;
+  const composer = new TimelineComposer(store, { run(command, args, options) {
+    if (args.includes('-filter_complex')) compositions++;
+    return runner.run(command, args, options);
+  } });
+  const request = { videoIds: [video.id], title: '本地字体回归', edit: {
+    titleCardText: '中文片头', endCardText: '中文片尾', transitionSeconds: 0.4,
+  } };
+  const manifest = await composer.compose(request);
+  assert.equal(manifest.composition.strategy, 'ffmpeg-auto-edit');
+  assert.ok(Math.abs(manifest.output.probe.durationSeconds - manifest.composition.expectedDurationSeconds) < 0.15);
+  assert.equal(manifest.output.probe.width, 320);
+  assert.equal(manifest.output.probe.height, 180);
+  assert.ok(!JSON.stringify(manifest).includes(font), 'private font path is not a delivery manifest field');
+  const output = await store.getVideo(manifest.output.id);
+  for (const seconds of [1, manifest.composition.expectedDurationSeconds - 1]) {
+    const frame = await runner.run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(seconds),
+      '-i', output.absolutePath, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+    { timeoutMs: 30_000, maxOutputBytes: 1024 * 1024 });
+    assert.equal(frame.stdout.length, 320 * 180 * 3);
+    assert.ok(frame.stdout.some(channel => channel > 180), `card at ${seconds}s must contain visible light glyph pixels`);
+  }
+  assert.equal(compositions, 1);
+  assert.deepEqual(await composer.compose(request), manifest);
+  assert.equal(compositions, 1, 'saved composition must not invoke FFmpeg again');
+});
+test('object storage scopes immutable local bytes by workspace and explicitly projects verified media', async t => {
+  const f = await fixture(t, { clip: probe() });
+  const objects = new LocalObjectStorage(join(f.base, 'object-store'));
+  const firstScope = { workspaceId: `ws_${'1'.repeat(32)}` };
+  const otherScope = { workspaceId: `ws_${'2'.repeat(32)}` };
+  await objects.probe();
+  const saved = await objects.put({ scope: firstScope, key: 'assets/clip.bin', body: Buffer.from('clip'),
+    contentType: 'application/octet-stream' });
+  assert.equal(saved.sha256, createHash('sha256').update('clip').digest('hex'));
+  assert.equal((await objects.get({ scope: firstScope, key: saved.key, maxBytes: 100 })).body.toString(), 'clip');
+  await assert.rejects(objects.get({ scope: otherScope, key: saved.key, maxBytes: 100 }),
+    error => error.code === 'OBJECT_NOT_FOUND');
+  await assert.rejects(objects.put({ scope: firstScope, key: '../escape', body: Buffer.from('x'),
+    contentType: 'application/octet-stream' }), error => error.code === 'OBJECT_KEY_INVALID');
+
+  const media = await f.store.putVideoBuffer(Buffer.from('clip'));
+  const projection = new ProductionMediaObjectProjection(f.store, objects);
+  const reference = await projection.project(firstScope, media.id);
+  assert.equal(reference.sha256, media.sha256);
+  assert.equal((await projection.restore(firstScope, reference)).id, media.id);
+
+  const unusableRoot = join(f.base, 'object-store-file');
+  await writeFile(unusableRoot, 'not a directory');
+  await assert.rejects(new LocalObjectStorage(unusableRoot).probe(),
+    error => error.code === 'OBJECT_STORAGE_UNAVAILABLE');
+});
+
+test('S3-compatible adapter keeps provider boundaries explicit and only signs tenant staging keys', async () => {
+  const saved = new Map(); let signed;
+  const client = {
+    async headBucket(input) { assert.equal(input.Bucket, 'lyra-media'); return {}; },
+    async putObject(input) {
+      saved.set(input.Key, { body: Buffer.from(input.Body), metadata: input.Metadata,
+        type: input.ContentType }); return { ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async headObject(input) {
+      const value = saved.get(input.Key); if (!value) throw { name: 'NotFound' };
+      return { ContentLength: value.body.length, ContentType: value.type, Metadata: value.metadata,
+        ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async getObject(input) {
+      const value = saved.get(input.Key); if (!value) throw { name: 'NotFound' };
+      return { Body: value.body, ContentType: value.type, Metadata: value.metadata,
+        ETag: '"etag-one"', VersionId: 'v1' };
+    },
+    async deleteObject(input) { saved.delete(input.Key); return {}; },
+  };
+  const scope = { workspaceId: `ws_${'3'.repeat(32)}` };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'cos', bucket: 'lyra-media',
+    prefix: 'prod', now: () => new Date('2026-11-08T00:00:00.000Z'),
+    presignPut: async (input, ttl) => { signed = { input, ttl }; return 'https://storage.test/signed'; },
+    presignGet: async (input, ttl) => { signed = { input, ttl }; return 'https://storage.test/download'; } });
+  await storage.probe();
+  const object = await storage.put({ scope, key: 'media/a.mp4', body: Buffer.from('movie'),
+    contentType: 'video/mp4' });
+  assert.equal(object.provider, 'cos');
+  assert.ok(saved.has(`prod/workspaces/${scope.workspaceId}/media/a.mp4`));
+  await assert.rejects(storage.createPresignedPut({ scope, key: 'media/direct.mp4',
+    contentType: 'video/mp4', expiresInSeconds: 60, expectedSha256: 'a'.repeat(64) }),
+  error => error.code === 'OBJECT_STAGING_REQUIRED');
+  const upload = await storage.createPresignedPut({ scope, key: 'staging/request/a.mp4',
+    contentType: 'video/mp4', expiresInSeconds: 60, expectedSha256: 'a'.repeat(64) });
+  assert.equal(upload.expiresAt, '2026-11-08T00:01:00.000Z');
+  assert.equal(signed.input.Key, `prod/workspaces/${scope.workspaceId}/staging/request/a.mp4`);
+  assert.equal(signed.ttl, 60);
+  const download = await storage.createPresignedGet({ scope, key: object.key,
+    expiresInSeconds: 90, expectedSha256: object.sha256 });
+  assert.equal(download.url, 'https://storage.test/download');
+  assert.equal(download.expiresAt, '2026-11-08T00:01:30.000Z');
+  assert.equal(signed.input.Key, `prod/workspaces/${scope.workspaceId}/media/a.mp4`);
+  assert.equal(signed.ttl, 90);
+
+  const denied = new S3CompatibleObjectStorage({ ...client, async headBucket() { throw { name: 'Forbidden' }; } },
+    { provider: 's3', bucket: 'lyra-media' });
+  await assert.rejects(denied.probe(), error => error.code === 'OBJECT_STORAGE_UNAVAILABLE');
+});
+
+test('S3-compatible reads reject declared oversized objects before consuming the response body', async () => {
+  let reads = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      reads++;
+      yield Buffer.from('must-not-be-read');
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { ContentLength: 11, Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 's3', bucket: 'lyra-media' });
+  await assert.rejects(storage.get({ scope: { workspaceId: `ws_${'4'.repeat(32)}` },
+    key: 'media/large.mp4', maxBytes: 10 }), rejectsCode('OBJECT_SIZE_INVALID'));
+  assert.equal(reads, 0, 'declared oversized responses must fail before the stream is read');
+});
+
+test('S3-compatible reads prefer bounded streaming over transformToByteArray', async () => {
+  const bytes = Buffer.from('movie');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  let transformed = 0;
+  let streamed = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      streamed++;
+      yield bytes.subarray(0, 2);
+      yield bytes.subarray(2);
+    },
+    async transformToByteArray() {
+      transformed++;
+      return bytes;
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { ContentLength: bytes.length, ContentType: 'video/mp4',
+      Metadata: { sha256 }, Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'minio', bucket: 'lyra-media' });
+  const result = await storage.get({ scope: { workspaceId: `ws_${'5'.repeat(32)}` },
+    key: 'media/movie.mp4', expectedSha256: sha256, maxBytes: 10 });
+  assert.equal(result.body.toString(), 'movie');
+  assert.equal(streamed, 1);
+  assert.equal(transformed, 0, 'the unbounded SDK helper must not win over an async iterator');
+});
+
+test('S3-compatible streaming stops as soon as cumulative bytes exceed the read limit', async () => {
+  let yielded = 0;
+  const body = {
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of ['123456', '789012', 'must-not-be-read']) {
+        yielded++;
+        yield Buffer.from(chunk);
+      }
+    },
+  };
+  const client = {
+    async headBucket() { return {}; }, async putObject() { return {}; },
+    async headObject() { throw { name: 'NotFound' }; }, async deleteObject() { return {}; },
+    async getObject() { return { Body: body }; },
+  };
+  const storage = new S3CompatibleObjectStorage(client, { provider: 'cos', bucket: 'lyra-media' });
+  await assert.rejects(storage.get({ scope: { workspaceId: `ws_${'6'.repeat(32)}` },
+    key: 'media/unbounded.mp4', maxBytes: 10 }), rejectsCode('OBJECT_SIZE_INVALID'));
+  assert.equal(yielded, 2, 'stream consumption must stop on the first over-limit chunk');
+});
+
+test('object storage runtime maps Stage 1 environment into a lazy MinIO SDK client', () => {
+  let clientOptions;
+  class Command { constructor(input) { this.input = input; } }
+  class S3Client { constructor(options) { clientOptions = options; } async send() { return {}; } }
+  const s3Module = { S3Client, HeadBucketCommand: Command, PutObjectCommand: Command, GetObjectCommand: Command,
+    HeadObjectCommand: Command, DeleteObjectCommand: Command };
+  const storage = createObjectStorageFromEnv({ OBJECT_STORAGE_PROVIDER: 'minio',
+    OBJECT_STORAGE_ENDPOINT: 'http://minio:9000', OBJECT_STORAGE_REGION: 'us-east-1',
+    OBJECT_STORAGE_BUCKET: 'lyra-media', OBJECT_STORAGE_ACCESS_KEY: 'access',
+    OBJECT_STORAGE_SECRET_KEY: 'secret', OBJECT_STORAGE_FORCE_PATH_STYLE: 'true' }, {
+    s3Module, presignerModule: { async getSignedUrl() { return 'https://storage.test/signed'; } },
+  });
+  assert.equal(storage.provider, 'minio');
+  assert.equal(clientOptions.endpoint, 'http://minio:9000');
+  assert.equal(clientOptions.forcePathStyle, true);
+  assert.deepEqual(clientOptions.credentials, { accessKeyId: 'access', secretAccessKey: 'secret' });
+  assert.throws(() => readObjectStorageConfig({ OBJECT_STORAGE_PROVIDER: 's3',
+    OBJECT_STORAGE_ENDPOINT: 'http://insecure.test', OBJECT_STORAGE_BUCKET: 'bucket' }),
+  /HTTP 仅允许 MinIO/);
+});
+
+
+for (const late of ['resolve', 'reject']) test('DNS deadline blocks late ' + late + ' without fetch or retry', { timeout: 5000 }, async t => {
+  const f = await fixture(t);
+  let complete, fail, lookups = 0, fetches = 0;
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve: () => {
+    lookups++; return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+  } }, { fetch: async () => { fetches++; throw new Error('must not fetch'); } }, { dnsTimeoutMs: 10 });
+  await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_TIMEOUT');
+    assert.equal(error.status, 504);
+    assert.equal(error.message.includes('cdn.provider.example'), false);
+    return true;
+  });
+  if (late === 'resolve') complete([{ address: '93.184.216.34', family: 4 }]);
+  else fail(new Error('private resolver payload with token'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 0);
+});
+
+test('DNS immediate failure stays sanitized and fast DNS/literal success still ingests once', async t => {
+  const f = await fixture(t);
+  const bad = new ProductionMediaIngestor(f.store, { resolve: async () => { throw new Error('private token'); } },
+    { fetch: async () => { throw new Error('must not fetch'); } }, { dnsTimeoutMs: 20 });
+  await assert.rejects(bad.ingestProviderUrl('https://cdn.provider.example/video.mp4'), error => {
+    assert.equal(error.code, 'REMOTE_MEDIA_DNS_FAILED');
+    assert.equal(error.message.includes('private token'), false); return true;
+  });
+  let lookups = 0, fetches = 0;
+  const good = new ProductionMediaIngestor(f.store, { resolve: async () => { lookups++; return [{ address: '93.184.216.34', family: 4 }]; } },
+    { fetch: async () => { fetches++; return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') }; } },
+    { dnsTimeoutMs: 100 });
+  await good.ingestProviderUrl('https://cdn.provider.example/video.mp4');
+  await good.ingestProviderUrl('https://93.184.216.34/video.mp4');
+  assert.equal(lookups, 1);
+  assert.equal(fetches, 2);
+});
+
+test('DNS deadline rejects invalid and overflowing timer settings', async t => {
+  const f = await fixture(t);
+  for (const dnsTimeoutMs of [0, -1, 1.5, NaN, Infinity, 30001, 2147483648]) {
+    assert.throws(() => new ProductionMediaIngestor(f.store, undefined, undefined, { dnsTimeoutMs }),
+      rejectsCode('REMOTE_MEDIA_INGEST_CONFIG_INVALID'));
+  }
+});
+
+for (const late of ['resolve', 'reject']) test('concurrent DNS deadlines isolate fast work and a later explicit request after late ' + late, { timeout: 5000 }, async t => {
+  const f = await fixture(t);
+  let complete, fail, slowLookups = 0, fastLookups = 0;
+  const fetched = [];
+  const addresses = [{ address: '93.184.216.34', family: 4 }];
+  const ingestor = new ProductionMediaIngestor(f.store, { resolve(hostname) {
+    if (hostname === 'slow.provider.example' && ++slowLookups === 1) {
+      return new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+    }
+    if (hostname === 'fast.provider.example') fastLookups++;
+    return Promise.resolve(addresses);
+  } }, { async fetch(url, options) {
+    fetched.push(url.hostname);
+    assert.deepEqual(options.addresses, addresses);
+    return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') };
+  } }, { dnsTimeoutMs: 20 });
+  // Attach the rejection observer immediately; the independent fast request
+  // must neither clear nor consume the pending request's deadline.
+  const timedOut = assert.rejects(ingestor.ingestProviderUrl('https://slow.provider.example/one.mp4'), rejectsCode('REMOTE_MEDIA_DNS_TIMEOUT'));
+  const fast = await ingestor.ingestProviderUrl('https://fast.provider.example/two.mp4');
+  assert.equal(fast.sourceKind, 'providerDownload');
+  await timedOut;
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  assert.equal(slowLookups, 1);
+  assert.equal(fastLookups, 1);
+  if (late === 'resolve') complete(addresses);
+  else fail(new Error('private late DNS result must not escape'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(fetched, ['fast.provider.example']);
+  // This is an explicit new call, not an automatic retry or model submission.
+  const recovered = await ingestor.ingestProviderUrl('https://slow.provider.example/three.mp4');
+  assert.equal(recovered.sourceKind, 'providerDownload');
+  assert.deepEqual(fetched, ['fast.provider.example', 'slow.provider.example']);
+  assert.equal(slowLookups, 2);
+});
+
+test('intranet exception rejects mapped local targets, compatible IPv6 and multicast before fetching', async t => {
+  const f = await fixture(t);
+  let fetches = 0;
+  const forbidden = ['::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '::ffff:0.0.0.0',
+    '::ffff:127.1.2.3', '::ffff:224.0.0.1', '::ffff:255.255.255.255',
+    '::169.254.169.254', 'ff02::1', 'ff0e::1', '224.0.0.1', '255.255.255.255'];
+  for (const address of forbidden) {
+    const family = address.includes(':') ? 6 : 4;
+    const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [{ address, family }] },
+      { fetch: async () => { fetches++; throw new Error('must not fetch'); } }, { allowIntranetMediaSources: true });
+    await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'), address);
+    await assert.rejects(ingestor.ingestProviderUrl('https://' + (family === 6 ? '[' + address + ']' : address) + '/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'), address);
+  }
+  assert.equal(fetches, 0);
+});
+
+test('explicit intranet opt-in still accepts mapped private IPv4 and unique-local unicast', async t => {
+  const f = await fixture(t);
+  let fetches = 0;
+  for (const address of ['::ffff:10.1.2.3', '::ffff:172.16.1.2', '::ffff:192.168.1.2', 'fd00::1']) {
+    const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [{ address, family: 6 }] },
+      { fetch: async () => { fetches++; return { status: 200, headers: { 'content-type': 'video/mp4' }, body: Buffer.from('valid') }; } },
+      { allowIntranetMediaSources: true });
+    await ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4');
+  }
+  assert.equal(fetches, 4);
+});
+
+test('public media policy rejects IPv6 benchmark/documentation and retains ordinary unicast', async t => {
+  const f = await fixture(t);
+  const blocked = ['2001:2::', '2001:2:0:ffff:ffff:ffff:ffff:ffff', '3fff::', '3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff'];
+  let fetches = 0;
+  for (const address of blocked) {
+    assert.equal(isPublicInternetAddress(address), false, address);
+    const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [{ address, family: 6 }] },
+      { fetch: async () => { fetches++; throw new Error('must not fetch'); } });
+    await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+  }
+  for (const address of ['2001:200::1', '3fff:1000::1', '2606:4700:4700::1111', '2001:4860:4860::8888']) {
+    assert.equal(isPublicInternetAddress(address), true, address);
+  }
+  assert.equal(fetches, 0);
+});
+
+test('public media policy rejects protocol-assignment gaps, mixed DNS answers and malformed rows before fetch', async t => {
+  const f = await fixture(t);
+  const publicRow = { address: '2606:4700:4700::1111', family: 6 };
+  let fetches = 0;
+  const fetcher = { fetch: async () => { fetches++; throw new Error('must not fetch'); } };
+  for (const address of ['2001::', '2001:2:1::1', '2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff', '2001:1::1']) {
+    assert.equal(isPublicInternetAddress(address), false, address);
+    const bad = { address, family: 6 };
+    for (const answers of [[publicRow, bad], [bad, publicRow]]) {
+      const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => answers }, fetcher);
+      await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+    }
+  }
+  for (const allowIntranetMediaSources of [false, true]) {
+    for (const bad of [null, undefined, {}, { address: '127.0.0.1', family: 6 }, { address: 'invalid', family: 4 }]) {
+      const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [publicRow, bad] }, fetcher, { allowIntranetMediaSources });
+      await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+    }
+    const mappedLocal = { address: '::ffff:169.254.169.254', family: 6 };
+    const ingestor = new ProductionMediaIngestor(f.store, { resolve: async () => [publicRow, mappedLocal] }, fetcher, { allowIntranetMediaSources });
+    await assert.rejects(ingestor.ingestProviderUrl('https://cdn.provider.example/video.mp4'), rejectsCode('REMOTE_MEDIA_ADDRESS_FORBIDDEN'));
+  }
+  assert.equal(fetches, 0);
 });

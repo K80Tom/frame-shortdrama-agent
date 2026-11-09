@@ -1,6 +1,6 @@
 import type { PostgresDatabase } from '../db/client';
 import { isDeepStrictEqual } from 'node:util';
-import { CREATE_KEYS, ProductionError, type StoredProductionRun } from '@lyra/shared';
+import { CREATE_KEYS, parseProductionInputBinding, ProductionError, type StoredProductionRun } from '@lyra/shared';
 import { DataEventError } from '../data/event';
 import { DataEventContractError } from '@lyra/shared';
 import { DataOutbox } from '../data/outbox';
@@ -29,6 +29,13 @@ function validateStored(value: unknown): StoredProductionRun {
     || !Array.isArray(run.attempts) || !Array.isArray(run.artifacts) || !Array.isArray(run.candidateSets)
     || !Array.isArray(run.qualityChecks) || !Array.isArray(run.reviews) || !Array.isArray(run.timeline)
     || !Array.isArray(run.budgetLedger) || !Array.isArray(run.externalOperations)) return unavailable();
+  if (Object.hasOwn(run, 'inputSnapshot')) {
+    try {
+      const binding=parseProductionInputBinding(run.inputSnapshot);
+      if (run.tasks.some(task=>!Array.isArray(task.inputManifest) || !task.inputManifest.some(ref=>ref.kind==='productionInput'
+        && ref.id===binding.snapshotId && ref.revisionId===binding.snapshotId && ref.digest===binding.snapshotDigest))) return unavailable();
+    } catch { return unavailable(); }
+  }
   return clone(run);
 }
 function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean {
@@ -39,6 +46,8 @@ function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean
   const frozen = CREATE_KEYS.filter(key => key !== 'budgetMicros');
   return a.id === b.id && a.createdAt === b.createdAt && a.workflowVersion === b.workflowVersion
     && isDeepStrictEqual(a.methodPacks, b.methodPacks)
+    && isDeepStrictEqual(a.inputSnapshot, b.inputSnapshot)
+    && (!a.inputSnapshot || a.budgetMicros===b.budgetMicros && isDeepStrictEqual(a.assetRetrievalPolicy,b.assetRetrievalPolicy))
     && a.assetRetrievalPolicy?.policyDigest === b.assetRetrievalPolicy?.policyDigest
     && a.assetRetrievalPolicy?.registryRevision === b.assetRetrievalPolicy?.registryRevision
     && a.assetRetrievalPolicy?.sourceCandidateId === b.assetRetrievalPolicy?.sourceCandidateId
@@ -68,7 +77,7 @@ export class MemoryProductionRepository implements ProductionRepository {
   }
 }
 
-interface RunRow { run_json: unknown }
+interface RunRow { run_json: unknown; workspace_id?: string }
 function databaseFailure(error: unknown): never {
   if (error instanceof ProductionError) throw error;
   if (error instanceof DataEventError) throw error;
@@ -82,6 +91,16 @@ export class PostgresProductionRepository implements ProductionRepository {
   private readonly outbox: DataOutbox;
   constructor(private readonly database: PostgresDatabase) {
     this.outbox = new DataOutbox(database);
+  }
+  /** System scheduler uses this only to enter the run's real tenant scope before execution. */
+  async workspaceId(id: string): Promise<string | null> {
+    if (!/^production_[a-f0-9]{32}$/u.test(id)) return null;
+    try {
+      const row = (await this.database.query<RunRow>(
+        'SELECT workspace_id, run_json FROM production_runs WHERE id=$1', [id],
+      )).rows[0];
+      return typeof row?.workspace_id === 'string' ? row.workspace_id : null;
+    } catch (error) { return databaseFailure(error); }
   }
   async list() {
     try {

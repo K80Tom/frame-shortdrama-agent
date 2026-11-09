@@ -1,68 +1,72 @@
-/* LibTV 风格环境层：深色底 + 紫蓝极光 + 网格纹理 + 暗角 + 点击涟漪 + 玻璃弹窗。 */
+/* One persistent Lyra atmosphere, with route-aware motion and contrast. */
 
-/* ── 环境背景板 ── */
-:root { background: #070a12; }
-
-.ambient-backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.ambient-aurora { position: absolute; border-radius: 50%; filter: blur(110px); will-change: transform; }
-.ambient-aurora.a1 { width: 48vw; height: 48vw; top: -20vw; right: -12vw; opacity: .55;
-  background: radial-gradient(circle at 38% 38%, #7c5cff52, #4f7cff2b 46%, transparent 70%);
-  animation: ambient-drift-a 26s ease-in-out infinite alternate; }
-.ambient-aurora.a2 { width: 42vw; height: 42vw; bottom: -16vw; left: -10vw; opacity: .5;
-  background: radial-gradient(circle at 60% 60%, #3d5afe38, #9f7bff1d 50%, transparent 72%);
-  animation: ambient-drift-b 34s ease-in-out infinite alternate; }
-.ambient-aurora.a3 { width: 30vw; height: 30vw; top: 34%; left: 36%; opacity: .4;
-  background: radial-gradient(circle, #12b8a824, transparent 64%);
-  animation: ambient-drift-c 42s ease-in-out infinite alternate; }
-.ambient-grid { position: absolute; inset: 0;
-  background-image: linear-gradient(#ffffff07 1px, transparent 1px), linear-gradient(90deg, #ffffff07 1px, transparent 1px);
-  background-size: 56px 56px;
-  -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 74%);
-  mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 74%); }
-.ambient-vignette { position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 50% 42%, transparent 52%, #0505078c 100%); }
-
-@keyframes ambient-drift-a { from { transform: translate3d(-6%, -4%, 0) scale(1); } to { transform: translate3d(5%, 8%, 0) scale(1.14); } }
-@keyframes ambient-drift-b { from { transform: translate3d(5%, 3%, 0) scale(1.06); } to { transform: translate3d(-6%, -6%, 0) scale(.94); } }
-@keyframes ambient-drift-c { from { transform: translate3d(-3%, 4%, 0); } to { transform: translate3d(4%, -3%, 0); } }
-
-/* 壳层让光晕透出：侧栏与顶栏改为磨砂玻璃。 */
-.sidebar { background: rgba(16, 16, 20, .84); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
-.topbar { background: rgba(12, 12, 16, .74); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
-
-/* ── 点击涟漪反馈 ── */
-.ambient-clickfx { position: fixed; inset: 0; z-index: 5000; overflow: hidden; pointer-events: none; }
-.ambient-ripple { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
-  border: 1.5px solid #a48fffc9;
-  box-shadow: 0 0 20px #7c5cff59, inset 0 0 9px #7c5cff38;
-  animation: ambient-ripple .62s cubic-bezier(.22, .61, .36, 1) forwards; }
-.ambient-ripple::after { content: ''; position: absolute; inset: 24%; border-radius: 50%;
-  background: radial-gradient(circle, #cab9ff8f, transparent 70%); }
-@keyframes ambient-ripple {
-  0% { transform: scale(.25); opacity: .95; }
-  70% { opacity: .5; }
-  100% { transform: scale(3.1); opacity: 0; }
+.lyra-experience-content { position: relative; z-index: 1; min-height: 100vh; isolation: isolate; }
+.ambient-backdrop {
+  position: fixed; z-index: 0; inset: 0; overflow: hidden; pointer-events: none;
+  background: #07080e;
 }
+.ambient-media { position: absolute; inset: -2%; overflow: hidden; background: var(--lyra-backdrop-poster, none) 70% center / cover no-repeat; }
+.ambient-media::after { position: absolute; inset: 0; content: ''; background: linear-gradient(110deg,#07080f20 0%,#090a1010 48%,transparent 100%); transition: background .7s ease; }
+.ambient-video {
+  width: 100%; height: 100%; object-fit: cover; object-position: 70% center;
+  filter: brightness(1.02) saturate(1.02) contrast(.98); transform: scale(1.025);
+  transition: opacity .7s ease, filter .7s ease, transform 1.1s ease;
+}
+.ambient-aurora { position: absolute; border-radius: 50%; filter: blur(110px); will-change: transform; transition: opacity .7s ease; }
+.ambient-aurora.a1 { width: 50vw; height: 50vw; top: -23vw; right: -10vw; opacity: .42; background: radial-gradient(circle at 38% 38%,#e8c87855,#aa80ff28 46%,transparent 70%); animation: ambient-drift-a 26s ease-in-out infinite alternate; }
+.ambient-aurora.a2 { width: 44vw; height: 44vw; bottom: -18vw; left: -11vw; opacity: .42; background: radial-gradient(circle at 60% 60%,#6a4de23d,#c79aff20 50%,transparent 72%); animation: ambient-drift-b 34s ease-in-out infinite alternate; }
+.ambient-aurora.a3 { width: 32vw; height: 32vw; top: 34%; left: 37%; opacity: .32; background: radial-gradient(circle,#d2aa5f25,transparent 64%); animation: ambient-drift-c 42s ease-in-out infinite alternate; }
+.ambient-grain { position: absolute; inset: 0; opacity: .17; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.17'/%3E%3C/svg%3E"); mix-blend-mode: soft-light; }
+.ambient-wash { position: absolute; inset: 0; background: linear-gradient(180deg,transparent,#08091020),radial-gradient(ellipse at 56% 42%,transparent 28%,#07080d18 84%); transition: background .7s ease; }
+.ambient-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 54% 40%,transparent 58%,#03040738 100%); }
+.ambient-scrub-hint { position: fixed; right: 27px; bottom: 23px; display: flex; align-items: center; gap: 9px; color: #eee5cf82; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.ambient-scrub-hint > i { width: 26px; height: 1px; background: linear-gradient(90deg,transparent,#e8c878b8); box-shadow: 0 0 8px #e8c87852; }
 
-/* ── 玻璃质感弹窗（LibTV 卡片语言）── */
-.pa-modal { position: relative; border: 1px solid #ffffff1c; border-radius: 16px;
-  background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .015) 130px), #16161b;
-  box-shadow: 0 32px 96px #000000b0, inset 0 0 0 1px #ffffff06;
-  animation: ambient-modal-in .22s cubic-bezier(.22, .61, .36, 1) both; }
-.pa-modal::before { content: ''; position: absolute; top: 0; left: 26px; right: 26px; height: 1px;
-  background: linear-gradient(90deg, transparent, #a48bff7a 22%, #6ea8ff7a 55%, transparent); }
+.lyra-backdrop[data-backdrop-variant="auth"] .ambient-video { opacity:1; filter:grayscale(1) brightness(1.01) contrast(.94); }
+.lyra-backdrop[data-backdrop-variant="auth"] .ambient-media::after { background:linear-gradient(110deg,rgba(248,249,250,.075),rgba(218,220,224,.035) 52%,rgba(237,238,240,.055)); }
+.lyra-backdrop[data-backdrop-variant="auth"] .ambient-aurora { opacity:.035; filter:blur(130px) grayscale(1); animation-play-state:paused; }
+.lyra-backdrop[data-backdrop-variant="auth"] .ambient-wash { background:linear-gradient(180deg,rgba(255,255,255,.018),rgba(211,214,219,.025)),radial-gradient(ellipse at 56% 42%,transparent 48%,rgba(63,66,72,.035) 100%); }
+.lyra-backdrop[data-backdrop-variant="auth"] .ambient-vignette { background:radial-gradient(ellipse at 54% 40%,transparent 64%,rgba(34,37,42,.07) 100%); }
+.lyra-backdrop[data-backdrop-variant="workspace"] .ambient-video { opacity: .68; filter: brightness(.66) saturate(.56) contrast(1.06); transform: scale(1.045); }
+.lyra-backdrop[data-backdrop-variant="workspace"] .ambient-media::after { background: linear-gradient(110deg,#080910a8,#0a0b127d 50%,#090a105c); }
+.lyra-backdrop[data-backdrop-variant="workspace"] .ambient-aurora { opacity: .2; }
+.lyra-backdrop[data-backdrop-variant="focus"] .ambient-video { opacity: .34; filter: brightness(.56) saturate(.38) blur(.8px); transform: scale(1.055); }
+.lyra-backdrop[data-backdrop-variant="focus"] .ambient-media::after { background: #090a10bd; }
+.lyra-backdrop[data-backdrop-variant="focus"] .ambient-aurora { opacity: .1; animation-play-state: paused; }
+.lyra-backdrop[data-backdrop-variant="focus"] .ambient-wash { background: #090a108f; }
+
+@keyframes ambient-drift-a { from { transform: translate3d(-6%,-4%,0) scale(1); } to { transform: translate3d(5%,8%,0) scale(1.14); } }
+@keyframes ambient-drift-b { from { transform: translate3d(5%,3%,0) scale(1.06); } to { transform: translate3d(-6%,-6%,0) scale(.94); } }
+@keyframes ambient-drift-c { from { transform: translate3d(-3%,4%,0); } to { transform: translate3d(4%,-3%,0); } }
+
+/* Frosted chrome lets the shared atmosphere remain visible without hurting legibility. */
+.lyra-experience-content .app-shell,.lyra-experience-content .main-shell { background: transparent; }
+.lyra-experience-content .sidebar { background: rgba(14,14,19,.8); backdrop-filter: saturate(145%) blur(28px); -webkit-backdrop-filter: saturate(145%) blur(28px); }
+.lyra-experience-content .topbar { background: rgba(12,12,17,.72); backdrop-filter: saturate(150%) blur(26px); -webkit-backdrop-filter: saturate(150%) blur(26px); }
+.lyra-experience-content .home-hero { background: radial-gradient(circle at 84% 18%,rgb(232 200 120 / 13%),transparent 33%),radial-gradient(circle at 63% 130%,rgb(128 94 230 / 13%),transparent 42%),linear-gradient(145deg,rgb(27 27 34 / 86%),rgb(14 15 21 / 82%)); backdrop-filter: blur(18px); }
+.lyra-experience-content .project-workspace { background: rgba(13,13,18,.88); }
+.lyra-experience-content .project-workspace-main { background: radial-gradient(circle at 90% 0%,rgba(114,103,255,.07),transparent 30%),rgba(15,15,21,.9); }
+
+/* Click feedback stays above the interface but never intercepts input. */
+.ambient-clickfx { position: fixed; inset: 0; z-index: 5000; overflow: hidden; pointer-events: none; }
+.ambient-ripple { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 1.5px solid #d6bc77bd; border-radius: 50%; box-shadow: 0 0 20px #e8c87842,inset 0 0 9px #c5a9ff32; animation: ambient-ripple .62s cubic-bezier(.22,.61,.36,1) forwards; }
+.ambient-ripple::after { position: absolute; inset: 24%; border-radius: 50%; content: ''; background: radial-gradient(circle,#f1d99591,transparent 70%); }
+@keyframes ambient-ripple { 0% { opacity: .95; transform: scale(.25); } 70% { opacity: .5; } 100% { opacity: 0; transform: scale(3.1); } }
+
+/* Glass dialogs stay readable over every backdrop tier. */
+.pa-modal { position: relative; border: 1px solid #ffffff1c; border-radius: 16px; background: linear-gradient(rgba(255,255,255,.05),rgba(255,255,255,.015) 130px),#16161bea; box-shadow: 0 32px 96px #000000b0,inset 0 0 0 1px #ffffff06; animation: ambient-modal-in .22s cubic-bezier(.22,.61,.36,1) both; backdrop-filter: blur(24px); }
+.pa-modal::before { position: absolute; top: 0; right: 26px; left: 26px; height: 1px; content: ''; background: linear-gradient(90deg,transparent,#d3b66f7a 22%,#a78cff7a 55%,transparent); }
 .pa-modal-backdrop { background: #0a0a0ed4; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-
-.modal { border: 1px solid #ffffff1c; border-radius: 15px;
-  background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .015) 110px), #17171c;
-  box-shadow: 0 32px 96px #000000b0, inset 0 0 0 1px #ffffff06;
-  animation: ambient-modal-in .22s cubic-bezier(.22, .61, .36, 1) both; }
-
+.modal { border: 1px solid #ffffff1c; border-radius: 15px; background: linear-gradient(rgba(255,255,255,.05),rgba(255,255,255,.015) 110px),#17171cee; box-shadow: 0 32px 96px #000000b0,inset 0 0 0 1px #ffffff06; animation: ambient-modal-in .22s cubic-bezier(.22,.61,.36,1) both; backdrop-filter: blur(24px); }
 @keyframes ambient-modal-in { from { opacity: 0; transform: translateY(10px) scale(.975); } to { opacity: 1; transform: none; } }
 
-/* ── 动效弱化 ── */
+@media (max-width: 720px), (hover: none), (pointer: coarse) {
+  .ambient-video,.ambient-scrub-hint { display: none; }
+  .ambient-media { inset: 0; }
+  .lyra-backdrop[data-backdrop-variant="auth"] .ambient-media::after { background:linear-gradient(180deg,rgba(238,239,240,.08),rgba(46,48,52,.06)); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .ambient-aurora { animation: none; }
-  .ambient-ripple { display: none; }
-  .pa-modal, .modal { animation: none; }
+  .ambient-video { display: none; }
+  .ambient-aurora,.ambient-ripple,.pa-modal,.modal { animation: none; }
+  .ambient-scrub-hint { display: none; }
 }

@@ -30,7 +30,8 @@ async function make(options = {}) {
   const repo = options.repo ?? new MemoryProductionRepository();
   let time = 0;
   const service = new ProductionService(repo, { pollIntervalMs: 60_000,
-    now: () => new Date(Date.UTC(2026, 9, 23, 12, 0, time++)), executors: options.executors ?? [] });
+    now: () => new Date(Date.UTC(2026, 9, 23, 12, 0, time++)), executors: options.executors ?? [],
+    diagnosticSink: options.diagnosticSink, runInTenantScope: options.runInTenantScope });
   return { repo, service };
 }
 async function ticks(service, count = 30) { for (let index = 0; index < count; index++) await service.tick(); }
@@ -83,6 +84,16 @@ test('the built-in preflight is real while an unavailable capability stops hones
   assert.equal(run.status, 'waitingHuman');
   assert.equal(run.summary.tasks.completed, 1);
   assert.equal(run.inbox[0].code, 'CAPABILITY_UNAVAILABLE');
+});
+
+test('background ticks enter the persisted run tenant scope before executing stages', async () => {
+  const scoped = [];
+  const { service } = await make({ runInTenantScope: async (runId, work) => {
+    scoped.push(runId); return work();
+  } });
+  const created = await service.create(input({ clientRequestId: 'tenant-scoped-worker-tick' }));
+  await service.tick(created.id);
+  assert.deepEqual(scoped, [created.id]);
 });
 
 test('executors can expand stable per-shot tasks and a verified local delivery completes the run', async () => {
@@ -973,4 +984,129 @@ test('restart releases a local running reservation and keeps an external one', a
   assert.equal(run.externalOperations[0].status, 'unknown');
   assert.equal(run.summary.budget.reservedMicros, 80);
   assert.equal(run.summary.budget.spentMicros, 0);
+});
+
+
+const { logProductionOutputRejected } = require('../dist/production/diagnostics');
+
+test('diagnostics only emit valid correlation IDs, never raw errors or provider payloads', () => {
+  const rows = [];
+  const context = {
+    projectId: 'project_' + 'a'.repeat(32), runId: 'production_' + 'b'.repeat(32),
+    taskId: 'ptask_' + 'c'.repeat(32), attemptId: 'pattempt_' + 'd'.repeat(32), operationId: 'pop_' + 'e'.repeat(32),
+    error: new Error('Bearer secret-token https://user:pass@provider.invalid/?key=secret'),
+    source: 'private novel content', apiKey: 'sk-private-key', providerResponse: { raw: 'secret' },
+  };
+  context.circular = context;
+  context.toJSON = () => { throw new Error('must not serialize input'); };
+  logProductionOutputRejected(context, line => rows.push(JSON.parse(line)));
+  assert.equal(rows.length, 1);
+  assert.deepEqual(Object.keys(rows[0]).sort(), [
+    'schemaVersion', 'level', 'event', 'timestamp', 'projectId', 'runId', 'taskId', 'attemptId', 'operationId',
+  ].sort());
+  assert.equal(rows[0].runId, context.runId);
+  assert.equal(rows[0].operationId, context.operationId);
+  assert.equal(rows[0].event, 'production.task.output_rejected');
+  assert.equal(rows[0].schemaVersion, 'lyra-production-diagnostic/1');
+  assert.ok(Number.isFinite(Date.parse(rows[0].timestamp)));
+  assert.equal(JSON.stringify(rows).includes('secret'), false);
+});
+
+test('diagnostics never execute getters, inherited properties or hostile proxy traps', () => {
+  let touched = 0;
+  const context = Object.create({ runId: 'production_' + 'a'.repeat(32) });
+  Object.defineProperty(context, 'taskId', { get() { touched++; throw new Error('private'); } });
+  const rows = [];
+  logProductionOutputRejected(context, line => rows.push(JSON.parse(line)));
+  assert.equal(touched, 0);
+  assert.equal(rows[0].taskId, undefined);
+  assert.equal(rows[0].runId, undefined);
+  assert.doesNotThrow(() => logProductionOutputRejected(new Proxy({}, {
+    getOwnPropertyDescriptor() { throw new Error('private proxy'); },
+  }), () => { throw new Error('must not write'); }));
+});
+
+test('diagnostic sanitization property: invalid strings cannot enter any correlation field', () => {
+  for (let n = 0; n < 200; n++) {
+    const secret = 'Bearer private-' + n + ' https://user:pass@vendor.invalid/?key=' + n;
+    const rows = [];
+    logProductionOutputRejected({ projectId: secret, runId: secret, taskId: secret,
+      attemptId: secret, operationId: secret, extra: { secret } }, line => rows.push(JSON.parse(line)));
+    assert.deepEqual(Object.keys(rows[0]).sort(), ['schemaVersion', 'level', 'event', 'timestamp'].sort());
+    assert.equal(JSON.stringify(rows).includes('private-' + n), false);
+  }
+  for (const runId of ['production_' + 'a'.repeat(32) + String.fromCharCode(10),
+    'production_' + 'a'.repeat(33), 42, null]) {
+    const rows = [];
+    logProductionOutputRejected({ runId }, line => rows.push(JSON.parse(line)));
+    assert.equal(rows[0].runId, undefined);
+  }
+});
+
+for (const kind of ['error', 'circular', 'bigint']) test('invalid output diagnostic handles ' + kind, async () => {
+  const circular = {}; circular.self = circular;
+  circular.toJSON = () => { throw new Error('private serialization failure'); };
+  const fault = kind === 'error' ? new Error('sk-sensitivecredentials https://provider.invalid/private')
+    : kind === 'circular' ? circular : 1n;
+  const bad = executor('breakdown', () => ({ state: 'succeeded', artifacts: [{
+    key: 'bad', kind: 'text', get title() { throw fault; },
+  }] }));
+  const rows = [];
+  const { service } = await make({ executors: [bad], diagnosticSink: line => rows.push(JSON.parse(line)) });
+  const created = await service.create(input({ clientRequestId: 'diagnostic-' + kind }));
+  await ticks(service, 2);
+  const run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'failed');
+  assert.equal(task.blockingReason.code, 'PRODUCTION_EXECUTOR_OUTPUT_INVALID');
+  assert.equal(bad.calls(), 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].projectId, input().projectId);
+  assert.equal(rows[0].runId, run.id);
+  assert.equal(rows[0].taskId, task.id);
+  assert.match(rows[0].attemptId, /^pattempt_[a-f0-9]{32}$/);
+  assert.equal(JSON.stringify(rows).includes('sensitivecredentials'), false);
+  assert.equal(JSON.stringify(rows).includes('provider.invalid'), false);
+});
+
+for (const failure of ['sync', 'async', 'pending']) test('diagnostic sink failure is isolated: ' + failure, async () => {
+  const bad = executor('breakdown', { state: 'succeeded', artifacts: [{ key: 'bad', kind: 'text', title: '' }] });
+  const sink = () => {
+    if (failure === 'sync') throw new Error('private sink failure');
+    if (failure === 'async') return Promise.reject(new Error('private sink failure'));
+    return new Promise(() => {});
+  };
+  const { service } = await make({ executors: [bad], diagnosticSink: sink });
+  const created = await service.create(input({ clientRequestId: 'diagnostic-sink-' + failure }));
+  await ticks(service, 2);
+  await new Promise(resolve => setImmediate(resolve));
+  const run = await service.get(created.id);
+  assert.equal(run.tasks.find(item => item.stage === 'breakdown').status, 'failed');
+  assert.equal(bad.calls(), 1);
+});
+
+
+for (const failure of ['capture', 'sync', 'async']) test('paid invalid outcome preserves reconciliation with sink=' + failure, async () => {
+  const bad = executor('breakdown', { state: 'succeeded', artifacts: [{ key: 'bad', kind: 'text', title: '' }] },
+    { estimateCostMicros: 100, requiresPaid: true, provider: 'offline-test' });
+  const rows = [];
+  const sink = line => {
+    rows.push(JSON.parse(line));
+    if (failure === 'sync') throw new Error('private sink failure');
+    if (failure === 'async') return Promise.reject(new Error('private sink failure'));
+  };
+  const { service } = await make({ executors: [bad], diagnosticSink: sink });
+  const created = await service.create(input({ budgetMicros: 100, clientRequestId: 'paid-diagnostic-' + failure }));
+  await ticks(service, 2);
+  await new Promise(resolve => setImmediate(resolve));
+  const run = await service.get(created.id);
+  const task = run.tasks.find(item => item.stage === 'breakdown');
+  assert.equal(task.status, 'waitingHuman');
+  assert.equal(run.externalOperations[0].status, 'unknown');
+  assert.equal(run.summary.budget.reservedMicros, 100);
+  assert.equal(run.summary.budget.spentMicros, 0);
+  assert.equal(rows[0].operationId, run.externalOperations[0].id);
+  assert.equal(bad.calls(), 1);
+  await assert.rejects(service.action(run.id, { type: 'retryTask', taskId: task.id, reason: 'retry' }),
+    error => error.code === 'PRODUCTION_EXTERNAL_OPERATION_UNKNOWN');
 });

@@ -1,4 +1,5 @@
 import type { FrozenAssetRetrievalPolicy } from '@lyra/shared';
+import { workspaceFetch } from './deployment';
 
 export const productionRunStatuses = ['queued', 'running', 'waitingHuman', 'paused', 'pausedBudget', 'reconciling', 'completed', 'partial', 'failed', 'cancelled'] as const;
 export type ProductionRunStatus = typeof productionRunStatuses[number];
@@ -217,7 +218,7 @@ export function mergeProductionRuns(current: ProductionRun[], incoming: Producti
 }
 export class ProductionApiError extends Error { constructor(message: string, public status: number) { super(message); this.name = 'ProductionApiError'; } }
 export async function productionApi(path: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(path, { signal, cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body) }) });
+  const response = await workspaceFetch(path, { signal, cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body) }) });
   const data: unknown = await response.json().catch(() => null);
   if (!response.ok) { const row = record(data); const error = record(row?.error); throw new ProductionApiError(text(error?.message, `请求失败（${response.status}）`).slice(0, 500), response.status); }
   return data;

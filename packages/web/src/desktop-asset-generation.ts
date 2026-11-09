@@ -1,5 +1,6 @@
 import type { NovelItem, NovelRevision } from './novel-editor';
 import { bindingBlock, bindingFor } from './asset-library';
+import { workspaceFetch } from './deployment';
 
 export type DesktopTaskStatus = 'queued' | 'submitting' | 'generating' | 'importing' | 'awaitingReview'
   | 'accepted' | 'rejected' | 'completed' | 'needsReview' | 'failed' | 'unknown';
@@ -118,7 +119,7 @@ export async function desktopAssetApi<T>(path: string, body?: unknown, signal?: 
   const controller = signal ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), 20000) : undefined;
   try {
-    const response = await fetch(path, {
+    const response = await workspaceFetch(path, {
       signal: signal ?? controller?.signal, ...(body === undefined ? {} : {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
       }),

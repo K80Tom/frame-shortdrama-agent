@@ -1,0 +1,265 @@
+name: lyra
+
+# Stage 1 single-host topology. Only `web` is published to the host. API,
+# Worker and all stateful dependencies stay on the private compose network.
+
+x-main-environment: &main-environment
+  # API/Worker must never receive the migration administrator credentials.
+  DATABASE_URL: postgresql://${POSTGRES_APP_USER:-lyra_app}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-shortdrama_agent}
+  DATABASE_HOST_ALLOWLIST: postgres
+  # Stage 1 is never allowed to fall back to the anonymous Legacy API surface.
+  LYRA_AUTH_MODE: session
+  LYRA_REGISTRATION_MODE: ${LYRA_REGISTRATION_MODE:-disabled}
+  LYRA_PUBLIC_ORIGIN: ${LYRA_PUBLIC_ORIGIN:?LYRA_PUBLIC_ORIGIN 必须是浏览器访问的完整 Origin}
+  LYRA_SESSION_TTL_SECONDS: ${LYRA_SESSION_TTL_SECONDS:-604800}
+  LYRA_COOKIE_DOMAIN: ${LYRA_COOKIE_DOMAIN:-}
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  REDIS_HOST_ALLOWLIST: redis
+  REDIS_CONNECT_TIMEOUT_MS: ${REDIS_CONNECT_TIMEOUT_MS:-5000}
+  REDIS_CONTEXT_PREFIX: ${REDIS_CONTEXT_PREFIX:-lyra:context}
+  REDIS_RATE_LIMIT_PREFIX: ${REDIS_RATE_LIMIT_PREFIX:-lyra:rate}
+  CONVERSATION_CONTEXT_TTL_SECONDS: ${CONVERSATION_CONTEXT_TTL_SECONDS:-1800}
+  MILVUS_ENABLED: "1"
+  MILVUS_ADDRESS: milvus:19530
+  MILVUS_COLLECTION_V2: ${MILVUS_COLLECTION_V2:-lyra_asset_vectors_v2}
+  OBJECT_STORAGE_PROVIDER: minio
+  OBJECT_STORAGE_ENDPOINT: http://minio:9000
+  OBJECT_STORAGE_REGION: us-east-1
+  OBJECT_STORAGE_BUCKET: lyra-media
+  OBJECT_STORAGE_ACCESS_KEY: ${LYRA_OBJECT_ACCESS_KEY}
+  OBJECT_STORAGE_SECRET_KEY: ${LYRA_OBJECT_SECRET_KEY}
+  OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+  # Explicit allowlist: never inject the whole .env file into application
+  # containers, because it also contains migration-admin and MinIO-root secrets.
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-deepseek-v4.1-flash-1017}
+  LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-model-default}
+  LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-8192}
+  LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-180000}
+  LLM_MAX_CONCURRENT_CALLS: ${LLM_MAX_CONCURRENT_CALLS:-2}
+  Lyra_FRAME_ASSESSMENT: ${Lyra_FRAME_ASSESSMENT:-1}
+  MEDIA_ALLOW_INTRANET_SOURCES: ${MEDIA_ALLOW_INTRANET_SOURCES:-false}
+  ASSET_VECTOR_ENABLED: ${ASSET_VECTOR_ENABLED:-0}
+  ASSET_EMBEDDING_ENDPOINT: ${ASSET_EMBEDDING_ENDPOINT:-}
+  ASSET_EMBEDDING_MODEL: ${ASSET_EMBEDDING_MODEL:-}
+  ASSET_EMBEDDING_API_KEY: ${ASSET_EMBEDDING_API_KEY:-}
+  ASSET_EMBEDDING_TIMEOUT_MS: ${ASSET_EMBEDDING_TIMEOUT_MS:-120000}
+  ASSET_EMBEDDING_QUERY_COST_MICROS: ${ASSET_EMBEDDING_QUERY_COST_MICROS:-100000}
+  ASSET_VECTOR_MANIFEST_PATH: ${ASSET_VECTOR_MANIFEST_PATH:-outputs/private/asset-vector-manifest.json}
+  MILVUS_USER: ${MILVUS_USER:-}
+  MILVUS_PASSWORD: ${MILVUS_PASSWORD:-}
+  MILVUS_COLLECTION: ${MILVUS_COLLECTION:-ohao_asset_vectors_v1}
+
+x-main-dependencies: &main-dependencies
+  postgres:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+  redis:
+    condition: service_healthy
+  minio-init:
+    condition: service_completed_successfully
+  milvus:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: ${LYRA_POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-shortdrama_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-shortdrama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 设置 POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    shm_size: 128mb
+    stop_grace_period: 30s
+
+  postgres-app-role:
+    image: ${LYRA_POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-shortdrama_agent}
+      PGUSER: ${POSTGRES_USER:-shortdrama}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?请在 .env 设置 PostgreSQL 管理员密码 POSTGRES_PASSWORD}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-lyra_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?请在 .env 设置非特权应用密码 POSTGRES_APP_PASSWORD}
+    volumes:
+      - ./postgres-init-app-role.sql:/bootstrap/postgres-init-app-role.sql:ro
+    command: ["psql", "--no-password", "--file", "/bootstrap/postgres-init-app-role.sql"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: ${LYRA_REDIS_IMAGE:-redis:7.4-alpine}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 设置 REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  minio:
+    image: ${LYRA_MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?请在 .env 设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 设置 MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+
+  minio-init:
+    image: ${LYRA_MINIO_CLIENT_IMAGE:-minio/mc:RELEASE.2025-04-16T18-13-26Z}
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      LYRA_OBJECT_ACCESS_KEY: ${LYRA_OBJECT_ACCESS_KEY:?请在 .env 设置 LYRA_OBJECT_ACCESS_KEY}
+      LYRA_OBJECT_SECRET_KEY: ${LYRA_OBJECT_SECRET_KEY:?请在 .env 设置 LYRA_OBJECT_SECRET_KEY}
+    volumes:
+      - ./minio-media-policy.json:/policies/lyra-media.json:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until mc alias set lyra http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do sleep 2; done
+        mc mb --ignore-existing lyra/lyra-media
+        mc mb --ignore-existing lyra/lyra-milvus
+        mc anonymous set none lyra/lyra-media
+        mc admin policy create lyra lyra-media /policies/lyra-media.json || mc admin policy info lyra lyra-media
+        mc admin user add lyra "$$LYRA_OBJECT_ACCESS_KEY" "$$LYRA_OBJECT_SECRET_KEY" || true
+        mc admin policy attach lyra lyra-media --user "$$LYRA_OBJECT_ACCESS_KEY"
+
+  etcd:
+    image: ${LYRA_ETCD_IMAGE:-quay.io/coreos/etcd:v3.5.18}
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: ["etcd", "--advertise-client-urls=http://etcd:2379", "--listen-client-urls=http://0.0.0.0:2379", "--data-dir=/etcd"]
+    volumes:
+      - etcddata:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  milvus:
+    image: ${LYRA_MILVUS_IMAGE:-milvusdb/milvus:v2.6.5}
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET_NAME: lyra-milvus
+    volumes:
+      - milvusdata:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9091/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  migrate:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-main:${LYRA_TAG:-latest}
+    command: ["node", "dist/db/migrate.js"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shortdrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-shortdrama_agent}
+      DATABASE_HOST_ALLOWLIST: postgres
+    depends_on:
+      postgres-app-role:
+        condition: service_completed_successfully
+    restart: "no"
+
+  main-api:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-main:${LYRA_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *main-environment
+      LYRA_RUNTIME_ROLE: api
+      PORT: 8788
+      HOST: 0.0.0.0
+    volumes:
+      - lyra_private:/app/outputs/private
+    depends_on: *main-dependencies
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  main-worker:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-main:${LYRA_TAG:-latest}
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      <<: *main-environment
+      LYRA_RUNTIME_ROLE: worker
+      FFMPEG_MAX_CONCURRENT: "1"
+    volumes:
+      - lyra_private:/app/outputs/private
+      - worker_tmp:/app/outputs/tmp
+    depends_on: *main-dependencies
+
+  web:
+    image: ${LYRA_IMAGE_PREFIX:-ghcr.io/k80tom/frame-shortdrama-agent}-web:${LYRA_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Public presentation assets only. The entrypoint validates HTTPS URLs
+      # before generating runtime-config.js; changing them needs no image rebuild.
+      LYRA_BACKDROP_VIDEO_URL: ${LYRA_BACKDROP_VIDEO_URL:-}
+      LYRA_BACKDROP_POSTER_URL: ${LYRA_BACKDROP_POSTER_URL:-}
+    ports:
+      - "${LYRA_PORT:-8788}:80"
+    depends_on:
+      main-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  etcddata:
+  milvusdata:
+  lyra_private:
+  worker_tmp:

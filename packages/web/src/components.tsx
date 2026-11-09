@@ -3,6 +3,36 @@ import { createPortal } from 'react-dom';
 import { ArrowUpRight, Check, Info, X } from 'lucide-react';
 import SpotlightCard from './vendor/SpotlightCard';
 
+export function BrandWordmark() {
+  return <strong className="brand-lockup">
+    <span className="brand-wordmark" data-wordmark="Lyra">Lyra</span>
+    <span className="brand-subtitle">STORY STUDIO</span>
+  </strong>;
+}
+
+export function BrandMark() {
+  return <>
+    <span className="brand-symbol" aria-hidden="true">
+      <svg className="lyra-mark" viewBox="0 0 64 64" width="30" height="30">
+        <line className="lyra-link" x1="16" y1="28" x2="32" y2="22" />
+        <line className="lyra-link" x1="32" y1="22" x2="42" y2="34" />
+        <line className="lyra-link" x1="42" y1="34" x2="24" y2="42" />
+        <line className="lyra-link" x1="24" y1="42" x2="16" y2="28" />
+        <line className="lyra-gold-link" x1="32" y1="22" x2="44" y2="16.5" />
+        <circle className="lyra-star" style={{ '--i': 0 } as CSSProperties} cx="16" cy="28" r="2.4" />
+        <circle className="lyra-star" style={{ '--i': 1 } as CSSProperties} cx="32" cy="22" r="2.4" />
+        <circle className="lyra-star" style={{ '--i': 2 } as CSSProperties} cx="42" cy="34" r="2.4" />
+        <circle className="lyra-star" style={{ '--i': 3 } as CSSProperties} cx="24" cy="42" r="2.4" />
+        <g className="lyra-vega">
+          <circle className="lyra-vega-halo" cx="46" cy="15" r="6" />
+          <path className="lyra-vega-star" d="M46 8 L47.6 13.4 L53 15 L47.6 16.6 L46 22 L44.4 16.6 L39 15 L44.4 13.4 Z" />
+        </g>
+      </svg>
+    </span>
+    <BrandWordmark />
+  </>;
+}
+
 export function Brand() {
   const anchorRef = useRef<HTMLAnchorElement>(null);
   const [originOpen, setOriginOpen] = useState(false);
@@ -45,24 +75,7 @@ export function Brand() {
         }
       }}
     >
-      <span className="brand-symbol" aria-hidden="true">
-        <svg className="lyra-mark" viewBox="0 0 64 64" width="30" height="30">
-          <line className="lyra-link" x1="16" y1="28" x2="32" y2="22" />
-          <line className="lyra-link" x1="32" y1="22" x2="42" y2="34" />
-          <line className="lyra-link" x1="42" y1="34" x2="24" y2="42" />
-          <line className="lyra-link" x1="24" y1="42" x2="16" y2="28" />
-          <line className="lyra-gold-link" x1="32" y1="22" x2="44" y2="16.5" />
-          <circle className="lyra-star" style={{ '--i': 0 } as CSSProperties} cx="16" cy="28" r="2.4" />
-          <circle className="lyra-star" style={{ '--i': 1 } as CSSProperties} cx="32" cy="22" r="2.4" />
-          <circle className="lyra-star" style={{ '--i': 2 } as CSSProperties} cx="42" cy="34" r="2.4" />
-          <circle className="lyra-star" style={{ '--i': 3 } as CSSProperties} cx="24" cy="42" r="2.4" />
-          <g className="lyra-vega">
-            <circle className="lyra-vega-halo" cx="46" cy="15" r="6" />
-            <path className="lyra-vega-star" d="M46 8 L47.6 13.4 L53 15 L47.6 16.6 L46 22 L44.4 16.6 L39 15 L44.4 13.4 Z" />
-          </g>
-        </svg>
-      </span>
-      <strong>Lyra<span>STORY STUDIO</span></strong>
+      <BrandMark />
     </a>
     {createPortal(
       <span

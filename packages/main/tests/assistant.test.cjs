@@ -5,6 +5,12 @@ const { AssistantOrchestrator } = require('@lyra/agent');
 const { AssistantService } = require('@lyra/agent');
 const { executeAssistantTool } = require('@lyra/agent');
 const { ModelError } = require('@lyra/shared');
+const {
+  CONVERSATION_CONTEXT_SCHEMA,
+  ConversationContextCache,
+  RedisConversationContextStore,
+  createConversationContextRuntime,
+} = require('../dist/infrastructure/conversation-context');
 
 const validRequest = () => ({
   projectId: 'proj_1', scriptVersionId: 'script_1', ratio: '9:16', targetDurationSec: 60,
@@ -97,7 +103,7 @@ test('工具观察裁剪：最多返回 20 条，保留总数', async () => {
   assert.equal(observation.items.length, 20);
 });
 
-test('估价卡：费用由预算决定、幂等键由服务端重写，确认后冻结提交', async () => {
+test('估价卡：预算上限与系统估价分开冻结，幂等键由服务端重写，确认后提交', async () => {
   const created = [];
   const production = { create: async value => { created.push(value); return { id: 'run_1' }; } };
   const { service } = makeService({
@@ -108,8 +114,13 @@ test('估价卡：费用由预算决定、幂等键由服务端重写，确认�
   const events = await collect(service.send(session.id, { content: '帮我生成 60 秒成片，预算 30 元' }));
   const quoteEvent = events.find(event => event.type === 'generation_quote');
   assert.ok(quoteEvent, '必须生成估价确认卡而不是直接执行');
-  assert.equal(quoteEvent.quote.estimateCostMicros, 30_000_000);
+  // 预算上限来自用户，估价来自服务端价格表，两者不得混用。
+  assert.equal(quoteEvent.quote.budgetMicros, 30_000_000);
+  assert.ok(quoteEvent.quote.estimateCostMicros < quoteEvent.quote.budgetMicros);
+  assert.ok(quoteEvent.quote.estimateRangeMicros.lowMicros < quoteEvent.quote.estimateRangeMicros.highMicros);
+  assert.equal(quoteEvent.quote.priceRevision, 'assistant-price/2026-11');
   assert.equal(quoteEvent.quote.status, 'pending');
+  assert.ok(events.some(event => event.type === 'confirmation.required'), '必须发出人工确认事件');
   assert.equal(quoteEvent.quote.request.clientRequestId, `assistant_${quoteEvent.quote.id}`);
   assert.equal(created.length, 0, '建卡阶段绝不能触发付费创建');
 
@@ -177,4 +188,59 @@ test('输入校验：空消息与非法会话 ID 被拒绝', async () => {
   await assert.rejects(async () => collect(service.send(session.id, { content: '   ' })),
     error => error.code === 'ASSISTANT_MESSAGE_EMPTY');
   await assert.rejects(() => service.history('not a valid id'), error => error.code === 'ASSISTANT_SESSION_NOT_FOUND');
+});
+
+test('Redis conversation snapshots are tenant scoped, version guarded and rebuildable from PostgreSQL', async () => {
+  const values = new Map();
+  const client = {
+    async get(key) { return values.get(key) ?? null; },
+    async del(key) { return values.delete(key) ? 1 : 0; },
+    async eval(_script, { keys, arguments: args }) {
+      const existing = values.get(keys[0]);
+      if (existing && JSON.parse(existing).version > Number(args[0])) return 0;
+      values.set(keys[0], args[1]); return 1;
+    },
+  };
+  const scope = { workspaceId: `ws_${'4'.repeat(32)}` };
+  const other = { workspaceId: `ws_${'5'.repeat(32)}` };
+  const store = new RedisConversationContextStore(client);
+  const snapshot = version => ({ schemaVersion: CONVERSATION_CONTEXT_SCHEMA, workspaceId: scope.workspaceId,
+    sessionId: 'asst_context', version, messages: [{ role: 'user', content: `v${version}` }],
+    tokenCount: version, createdAt: '2026-11-08T00:00:00.000Z' });
+  assert.equal(await store.put(snapshot(2), 300), true);
+  assert.equal(await store.put(snapshot(1), 300), false, 'an older worker must not replace a newer snapshot');
+  assert.equal((await store.get(scope, 'asst_context')).version, 2);
+  assert.equal(await store.get(other, 'asst_context'), null);
+
+  const unavailable = { async get() { throw new Error('redis down'); }, async put() { throw new Error('redis down'); },
+    async delete() {} };
+  const cache = new ConversationContextCache(unavailable, 300);
+  let postgresReads = 0;
+  const rebuilt = await cache.readThrough(scope, 'asst_context', 3, async () => {
+    postgresReads++; return snapshot(3);
+  });
+  assert.equal(rebuilt.version, 3);
+  assert.equal(postgresReads, 1);
+});
+
+test('conversation runtime is PG-only by default and connects Redis only when explicitly configured', async () => {
+  const local = await createConversationContextRuntime({});
+  assert.equal(local.mode, 'noop');
+  await local.close();
+
+  let connected = 0; let closed = 0; let errorListener = 0;
+  const client = {
+    async get() { return null; }, async del() { return 0; }, async eval() { return 1; },
+    async connect() { connected++; }, async quit() { closed++; },
+    on(event) { if (event === 'error') errorListener++; },
+  };
+  const runtime = await createConversationContextRuntime({ REDIS_URL: 'redis://:secret@redis:6379',
+    REDIS_HOST_ALLOWLIST: 'redis', CONVERSATION_CONTEXT_TTL_SECONDS: '300' }, {
+    redisModule: { createClient() { return client; } },
+  });
+  assert.equal(runtime.mode, 'redis');
+  assert.equal(connected, 1);
+  assert.equal(errorListener, 1);
+  await runtime.close();
+  assert.equal(closed, 1);
 });

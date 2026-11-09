@@ -13,11 +13,11 @@ export const DATA_EVENT_MAX_PAYLOAD_BYTES = 4096;
 
 export type DataAggregateType =
   | 'novel_chapter' | 'script' | 'asset' | 'production_run' | 'production_attempt'
-  | 'external_operation' | 'quality_check' | 'delivery_artifact' | 'evaluation_run';
+  | 'external_operation' | 'quality_check' | 'delivery_artifact' | 'evaluation_run' | 'shot_spec' | 'production_input' | 'director_scene' | 'object_version';
 
 export const DATA_AGGREGATE_TYPES: readonly DataAggregateType[] = Object.freeze([
   'novel_chapter', 'script', 'asset', 'production_run', 'production_attempt',
-  'external_operation', 'quality_check', 'delivery_artifact', 'evaluation_run',
+  'external_operation', 'quality_check', 'delivery_artifact', 'evaluation_run', 'shot_spec', 'production_input', 'director_scene', 'object_version',
 ]);
 
 export interface DataEventFieldIssue {
@@ -289,4 +289,90 @@ export function assertDataEventDigest(event: DataEventV1, claimed: string): void
 export function dataEventIdempotencyKey(aggregateType: DataAggregateType, aggregateId: string,
   aggregateVersion: number, eventType: string): string {
   return `${aggregateType}:${aggregateId}:${aggregateVersion}:${eventType}`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* DataEventV2: tenant identity is part of the signed public contract          */
+/* -------------------------------------------------------------------------- */
+
+export const TENANT_DATA_EVENT_SCHEMA_VERSION = 'lyra.data.event/v2';
+export const DATA_EVENT_LEGACY_WORKSPACE_ID = 'ws_00000000000000000000000000000000';
+
+export interface DataEventV2 extends Omit<DataEventV1, 'schemaVersion'> {
+  schemaVersion: typeof TENANT_DATA_EVENT_SCHEMA_VERSION;
+  workspaceId: string;
+}
+
+export type TenantDataEvent = DataEventV1 | DataEventV2;
+
+function tenantEventInvalid(path: string, message: string): never {
+  throw new DataEventContractError(400, 'DATA_EVENT_INPUT_INVALID',
+    'DataEventV2 契约校验失败。', [{ path, code: 'DATA_EVENT_INPUT_INVALID', message }]);
+}
+
+export function parseDataEventWorkspaceId(value: unknown, path = 'event.workspaceId'): string {
+  if (typeof value !== 'string' || !/^ws_[a-f0-9]{32}$/u.test(value)) {
+    return tenantEventInvalid(path, 'workspaceId 格式不合法。');
+  }
+  // The first-admin bootstrap may adopt the reserved workspace so immutable
+  // V1 history does not need a checksum-breaking tenant rewrite. Membership
+  // and workspace status, not a magic identifier, are the runtime authority.
+  return value;
+}
+
+export function isDataEventV2(event: TenantDataEvent): event is DataEventV2 {
+  return event.schemaVersion === TENANT_DATA_EVENT_SCHEMA_VERSION && 'workspaceId' in event;
+}
+
+export function workspaceIdOfDataEvent(event: TenantDataEvent): string {
+  return isDataEventV2(event) ? event.workspaceId : DATA_EVENT_LEGACY_WORKSPACE_ID;
+}
+
+export function parseDataEventV2(value: unknown, path = 'event'): DataEventV2 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return tenantEventInvalid(path, '必须是对象。');
+  const source = value as Record<string, unknown>;
+  if (source.schemaVersion !== TENANT_DATA_EVENT_SCHEMA_VERSION) {
+    return tenantEventInvalid(`${path}.schemaVersion`, `必须是 ${TENANT_DATA_EVENT_SCHEMA_VERSION}。`);
+  }
+  const workspaceId = parseDataEventWorkspaceId(source.workspaceId, `${path}.workspaceId`);
+  const { workspaceId: _workspaceId, ...v1Shape } = source;
+  const parsed = parseDataEventV1(v1Shape, path);
+  return { ...parsed, schemaVersion: TENANT_DATA_EVENT_SCHEMA_VERSION, workspaceId };
+}
+
+/** Selects a strict versioned parser without reinterpreting historical V1 payloads. */
+export function parseTenantDataEvent(value: unknown, path = 'event'): TenantDataEvent {
+  if (value && typeof value === 'object' && !Array.isArray(value)
+    && (value as { schemaVersion?: unknown }).schemaVersion === TENANT_DATA_EVENT_SCHEMA_VERSION) {
+    return parseDataEventV2(value, path);
+  }
+  return parseDataEventV1(value, path);
+}
+
+/** V1 digest remains byte-for-byte compatible; V2 signs workspaceId. */
+export function tenantDataEventDigest(event: TenantDataEvent): string {
+  if (!isDataEventV2(event)) return dataEventDigest(event);
+  return canonicalDigest({
+    eventId: event.eventId,
+    eventType: event.eventType,
+    schemaVersion: event.schemaVersion,
+    workspaceId: event.workspaceId,
+    aggregateType: event.aggregateType,
+    aggregateId: event.aggregateId,
+    aggregateVersion: event.aggregateVersion,
+    occurredAt: event.occurredAt,
+    recordedAt: event.recordedAt,
+    correlationId: event.correlationId,
+    causationId: event.causationId,
+    idempotencyKey: event.idempotencyKey,
+    authoritativeRef: event.authoritativeRef,
+    payload: event.payload,
+  });
+}
+
+export function assertSameTenantDataEvent(left: TenantDataEvent, right: TenantDataEvent): void {
+  if (tenantDataEventDigest(left) !== tenantDataEventDigest(right)) {
+    throw new DataEventContractError(409, 'DATA_OUTBOX_DUPLICATE_EVENT',
+      '同一 eventId 对应了不同事件内容。');
+  }
 }

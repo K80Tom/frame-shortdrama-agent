@@ -1,9 +1,11 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUpRight, AudioLines, Box, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileText, Film, FolderOpen, Image, Info, Layers3, LockKeyhole, Plus, Save, ScanLine, Settings2, Sparkles, Upload, Users, WandSparkles } from 'lucide-react';
+import { useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUpRight, AudioLines, Box, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileText, Film, FolderOpen, Image, Info, Layers3, LockKeyhole, Plus, Save, ScanLine, Server, Settings2, Sparkles, Upload, Users, WandSparkles, Wrench } from 'lucide-react';
 import { ArrowButton, Card, Modal, Notice, PageHeading, Tag, WhitePreview } from './components';
 import { exportDraft, initialShots, originalScript, plan, sampleImage, type Draft, type Page, type ShotDraft } from './model';
 import { stages } from './stages';
 import { ModelConnectionSummary } from './ModelConnections';
+import SystemStatusPanel from './SystemStatusPanel';
+import { workspaceFetch } from './deployment';
 
 type Common = { go: (page: Page, step?: number) => void; notify: (text: string) => void };
 type Editing = Common & { draft: Draft; setDraft: Dispatch<SetStateAction<Draft>>; save: (next?: Draft) => void };
@@ -89,6 +91,94 @@ export function FlowPage({ step, go }: Common & { step: number }) {
   </>;
 }
 
+type ToolSummary = { toolId: string; version: string; displayName: string; ownerDomain: string;
+  sideEffect: string; executionOwner: string; status: string };
+type McpServerSummary = { serverId: string; revision: number; name: string; slug: string;
+  url: string; transport: string; status: string };
+
+async function readApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await workspaceFetch(path, { cache: 'no-store', ...init });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && 'error' in body
+      && body.error && typeof body.error === 'object' && 'message' in body.error
+      ? String(body.error.message) : `请求失败（${response.status}）。`;
+    throw new Error(message);
+  }
+  return body as T;
+}
+
+function ToolRegistryPanel() {
+  const [tools, setTools] = useState<ToolSummary[]>([]);
+  const [servers, setServers] = useState<McpServerSummary[]>([]);
+  const [policy, setPolicy] = useState<Record<string, unknown>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [url, setUrl] = useState('');
+  const [secretRefs, setSecretRefs] = useState('');
+  async function load() {
+    setLoading(true); setError('');
+    try {
+      const [toolView, mcpView] = await Promise.all([
+        readApi<{ tools: ToolSummary[] }>('/api/tools'),
+        readApi<{ servers: McpServerSummary[]; policy: Record<string, unknown> }>('/api/mcp'),
+      ]);
+      setTools(toolView.tools); setServers(mcpView.servers); setPolicy(mcpView.policy);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '无法读取工具与 MCP 配置。'); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function createServer(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      await readApi('/api/mcp/servers', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, slug, transport: 'sse', url,
+          headerSecretRefs: secretRefs.split(',').map(item => item.trim()).filter(Boolean) }) });
+      setName(''); setSlug(''); setUrl(''); setSecretRefs(''); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '无法保存 MCP Server。'); }
+    finally { setBusy(false); }
+  }
+  async function disable(server: McpServerSummary) {
+    setBusy(true); setError('');
+    try {
+      await readApi(`/api/mcp/servers/${encodeURIComponent(server.serverId)}/disable`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: server.revision }) });
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '无法停用 MCP Server。'); }
+    finally { setBusy(false); }
+  }
+  const domains = [...new Set(tools.map(tool => tool.ownerDomain))];
+  return <Card className="settings-card"><span className="round-icon"><Wrench size={23} /></span>
+    <h2>工具与 MCP</h2><Tag tone="orange">{tools.length} 个已发布工具</Tag>
+    {loading && <p className="muted">正在读取 Tool Registry 与 MCP 配置……</p>}
+    {error && <Notice>{error}</Notice>}
+    {!loading && <>
+      <div className="fact-group"><h3>工具目录</h3><div className="tags">{domains.map(domain =>
+        <Tag key={domain}>{domain} · {tools.filter(tool => tool.ownerDomain === domain).length}</Tag>)}</div></div>
+      <div className="settings-small">付费媒体工具只允许生产 Workflow 调用；Agent 只能看到只读与草稿工具。</div>
+      <div className="fact-group"><h3>MCP Server</h3>
+        {servers.length === 0 && <p className="muted">尚未配置外部 MCP Server。</p>}
+        {servers.map(server => <div key={server.serverId} className="row-between">
+          <span><Server size={14} />{server.name} <small>{server.slug} · rev {server.revision}</small></span>
+          <span><Tag tone={server.status === 'active' ? 'green' : 'orange'}>{server.status === 'active' ? '已启用' : '已停用'}</Tag>
+            {server.status === 'active' && <button className="text-button" disabled={busy} onClick={() => void disable(server)}>停用</button>}</span>
+        </div>)}
+        <form onSubmit={event => void createServer(event)} className="two-fields">
+          <label>名称<input value={name} required maxLength={120} onChange={event => setName(event.target.value)} /></label>
+          <label>Slug<input value={slug} required pattern="[a-z0-9]+(-[a-z0-9]+)*" onChange={event => setSlug(event.target.value)} /></label>
+          <label>HTTPS 地址<input value={url} required type="url" placeholder="https://example.com/sse" onChange={event => setUrl(event.target.value)} /></label>
+          <label>Header Secret 引用<input value={secretRefs} placeholder="MCP_TOKEN" onChange={event => setSecretRefs(event.target.value)} /></label>
+          <button className="button primary" type="submit" disabled={busy}><Plus size={16} />{busy ? '保存中…' : '新增 Server'}</button>
+        </form>
+        <div className="settings-small">只保存 Secret 引用名称，不保存明文密钥；{String(policy.secretStorage ?? 'reference-only')}。</div>
+      </div>
+    </>}
+  </Card>;
+}
+
 export function SettingsPage(_props: Common) {
-  return <><PageHeading eyebrow="YOUR WORKSPACE" title="为下一次创作，准备就绪。" description="管理模型连接，了解当前工作台的保存方式。" /><div className="settings-grid"><ModelConnectionSummary /><Card className="settings-card"><span className="round-icon"><Save size={23} /></span><h2>数据与草稿</h2><Tag tone="green">按页面保存</Tag><p>小说、真实剧本项目、校对历史与资产引用由本机后端存入数据库；请点击相应页面的保存按钮。</p><p className="settings-small">剧本编辑样例与示例分镜仍是浏览器草稿，换浏览器不会同步；正式数据请备份本机数据库。</p></Card><Card className="settings-card"><span className="round-icon"><WandSparkles size={23} /></span><h2>关于这个版本</h2><Tag tone="orange">本地工作台 0.1</Tag><p>已接入小说与剧本拆解、校对保存、资产引用和分镜设计。模型连接按用途独立管理。</p><p className="settings-small">小说待补资产已接单张生图、导入和关联；「自动成片」可按描述生成独立视频片段，尚未绑定分镜与整集剪辑；角色配音未接入。3D 导演台保持现状。</p></Card></div></>;
+  return <><PageHeading eyebrow="WORKSPACE & SYSTEM" title="当前 workspace 与系统状态。" description="管理模型连接、工具目录与 MCP 接入，并核对 API 实际报告的部署状态。" /><SystemStatusPanel /><div className="settings-grid"><ModelConnectionSummary /><ToolRegistryPanel /><Card className="settings-card"><span className="round-icon"><Save size={23} /></span><h2>数据与草稿</h2><Tag tone="green">PostgreSQL 是权威数据源</Tag><p>小说、真实剧本项目、校对历史与资产引用由后端写入 PostgreSQL；浏览器不直连数据库。</p><p className="settings-small">Redis 和 Milvus 都不是真相源，但 session 部署依赖 Redis 做共享快照和限流，故障时请求保护会失败关闭；Milvus 可降级为词法检索。剧本编辑样例仍使用浏览器草稿。</p></Card><Card className="settings-card"><span className="round-icon"><WandSparkles size={23} /></span><h2>Stage 1 边界</h2><Tag tone="orange">只展示已报告能力</Tag><p>每个环境的对象存储只选一个 provider（MinIO、S3、OSS 或 COS），实际选择以后端状态为准。</p><p className="settings-small">未配置、不可用或后端尚未提供的能力会如实标记；不会因为页面有入口就假定它已经可用。</p></Card></div></>;
 }

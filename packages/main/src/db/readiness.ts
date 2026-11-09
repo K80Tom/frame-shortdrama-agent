@@ -22,5 +22,15 @@ export const EVALUATION_RUN_PERSISTENCE_MIGRATIONS = ["023"] as const;
 /** Unified transactional outbox; production writes require it before starting. */
 export const DATA_OUTBOX_MIGRATIONS = ["024"] as const;
 
-/** Unified append-only evaluation results, evidence, and layered metrics (#42). */
-export const EVALUATION_RESULTS_MIGRATIONS = ["025"] as const;
+/**
+ * Versioned Tool/Agent/Skill/MCP persistence: tool definitions and grants,
+ * invocation/attempt ledger, agent runs and approvals, skill versions and
+ * admissions, and MCP server revisions.
+ */
+export const AGENT_PERSISTENCE_MIGRATIONS = ["041"] as const;
+
+/** 基础设施异步 Outbox（Worker 任务出件箱，#124/#133 Worker 拓扑）。 */
+export const INFRA_OUTBOX_MIGRATIONS = ["042", "043"] as const;
+
+/** Unified append-only evaluation results, evidence, and layered metrics (#134). */
+export const EVALUATION_RESULTS_MIGRATIONS = ["047"] as const;

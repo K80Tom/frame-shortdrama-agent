@@ -4,10 +4,11 @@
 
 <p><strong>把一集剧本，推进成一条看得见、停得住、接得回的自动制片流程。</strong></p>
 
-<p>Shortdrama Agent Lab · 面向中文短剧的本地智能生产工作台</p>
+<p>面向中文短剧生产的 AI 制片工作台 · v0.2.0 Stage 1 集成基线</p>
 
 <p>
-  <img src="https://img.shields.io/badge/status-early_preview-F59E0B?style=flat-square" alt="Early Preview">
+  <img src="https://img.shields.io/badge/release-v0.2.0-8B5CF6?style=flat-square" alt="Lyra v0.2.0">
+  <img src="https://img.shields.io/badge/status-Stage_1_pilot-F2C46D?style=flat-square" alt="Stage 1 pilot">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React">
   <img src="https://img.shields.io/badge/NestJS-E0234E?style=flat-square&logo=nestjs&logoColor=white" alt="NestJS">
@@ -17,7 +18,7 @@
 
 <p>
   <a href="#核心亮点整集自动制片">自动制片</a> ·
-  <a href="#全新-ohao-工作台">界面预览</a> ·
+  <a href="#lyra-工作台">界面预览</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#当前能力与边界">能力边界</a> ·
   <a href="#文档导航">文档导航</a>
@@ -25,7 +26,7 @@
 
 </div>
 
-![Lyra 自动制作总控：直出版 / 抽卡版两条制作流程与生产计划](docs/media/automation.png)
+![Lyra v0.2.0 工作台首页：创作入口、最近项目与统一氛围背景](docs/media/home.png)
 
 **首条端到端样片**：[镜 1 成片 · 1920×1080 · 6 秒 · 含音频](docs/media/shot-1-preview.mp4?raw=true)——由一次整集生产运行自动产出：剧本拆解 → 资产引用 → 分镜设计 → 3D 预演约束 → seedance 视频生成 → 本地媒体库入库。
 
@@ -33,7 +34,7 @@
 
 Lyra 已经不只是一个单镜头生成页面。它围绕**一集短剧**建立持久化生产运行，从一次创建开始，把剧本拆解、资产准备、分镜设计、3D 预演、多候选视频、技术复核、局部返修、时间线合成和最终交付接成一条链。每个任务都有真实状态和输入来源；缺少模型、资产、预算或可靠结果时，流程会明确停下，等待处理后从原位置继续。
 
-> 当前是 **Early Preview**。整集生产总控、运行恢复和本地媒体链已经实现；真实模型与媒体生成取决于本机连接配置，并且只会在用户对本次运行明确授权预算后调用。当前自动复核验证容器与哈希，检查画幅、时长和音轨，并读取分辨率参与候选评分；它不代表人物、动作、剧情或审美已经通过语义审核。
+> 当前是 **v0.2.0 Stage 1 集成基线 / 单受信 workspace 试运行**。API 与 Worker 已分进程，PostgreSQL 是事实源，Redis 提供可重建对话快照与分布式限流，Milvus 承载可重建向量投影，生产视频与成片可投影到 MinIO/S3/OSS/COS。它尚未完成公网多租户安全验收、云上备份/PITR 与故障演练；导入资产图片仍保存在 PostgreSQL。真实模型调用继续要求用户明确授权预算，技术复核也不代表内容或审美已经通过语义审核。
 
 ## 核心亮点：整集自动制片
 
@@ -79,17 +80,21 @@ Lyra 已经不只是一个单镜头生成页面。它围绕**一集短剧**建�
 
 完整的状态机、媒体安全、预算语义与恢复规则见 [Lyra 全流程自动制片实现](docs/Lyra全流程自动制片实现-v0.1.md)。
 
-## 全新 Lyra 工作台
+## Lyra 工作台
 
-新版界面统一为克制的深色电影工作台：固定侧栏连接首页、项目、资产、插件与自动制作；内容区保持更大的留白和清晰的任务层级。首页负责进入创作，项目负责承载剧本，资产负责沉淀可复用素材，插件页集中展示生产工具，而自动制作页把这些能力编排为完整流程。
+v0.2.0 使用统一的深色电影工作台和全局氛围背景。固定侧栏连接首页、项目、资产、方法库与质量中心；首页负责进入创作，项目承载真实生产上下文，资产沉淀人物/场景/道具，方法库管理运行时冻结的创作方法，质量中心展示真实运行证据、提案、Probe 与人工采用/回滚。
 
 | 首页 | 项目 |
 | --- | --- |
 | ![Lyra 首页：创作入口、最近项目与功能概览](docs/media/home.png) | ![Lyra 项目页：简洁的项目卡片与创建入口](docs/media/projects.png) |
 
-| 资产 | 插件 |
+| 资产 | 方法库 |
 | --- | --- |
-| ![Lyra 资产页：人物、场景和道具素材管理](docs/media/assets.png) | ![Lyra 插件页：内置创作与生产工具](docs/media/plugins.png) |
+| ![Lyra 资产页：人物、场景和道具素材管理](docs/media/assets.png) | ![Lyra 方法库：检索、许可、版本和启停状态](docs/media/methods.png) |
+
+**质量中心**
+
+![Lyra 质量中心：真实运行证据、资产检索策略与人工裁决](docs/media/quality-center.png)
 
 **自动制作流程概览**
 
@@ -98,13 +103,13 @@ Lyra 已经不只是一个单镜头生成页面。它围绕**一集短剧**建�
 > 2026-10-30 更新：运行总控已改版为「流程轨道 + 总览 + 每阶段独立页面 + 镜头矩阵」结构；上图为改版前截图，待新版界面确认后更新。
 
 <details>
-<summary>查看当前 Lyra 界面导览</summary>
+<summary>查看历史 Lyra 界面导览</summary>
 
 [![Lyra 当前产品界面导览](docs/media/product-tour.gif)](docs/media/product-tour.mp4?raw=true)
 
 <p align="center"><a href="docs/media/product-tour.mp4?raw=true">打开 / 下载 MP4 演示</a></p>
 
-导览由当前自动制作、首页、项目、资产和插件页面截图制作，仅展示产品界面，不代表模型已经完成真实生成。
+该导览录制于旧导航版本，仅作为历史界面记录；本节上方静态截图才是 v0.2.0 当前界面。导览不代表模型已经完成真实生成。
 
 </details>
 
@@ -142,53 +147,36 @@ npm run assets:vector-rebuild
 
 ## 快速开始
 
-### 仅体验新版界面
+### Stage 1 一体化部署
 
-准备 **Node.js ≥ 22.19** 和 npm。只浏览首页、项目样式、资产、插件、示例工作台和 3D 导演台时，不需要数据库或模型账号。
-
-```sh
-git clone https://github.com/K80Tom/frame-shortdrama-agent.git ohao
-cd ohao/packages/main
-npm --prefix web ci
-npm --prefix web run dev
-```
-
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。仅启动前端时，示例草稿保存于浏览器 localStorage，3D 场景保存于 IndexedDB；清理网站数据会删除这些本地内容，请先从页面导出。
-
-### 启动完整本地服务
-
-准备 Docker Desktop（或可用的 Docker Compose 环境），在 `packages/main/` 执行：
+准备 Docker Desktop 或 Docker Engine 24+（含 Compose 插件）。标准部署入口位于仓库根目录，包含 PostgreSQL、Redis、MinIO、etcd/Milvus、一次性迁移、`main-api`、`main-worker` 与 Web 同源反向代理：
 
 ```sh
-npm ci
-npm run db:setup
-npm run db:up
-npm run db:migrate
-npm run dev
+git clone https://github.com/K80Tom/frame-shortdrama-agent.git lyra
+cd lyra
+cp deploy/.env.example deploy/.env
+# 填写 PostgreSQL 管理/应用、Redis、MinIO 密钥和公开 Origin
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 ```
 
-`db:setup` 会从示例配置初始化本地 `.env`、补齐随机数据库密码并保留已有模型设置。迁移必须通过 `db:migrate` 显式执行，服务不会自行修改数据库。后端默认监听 `http://127.0.0.1:8788`。
+首次启动须按 [Stage 1 部署手册](../../deploy/README.md) 在受信终端提供 `LYRA_BOOTSTRAP_*` 变量并显式创建首个管理员；仓库不携带默认账号或密码。完成后通过 `LYRA_PUBLIC_ORIGIN` 对应的同源 Web 入口访问，默认示例为 `http://127.0.0.1:8788`。正式环境必须使用 HTTPS，并在入口前配置负载均衡/WAF。
 
-另开一个终端启动前端：
+默认 `LYRA_REGISTRATION_MODE=disabled`。受信自托管环境可显式开启 workspace 注册，但在邮箱验证、CAPTCHA/边缘防滥用、租户额度/计费和跨租户验收完成前，不应作为公网开放注册服务。
+
+### 贡献者开发
+
+本仓库要求 **Node.js ≥ 22.19**。安装与验证命令从 monorepo 根目录执行：
 
 ```sh
-npm --prefix web ci
-npm --prefix web run dev
+npm run setup
+npm run build
+npm test
 ```
 
-常用入口：
+单进程 `LYRA_RUNTIME_ROLE=all` 和 Vite `5173` 仅用于开发兼容，不是发布拓扑。已有数据库升级必须显式运行迁移；v0.2.0 Stage 1 最低 schema 基线为迁移 `031`，API/Worker 会拒绝在过旧 schema 上启动。详细命令、端口与故障排查见 [本地开发](docs/本地开发.md)，生产配置、备份恢复与回滚见 [Stage 1 部署手册](../../deploy/README.md)。
 
-- [首页](http://127.0.0.1:5173/#/studio)
-- [真实项目](http://127.0.0.1:5173/#/production)
-- [整集自动制作](http://127.0.0.1:5173/#/automation)
-- [单镜头视频工具](http://127.0.0.1:5173/#/automation/video)
-- [小说逐章拆解](http://127.0.0.1:5173/#/novel)
-- [3D 导演台](http://127.0.0.1:5173/#/director)
-- [模型设置](http://127.0.0.1:5173/#/settings/models)
-
-首次运行自动制片前，请在「模型设置」为拆解、生图、生视频和通用用途配置所需连接，然后创建项目并保存剧本版本。打开「自动制作」，选择项目和剧本，设置策略与预算；只有勾选“本次运行允许调用已配置的付费模型”后，后端才会接受创建请求。
-
-已有数据库升级时也要执行 `npm run db:migrate`：当前整集生产总控使用迁移 015，Agent 自动采用约束使用迁移 016，事实提取账本保存已付费模型响应使用迁移 017，AI 工作区会话与估价确认卡使用迁移 018。未应用 017 时后端不启动付费事实提取，整集总控也不会启动；未应用 018 时 AI 工作区返回未就绪。完整数据库、端口和故障排查说明见 [本地开发](docs/本地开发.md)。
+首次运行自动制片前，请在「模型设置」为拆解、生图、生视频和通用用途配置连接；只有用户明确授权该次预算后，后端才会接受付费提交。
 
 ## AI 工作区：旁边的对话式助手
 
@@ -207,7 +195,7 @@ npm --prefix web run dev
 
 | 能力 | 当前状态 |
 | --- | --- |
-| Lyra 产品界面 | 已实现首页、项目、资产、插件、工作台、自动制作和设置等统一导航与新版视觉。 |
+| Lyra 产品界面 | 已实现首页、项目、资产、方法库、质量中心、项目工作台、自动制作和设置等统一导航与新版视觉。 |
 | 整集生产运行 | 已实现 PostgreSQL 持久化十阶段 DAG、镜头子图、幂等创建、CAS 更新、事务 outbox、预算、暂停/继续、重启恢复、外部任务对账、局部失效与重试。 |
 | 剧本与分镜 | 已实现原文索引、事实候选、依据核对、程序检查、人工/Agent 采用、分镜生成与镜头任务展开。 |
 | 资产联动 | 已实现人物、场景、道具的名称/别名匹配、描述与原文依据的结构化 RAG、可选 Milvus 语义召回、相关性阈值与同级歧义阻断、未命中图片生成、本地导入和镜头有序参考图绑定。 |
@@ -216,6 +204,7 @@ npm --prefix web run dev
 | 成片交付 | 已实现按分镜顺序的 FFmpeg 合片、本地 MP4、不可变时间线清单和最终技术复核。 |
 | 镜头质量评估 | 合成前逐镜预留、抽帧打分并保存剪辑建议。合片重试复用已有评估，调用结果未知时等待对账。 |
 | AI 工作区 | 已实现全局对话侧栏、上下文会话、白名单只读工具、SSE 事件流与自动制片估价确认卡；助手不能自行扣费。 |
+| Stage 1 部署 | 已实现 API/Worker 分进程、会话/workspace、迁移管理员与非特权应用账号分离、租户表 RLS、Redis 快照/限流、Milvus 租户向量投影和 MinIO/S3/OSS/COS 生产媒体投影入口。 |
 
 当前明确不包含：
 
@@ -223,30 +212,31 @@ npm --prefix web run dev
 - AI 对 3D 白模画面的视觉理解和自动精调；
 - 独立配音、口型同步、音效、配乐、混音、字幕生成和烧录；
 - 供应商最终账单自动回填；
-- 面向生产环境的分布式调度、对象存储、CDN 和多用户权限。
+- 公网多租户安全验收、邮箱验证与边缘防滥用、云上自动备份/PITR、跨地域容灾和多机调度；
+- 导入资产图片从 PostgreSQL `BYTEA` 到对象存储的迁移，以及公网签名 endpoint、授权边界与孤儿对象 GC 的完整验收。
 
 因此，“技术复核通过”表示本地文件及媒体指标符合程序条件，不等于镜头内容已通过审美或剧情审核。抽帧评估只读取画面并给出剪辑建议，不会自动重生成镜头。离线测试也不会调用真实付费模型；完整内容质量仍需在配置模型、明确授权试运行后由人观看验收。
 
 ## 工程结构
 
-主工程使用 TypeScript。React + Vite 负责创作与生产总控界面；NestJS + Fastify 提供本机 API；Pi Agent Core 执行文字阶段；PostgreSQL 保存项目、候选、任务、预算与事件；本地媒体链用 SHA-256、ffprobe 和 FFmpeg 管理视频与交付。
+主工程使用 TypeScript。React + Vite 负责工作台；NestJS + Fastify API 与常驻 Worker 分进程运行。PostgreSQL 保存结构化事实和 Outbox，Redis 保存可重建上下文快照与限流状态，Milvus 保存可重建向量投影，对象存储保存生产媒体权威字节；媒体链继续使用 SHA-256、ffprobe 和 FFmpeg 验真与合片。
 
 ```mermaid
 flowchart LR
-    UI["Lyra React 工作台<br/>项目 · 资产 · 自动制作"] --> API["NestJS + Fastify<br/>本机 API"]
-    API --> DB[("PostgreSQL<br/>计划 · 任务 · 预算 · 决定")]
-    API --> ORCH["整集生产总控<br/>十阶段 DAG · 恢复 · 门禁"]
-    ORCH --> TEXT["Pi Agent Core<br/>拆解 · 分镜"]
-    ORCH --> MEDIA["生图 / 生视频适配器<br/>按用途连接"]
-    MEDIA --> VAULT["私有本地媒体库<br/>SHA-256 · ffprobe"]
-    ORCH --> FFMPEG["FFmpeg<br/>时间线合成 · MP4 交付"]
+    UI["Lyra React 工作台<br/>项目 · 资产 · 自动制作"] --> API["main-api<br/>NestJS + Fastify"]
+    API --> DB[("PostgreSQL<br/>事实源 · 任务 · 预算 · Outbox")]
+    API --> CACHE[("Redis<br/>上下文快照 · 限流")]
+    DB --> WORKER["main-worker<br/>租约 · 检查点 · 恢复"]
+    WORKER --> TEXT["Agent / 模型适配器<br/>拆解 · 分镜 · 媒体"]
+    WORKER --> VECTOR[("Milvus<br/>可重建向量投影")]
+    WORKER --> OBJECT[("MinIO / S3 / OSS / COS<br/>生产媒体对象")]
+    WORKER --> FFMPEG["FFmpeg / ffprobe<br/>验真 · 合片 · 交付"]
     UI --> THREE["Three.js 导演台<br/>手工与规则式白模"]
 ```
 
 ```text
 packages/main/
-├── web/                React 工作台、生产总控与浏览器 3D 导演台
-├── src/                本机 API、Agent 内核、生产编排与媒体适配
+├── src/                API/Worker、PostgreSQL、生产编排与媒体适配
 ├── migrations/         PostgreSQL 显式迁移
 ├── tests/              契约、状态机、HTTP、媒体与持久化测试
 ├── scripts/            数据库准备、集成验证与模型检查
@@ -274,17 +264,18 @@ npm run test:db
 
 ## 路线图
 
-- [x] 统一的 Lyra 首页、项目、资产、插件、工作台与设置界面。
+- [x] 统一的 Lyra 首页、项目、资产、方法库、质量中心、工作台与设置界面。
 - [x] 原文索引、项目持久化、受控文字阶段、确定性检查与候选采用。
 - [x] 人物、场景和道具资产库，以及待补图片的生成、导入与人工采用。
 - [x] 浏览器内手工 3D 白模与规则式镜头预演。
 - [x] 项目级十阶段生产 DAG、镜头子图、运行预算、跨重启恢复和问题门禁。
 - [x] 每镜多视频候选、技术抽卡、有限局部返修和供应商任务对账。
-- [x] 本地时间线、FFmpeg 合片、程序化成片复核和可下载 MP4 交付。
+- [x] FFmpeg 时间线合片、程序化成片复核，以及生产媒体/成片的对象存储投影与受控访问入口。
+- [x] Stage 1 API/Worker 分进程、会话/workspace、非特权数据库应用角色、RLS、Redis 和 Milvus 可重建投影。
 - [ ] 用真实模型持续验收拆解、分镜和视频内容质量，扩展跨镜头连续性与内容安全复核（单镜头抽帧四维评估已实现并接入合成）。
 - [ ] 扩展实体增删合并、场次/对白编辑、候选差异比较和按场重做。
 - [ ] 增加独立声音、口型、字幕流程和可继续编辑的专业时间线工程。
-- [ ] 建立适合多人和远程部署的权限、对象存储与分布式调度能力。
+- [ ] 完成公网多租户安全验收、资产图片对象化、签名访问/GC、备份/PITR、故障恢复与多机调度触发条件验证。
 
 首批整集目标为真人拟真、约 1–2 分钟、竖屏 9:16、中文对白。路线图的完成标准以 [总体设计](docs/总体设计.md) 为准。
 
@@ -297,6 +288,7 @@ npm run test:db
 | 自动制片的产品构思与长期方向 | [全流程自动制片构思](docs/Lyra全流程自动制片构思-v0.1.md) |
 | 产品目标、创作边界与里程碑 | [总体设计](docs/总体设计.md) |
 | 已实现架构与后续设计 | [技术架构](docs/技术架构.md) |
+| 生产初版、增长期与规模化部署 | [生产架构路线](../../docs/production-architecture-roadmap.md) |
 | 数据契约、运行聚合与版本 | [数据结构 v0.1](docs/数据结构-v0.1.md) |
 | 本地启动、数据库、迁移与排错 | [本地开发](docs/本地开发.md) |
 | 前端入口、操作与浏览器保存范围 | [工作台说明](../web/README.md) |
@@ -332,5 +324,5 @@ npm run test:db
 
 <div align="center">
   <p><strong>让一条自动化流程，保留每一个可追溯的创作决定。</strong></p>
-  <p><a href="#快速开始">本地体验 Lyra</a> · <a href="https://github.com/K80Tom/frame-shortdrama-agent/issues">反馈问题与想法</a></p>
+  <p><a href="#快速开始">部署 Lyra</a> · <a href="https://github.com/K80Tom/frame-shortdrama-agent/issues">反馈问题与想法</a></p>
 </div>

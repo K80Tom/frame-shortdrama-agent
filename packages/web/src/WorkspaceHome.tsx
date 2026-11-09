@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, BookOpen, Box, Check, ChevronRight, Clapperboard, FileText, Film, ImageIcon, Images, LoaderCircle, Plus, Puzzle, RefreshCw, Search, Workflow, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Box, Check, ChevronRight, Clapperboard, FileText, Film, ImageIcon, Images, LoaderCircle, Plus, RefreshCw, Search, Workflow, X } from 'lucide-react';
 import { sampleImage, type Draft, type Page } from './model';
 import { formatProjectDate, projectKindLabels, useProjectCatalog, type ProjectEntry } from './project-catalog';
 import './home.css';
@@ -12,7 +12,6 @@ const tools: { title: string; icon: typeof BookOpen; page: Page }[] = [
   { title: '资产管理', icon: Images, page: 'assets' },
   { title: '自动制作', icon: Film, page: 'automation' },
   { title: '创作指南', icon: Workflow, page: 'flow' },
-  { title: '全部工具', icon: Puzzle, page: 'plugins' },
 ];
 const features: { title: string; note: string; art: string; page: Page }[] = [
   { title: '小说逐章校对', note: '原文与事实', art: 'novel', page: 'novel' },

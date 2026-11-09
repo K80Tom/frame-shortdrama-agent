@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 import Ajv from 'ajv';
+import { brandSharedError, hasSharedErrorBrand } from './error-brand';
 
 const Text = Type.String({ minLength: 1, maxLength: 1000000, pattern: '\\S' });
 const ContentPart = Type.Union([
@@ -29,7 +30,14 @@ export const MAX_REQUEST_BYTES = 10 * 1024 * 1024;
 
 export class ModelError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string,
-    public readonly details: Record<string, unknown> = {}) { super(message); }
+    public readonly details: Record<string, unknown> = {}) {
+    super(message);
+    brandSharedError(this, 'ModelError');
+  }
+
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return hasSharedErrorBrand(value, 'ModelError');
+  }
 }
 
 export function parseCall(value: unknown): ModelCall {

@@ -1,15 +1,15 @@
 {
   "name": "frame-shortdrama-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lyra monorepo：main 数据与付费主权 · agent 智能能力层 · web/cli 客户端 · shared 公共契约",
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "setup": "npm --prefix packages/shared install && npm --prefix packages/agent install && npm --prefix packages/main install && npm --prefix packages/cli install && npm --prefix packages/web install",
+    "setup": "npm --prefix packages/shared install && npm --prefix packages/shared run build && npm --prefix packages/agent install --install-links && npm --prefix packages/agent run build && npm --prefix packages/main install && npm --prefix packages/cli install && npm --prefix packages/web install --install-links",
     "build": "npm --prefix packages/shared run build && npm --prefix packages/agent run build && npm --prefix packages/main run build && npm --prefix packages/cli run build && npm --prefix packages/web run build",
-    "test": "npm run build && npm --prefix packages/main test && npm --prefix packages/web test",
+    "test": "npm run build && npm --prefix packages/agent test && npm --prefix packages/main test && npm --prefix packages/web test",
     "dev": "npm --prefix packages/main run dev",
     "dev:web": "npm --prefix packages/web run dev",
     "db:up": "npm --prefix packages/main run db:up",
