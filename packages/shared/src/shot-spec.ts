@@ -49,7 +49,7 @@ function invalid(): never { throw new ShotSpecError(); }
 
 // Bound/copy before inspecting fields: do not invoke getters, toJSON or code
 // hidden in active objects; errors (including Proxy traps) never expose input.
-function inertCopy(value: unknown): unknown {
+export function copyBoundedProductionInput(value: unknown): unknown {
   let nodes = 0, chars = 0;
   const active = new Set<object>();
   function copy(v: unknown, depth: number): unknown {
@@ -128,7 +128,7 @@ function parse(value: unknown, sealed: boolean): ShotSpecV2 {
   const fields = ['schemaVersion', 'revisionId', 'workspaceId', 'projectId', 'episodeId', 'scriptVersionId', 'planRevisionId',
     'storyboardRevisionId', 'shotId', 'sceneId', 'order', 'durationMs', 'ratio', 'shotSize', 'camera', 'dialogue',
     'actions', 'assetPacks', 'controls', 'visualStyle', 'negativeConstraints', 'continuity', 'timeline', 'generation', 'sourceRefs', 'source', 'createdAt'];
-  const r = object(inertCopy(value), sealed ? [...fields, 'contentDigest'] : fields);
+  const r = object(copyBoundedProductionInput(value), sealed ? [...fields, 'contentDigest'] : fields);
   if (r.schemaVersion !== SHOT_SPEC_SCHEMA_VERSION || typeof r.workspaceId !== 'string'
     || r.workspaceId.length !== 35 || !/^ws_[a-f0-9]{32}$/u.test(r.workspaceId)) invalid();
   const scriptVersionId = id(r.scriptVersionId), durationMs = integer(r.durationMs, 100, 60_000);
