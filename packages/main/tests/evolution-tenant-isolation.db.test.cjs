@@ -21,7 +21,7 @@ const adminUrl = process.env.DATABASE_ADMIN_URL;
 const appUrl = process.env.DATABASE_URL;
 const at = '2026-11-08T08:00:00.000Z';
 
-test('042 upgrades populated legacy registry/audit records without rewriting immutable JSON', {
+test('045 upgrades populated legacy registry/audit records without rewriting immutable JSON', {
   skip: adminUrl ? false : 'DATABASE_ADMIN_URL is required',
 }, async () => {
   const admin = new Client({ connectionString: adminUrl }); await admin.connect();
@@ -149,7 +149,7 @@ test('workspace policy registry: real RLS, Service, authenticated HTTP, concurre
     const authRepository = new PostgresAuthRepository(database), session = randomBytes(32).toString('base64url'),
       csrf = randomBytes(32).toString('base64url');
     await authRepository.createSession({ id: 'ses_' + token(), tokenHash: hash(session), csrfHash: hash(csrf),
-      userId: a.userId, currentWorkspaceId: a.workspaceId, createdAt: at, expiresAt: '2026-11-09T08:00:00.000Z' });
+      userId: a.userId, currentWorkspaceId: a.workspaceId, createdAt: at, expiresAt: '2030-01-01T00:00:00.000Z' });
     const authService = new AuthService(authRepository, { sessionTtlSeconds: 3600, now: () => new Date(at) });
     const app = await createApp(readConfig({ LYRA_AUTH_MODE: 'session' }), fetch, { authService, evolutionService: service });
     try {
