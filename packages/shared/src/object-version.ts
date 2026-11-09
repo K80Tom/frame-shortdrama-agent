@@ -10,7 +10,9 @@ export class ObjectVersionContractError extends Error{
   constructor(){super('对象版本请求无效。');this.name='ObjectVersionContractError';}
 }
 export function parseObjectVersionRequest(value:unknown):{objectId:string}{
-  const r=copyBoundedProductionInput(value) as Record<string,unknown>;
+  let r:Record<string,unknown>;
+  try{r=copyBoundedProductionInput(value) as Record<string,unknown>;}
+  catch{throw new ObjectVersionContractError();}
   if(!r||typeof r!=='object'||Array.isArray(r)||Object.keys(r).length!==1||typeof r.objectId!=='string'
     ||r.objectId.length!==36||!/^obj_[a-f0-9]{32}$/u.test(r.objectId)){
     throw new ObjectVersionContractError();

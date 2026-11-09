@@ -33,7 +33,8 @@ import { VIDEO_AUTOMATION_SERVICE, VideoAutomationController } from './video-aut
 import { VideoAutomationError } from './video-automation/contracts';
 import type { VideoAutomationService } from './video-automation/service';
 import { PRODUCTION_SERVICE, ProductionController } from './production/controller';
-import { ProductionError } from '@lyra/shared';
+import { ProductionError, ObjectVersionContractError } from '@lyra/shared';
+import { OBJECT_VERSIONS, ObjectVersionController, type ObjectVersionApi } from './production-media/object-version-controller';
 import type { ProductionService } from './production/service';
 import {
   PRODUCTION_MEDIA_OBJECT_SERVICE,
@@ -111,6 +112,7 @@ export interface AppDependencies {
   productionService?: ProductionService;
   productionMediaStore?: ProductionMediaStore;
   productionMediaObjectService?: ProductionMediaObjectService;
+  objectVersions?: ObjectVersionApi;
   assistantService?: AssistantService;
   canvasService?: CanvasService;
   evolutionService?: AssetEvolutionService;
@@ -446,7 +448,8 @@ class SafeErrors implements ExceptionFilter {
     }
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
       || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
-      || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError) {
+      || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError
+      || error instanceof ObjectVersionContractError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message } });
     }
     const status = error instanceof HttpException ? error.getStatus() :
@@ -468,7 +471,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, AssistantController, CanvasController,
+    ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : [])], providers: [ModelsService,
@@ -489,6 +492,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: PRODUCTION_SERVICE, useValue: dependencies.productionService ?? null },
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
+    { provide: OBJECT_VERSIONS, useValue: dependencies.objectVersions ?? null },
     { provide: ASSISTANT_SERVICE, useValue: dependencies.assistantService ?? null },
     { provide: CANVAS_SERVICE, useValue: dependencies.canvasService ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },

@@ -31,10 +31,10 @@ async function guarded<T>(work:()=>Promise<T>){try{return await work();}catch(e)
   if(e instanceof ObjectStorageError&&/^[A-Z][A-Z0-9_]{2,95}$/u.test(e.code))fail(e.code);
   return fail('OBJECT_VERSION_UNAVAILABLE',503);
 }}
-async function append(tx:OutboxTransaction,v:StoredObjectVersionRow,type:string,at:string){await tx.append(createDataEventV2({workspaceId:v.workspace_id,eventType:type,
+async function append(tx:OutboxTransaction,v:StoredObjectVersionRow,type:string,at:string,reconciledBy?:string){await tx.append(createDataEventV2({workspaceId:v.workspace_id,eventType:type,
   aggregateType:'object_version',aggregateId:v.id,aggregateVersion:v.version,occurredAt:at,correlationId:'object-version:'+v.id,
   authoritativeRef:{kind:'object_version',id:v.id,digest:canonicalDigest(publicOf(v))},payload:{objectId:v.object_id,objectVersionId:v.id,
-    status:v.status,checksum:v.sha256,sizeBytes:Number(v.size_bytes),jobId:v.job_id,requestedBy:v.created_by}}));}
+    status:v.status,checksum:v.sha256,sizeBytes:Number(v.size_bytes),jobId:v.job_id,requestedBy:v.created_by,...(reconciledBy?{reconciledBy}:{})}}));}
 function leaseIdentity(lease:JobLease,now:string){return {workspaceId:lease.job.workspaceId,jobId:lease.job.id,workerId:lease.workerId,fencingToken:lease.fencingToken,now};}
 
 /** Metadata + existing jobs + the single DataOutbox; request never writes bytes. */
@@ -50,8 +50,22 @@ export class PostgresObjectVersionRepository {
       const s=(await tx.client.query<Source>('SELECT * FROM object_records WHERE workspace_id=$1 AND id=$2 FOR SHARE',[tenant.workspaceId,input.objectId])).rows[0];
       if(!s)fail('REFERENCE_NOT_FOUND',404);active(s);const digest=canonicalDigest(sourceFacts(s)),id='objver_'+digest.slice(0,32);
       await tx.client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['object-version:'+tenant.workspaceId+':'+id]);
-      const old=(await tx.client.query<StoredObjectVersionRow>('SELECT * FROM object_versions WHERE workspace_id=$1 AND id=$2',[tenant.workspaceId,id])).rows[0];
-      if(old){if(old.source_facts_digest!==digest||old.object_id!==s.id)fail('REVISION_CONFLICT');return publicOf(old);}
+      const old=(await tx.client.query<StoredObjectVersionRow>('SELECT * FROM object_versions WHERE workspace_id=$1 AND id=$2 FOR UPDATE',[tenant.workspaceId,id])).rows[0];
+      if(old){
+        if(old.source_facts_digest!==digest||old.object_id!==s.id)fail('REVISION_CONFLICT');
+        if(old.status==='pending'){
+          // Queue exhaustion or external cancellation can occur without a live
+          // domain lease. An explicit repeat request reconciles the terminal
+          // fact + Outbox, never revives a failed immutable version or requeues.
+          const job=(await tx.client.query<{state:string}>('SELECT state FROM jobs WHERE workspace_id=$1 AND id=$2 FOR SHARE',[tenant.workspaceId,old.job_id])).rows[0];
+          if(job&&['failed','cancelled','dead_letter'].includes(job.state)){
+            const failed=(await tx.client.query<StoredObjectVersionRow>(`UPDATE object_versions SET status='failed',last_error_code='OBJECT_VERSION_JOB_TERMINAL',version=version+1
+              WHERE workspace_id=$1 AND id=$2 RETURNING *`,[tenant.workspaceId,id])).rows[0]!;
+            await append(tx,failed,'object_version.failed.v1',at,tenant.userId);return publicOf(failed);
+          }
+        }
+        return publicOf(old);
+      }
       const queued=await this.jobs.enqueueInTransaction(tx.client,tenant,{queueName:OBJECT_VERSION_QUEUE,kind:OBJECT_VERSION_JOB_KIND,
         aggregateType:'object_version',aggregateId:id,idempotencyKey:'object-version:'+id,payload:{schemaVersion:'lyra-object-version/1',objectVersionId:id},
         availableAt:at,maxAttempts:5});
@@ -64,7 +78,10 @@ export class PostgresObjectVersionRepository {
     })));
   }
   async get(tenantValue:unknown,id:string){const tenant=parseTenantContext(tenantValue);versionId(id);
-    return guarded(()=>this.database.runWithTenant(tenant,async()=>{const row=await this.load(tenant,id);return row?publicOf(row):null;}));}
+    return guarded(()=>this.database.runWithTenant(tenant,async()=>{const row=await this.load(tenant,id);
+      if(!row||row.parent_status!=='ready'||row.parent_deleted_at||row.parent_owner_id!==row.owner_id
+        ||row.parent_owner_type!==row.owner_type||row.parent_purpose!==row.purpose)return null;
+      return publicOf(row);}));}
   private async load(tenant:TenantContext,id:string){return (await this.database.query<StoredObjectVersionRow>(`SELECT v.*,o.status AS parent_status,o.deleted_at AS parent_deleted_at,
     o.owner_id AS parent_owner_id,o.owner_type AS parent_owner_type,o.purpose AS parent_purpose
     FROM object_versions v JOIN object_records o ON o.workspace_id=v.workspace_id AND o.id=v.object_id WHERE v.workspace_id=$1 AND v.id=$2`,[tenant.workspaceId,id])).rows[0]??null;}

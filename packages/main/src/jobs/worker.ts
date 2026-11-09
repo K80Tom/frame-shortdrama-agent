@@ -186,6 +186,14 @@ export class PersistentJobWorker {
       }else await this.repository.complete(identity());
     } catch (error) {
       if (leaseLost || error instanceof JobQueueError && error.code === 'JOB_LEASE_LOST') return;
+      if (handler?.settlement === 'domain_transaction') {
+        // A domain settlement may have rolled back (or its commit outcome may
+        // be unknown). Never mutate only jobs here: that could strand a pending
+        // domain fact behind a failed job. The durable lease expires and the
+        // domain handler reconciles the whole transaction on the next claim.
+        this.logger.warn('领域任务未确认原子结算，保留租约等待到期恢复。');
+        return;
+      }
       await this.failLease(lease, error, !(error instanceof NonRetryableJobError));
     } finally {
       clearInterval(timer);

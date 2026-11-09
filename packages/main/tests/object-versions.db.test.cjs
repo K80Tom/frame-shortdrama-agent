@@ -3,9 +3,11 @@ const {mkdtemp,rm}=require('node:fs/promises');const {tmpdir}=require('node:os')
 const {Client}=require('pg');const {PostgresDatabase}=require('../dist/db/client');
 const {LocalObjectStorage,ObjectStorageError}=require('../dist/infrastructure/object-storage');
 const {PostgresObjectVersionRepository,OBJECT_VERSION_QUEUE}=require('../dist/production-media/object-versions');
-const {ObjectVersionJobHandler}=require('../dist/production-media/object-version-worker');
+const {ObjectVersionJobHandler,createObjectVersionRuntime}=require('../dist/production-media/object-version-worker');
 const {PostgresJobQueueRepository}=require('../dist/jobs/repository');const {PostgresJobTenantResolver}=require('../dist/jobs/tenant');
 const {PersistentJobWorker}=require('../dist/jobs/worker');const {ProductionInputObjectVerifier}=require('../dist/production/input-object-verifier');
+const {createApp}=require('../dist/app');const {readConfig}=require('../dist/config');
+const {AuthService,passwordHash}=require('../dist/auth/service');const {PostgresAuthRepository}=require('../dist/auth/repository');
 const token=()=>randomBytes(16).toString('hex');
 test('real PG + real immutable local bytes materialize internal versions through fenced jobs and one Outbox',{
  skip:process.env.DATABASE_URL&&process.env.DATABASE_ADMIN_URL?false:'isolated application/admin URLs required',
@@ -23,6 +25,17 @@ test('real PG + real immutable local bytes materialize internal versions through
  }
  const [a,b]=tenants,scope=work=>db.runWithTenant(a,work),storage=new LocalObjectStorage(root,{bucket:'version-test'});
  const repo=new PostgresObjectVersionRepository(db,now),jobs=new PostgresJobQueueRepository(db),resolver=new PostgresJobTenantResolver(db);
+ const password='isolated-test-password-'+token(),salt=token(),passwordDigest=await passwordHash(password,salt);
+ for(const tenant of tenants)await admin.query(`INSERT INTO user_credentials(user_id,email,password_salt,password_hash,password_algorithm,created_at,updated_at)
+   VALUES($1,$2,$3,$4,'scrypt-v1',$5,$5)`,[tenant.userId,tenant.userId+'@example.test',salt,passwordDigest,at]);
+ const app=await createApp(readConfig({LYRA_AUTH_MODE:'session'}),fetch,{authService:new AuthService(new PostgresAuthRepository(db),{sessionTtlSeconds:3600}),objectVersions:repo});
+ t.after(()=>app.close());const httpBase={host:'127.0.0.1:8788','x-shortdrama-call':'1'};
+ async function login(tenant){
+  const response=await app.inject({method:'POST',url:'/api/auth/login',headers:httpBase,payload:{email:tenant.userId+'@example.test',password}});
+  assert.equal(response.statusCode,200);const cookie=[].concat(response.headers['set-cookie']).map(s=>s.split(';')[0]).join('; ');
+  return {...httpBase,cookie,'x-csrf-token':decodeURIComponent(cookie.split('; ').find(s=>s.startsWith('lyra_csrf=')).slice('lyra_csrf='.length))};
+ }
+ const headersA=await login(a),headersB=await login(b);
  // Claims are restricted to this test's workspace to avoid consuming another test's jobs; all SQL uses the non-owner app role.
  const workerScope={runAsSystem:(reason,work)=>db.runWithTenant(a,work),runWithTenant:(ctx,work)=>db.runWithTenant(ctx,work)};
  const worker=objects=>new PersistentJobWorker(jobs,resolver,[new ObjectVersionJobHandler(repo,objects)],{workerId:'version-test-'+token(),now,executionScope:workerScope});
@@ -39,8 +52,21 @@ test('real PG + real immutable local bytes materialize internal versions through
  const queued=(await scope(()=>db.query('SELECT * FROM object_versions WHERE id=$1',[pending.id]))).rows[0];
  assert.equal(await storage.head(a,queued.object_key),null,'request must not mutate the object store');
  assert.equal((await scope(()=>db.query('SELECT id FROM jobs WHERE aggregate_id=$1',[pending.id]))).rowCount,1);
+ const accepted=await app.inject({method:'POST',url:'/api/object-versions',headers:headersA,payload:{objectId:first.id}});
+ assert.equal(accepted.statusCode,202);assert.equal(accepted.json().id,pending.id);
+ assert.equal((await app.inject({method:'POST',url:'/api/object-versions',headers:headersB,payload:{objectId:first.id}})).statusCode,404);
+ assert.equal((await app.inject({method:'POST',url:'/api/object-versions',headers:{...headersA,'x-csrf-token':''},payload:{objectId:first.id}})).statusCode,403);
  await assert.rejects(repo.request(b,{objectId:first.id}),e=>e.status===404);
- await worker(storage).runOnce(OBJECT_VERSION_QUEUE);const ready=await repo.get(a,pending.id);assert.equal(ready.status,'ready');
+ const runtime=await createObjectVersionRuntime(db,storage);assert.ok(runtime);
+ await new PersistentJobWorker(jobs,resolver,[runtime.handler],{workerId:'runtime-version-test-'+token(),now,executionScope:workerScope}).runOnce(OBJECT_VERSION_QUEUE);
+ const ready=await runtime.repository.get(a,pending.id);assert.equal(ready.status,'ready');
+ const response=await app.inject({url:'/api/object-versions/'+ready.id,headers:headersA});assert.equal(response.statusCode,200);assert.equal(response.json().status,'ready');
+ assert.equal((await app.inject({url:'/api/object-versions/'+ready.id,headers:headersB})).statusCode,404);
+ assert.equal((await app.inject({url:'/api/object-versions/'+ready.id,headers:{...headersA,'x-workspace-id':b.workspaceId}})).statusCode,404);
+ await admin.query("UPDATE workspace_members SET role='viewer' WHERE workspace_id=$1 AND user_id=$2",[a.workspaceId,a.userId]);
+ assert.equal((await app.inject({method:'POST',url:'/api/object-versions',headers:headersA,payload:{objectId:first.id}})).statusCode,403);
+ assert.equal((await app.inject({url:'/api/object-versions/'+ready.id,headers:headersA})).statusCode,200);
+ await admin.query("UPDATE workspace_members SET role='owner' WHERE workspace_id=$1 AND user_id=$2",[a.workspaceId,a.userId]);
  const record=(await scope(()=>db.query('SELECT * FROM object_versions WHERE id=$1',[ready.id]))).rows[0];assert.equal(record.provider_version_id,null);
  assert.notEqual(record.object_key,first.key);assert.equal((await scope(()=>jobs.get(a,record.job_id))).state,'succeeded');
  await storage.delete(a,first.key);await storage.put({scope:a,key:first.key,body:Buffer.from('new current bytes'),contentType:'image/png'});
@@ -53,6 +79,8 @@ test('real PG + real immutable local bytes materialize internal versions through
  await storage.delete(a,record.object_key);await storage.put({scope:a,key:record.object_key,body:Buffer.from('corrupt copy'),contentType:'image/png'});
  assert.equal(await check(a),'DIGEST_MISMATCH','HEAD/metadata alone cannot approve corrupt bytes');
  await scope(()=>db.query("UPDATE object_records SET status='deleted',deleted_at=$2 WHERE id=$1",[first.id,at]));assert.equal(await check(a),'REFERENCE_FORBIDDEN');
+ assert.equal(await repo.get(a,ready.id),null,'metadata API must not disclose a revoked parent version');
+ assert.equal((await app.inject({url:'/api/object-versions/'+ready.id,headers:headersA})).statusCode,404);
  // Old lease may leave an idempotent private copy, but cannot publish metadata, event or completion after takeover.
  const second=await source(),reserved=await repo.request(a,{objectId:second.id});
  const lease=await scope(()=>jobs.claim({queueName:OBJECT_VERSION_QUEUE,workerId:'old-version-worker',leaseMs:1000,now:now().toISOString()}));let replacement;
@@ -94,4 +122,31 @@ test('real PG + real immutable local bytes materialize internal versions through
  await worker(storage).runOnce(OBJECT_VERSION_QUEUE);const failed=(await scope(()=>db.query('SELECT * FROM object_versions WHERE id=$1',[missing.id]))).rows[0];
  assert.equal(failed.status,'failed');assert.equal((await scope(()=>jobs.get(a,failed.job_id))).state,'failed');
  assert.equal(failed.last_error_code,'OBJECT_NOT_FOUND');assert.equal((await repo.request(a,{objectId:fifth.id})).status,'failed','no silent resurrection of a failed immutable version');
+ // Both successful and retry domain settlements fail: generic Worker must NOT settle jobs alone.
+ const sixth=await source(),unsettled=await repo.request(a,{objectId:sixth.id}),settlementFault='version_settlement_fault_'+token();
+ assert.match(settlementFault,/^version_settlement_fault_[a-f0-9]{32}$/);
+ await admin.query(`CREATE FUNCTION public.${settlementFault}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+  IF NEW.aggregate_id='${unsettled.id}' THEN RAISE EXCEPTION 'PRIVATE_TEST_SETTLEMENT_FAILURE';END IF;RETURN NEW;END;$$;
+  CREATE TRIGGER ${settlementFault} BEFORE INSERT ON data_outbox_events FOR EACH ROW EXECUTE FUNCTION public.${settlementFault}()`);
+ try{
+  await worker(storage).runOnce(OBJECT_VERSION_QUEUE);
+  const row=(await scope(()=>db.query('SELECT * FROM object_versions WHERE id=$1',[unsettled.id]))).rows[0];
+  assert.equal(row.status,'pending');assert.equal(row.version,1);
+  assert.equal((await scope(()=>jobs.get(a,row.job_id))).state,'running','domain transaction rollback cannot produce a separately failed job');
+  assert.equal((await scope(()=>db.query('SELECT event_id FROM data_outbox_events WHERE aggregate_id=$1',[unsettled.id]))).rowCount,1);
+ }finally{await admin.query(`DROP TRIGGER ${settlementFault} ON data_outbox_events;DROP FUNCTION public.${settlementFault}()`);}
+ await storage.delete(a,sixth.key);clock+=31000;
+ await worker(storage).runOnce(OBJECT_VERSION_QUEUE);assert.equal((await repo.get(a,unsettled.id)).status,'ready','expired lease is reclaimed and copied bytes reconcile atomically');
+ // A terminal queue decision is not success and must not cause silent resurrection.
+ const seventh=await source(),exhausted=await repo.request(a,{objectId:seventh.id});
+ const exhaustedRow=(await scope(()=>db.query('SELECT * FROM object_versions WHERE id=$1',[exhausted.id]))).rows[0];
+ await scope(()=>db.query('UPDATE jobs SET max_attempts=1 WHERE id=$1',[exhaustedRow.job_id]));
+ await scope(()=>jobs.claim({queueName:OBJECT_VERSION_QUEUE,workerId:'lost-final-worker',leaseMs:1000,now:now().toISOString()}));
+ clock+=1001;assert.equal(await scope(()=>jobs.claim({queueName:OBJECT_VERSION_QUEUE,workerId:'exhaustion-scanner',leaseMs:1000,now:now().toISOString()})),null);
+ assert.equal((await scope(()=>jobs.get(a,exhaustedRow.job_id))).state,'dead_letter');
+ const terminal=await repo.request(a,{objectId:seventh.id});assert.equal(terminal.status,'failed');assert.equal((await repo.request(a,{objectId:seventh.id})).version,terminal.version);
+ const terminalEvents=(await scope(()=>db.query("SELECT event_type,payload_json FROM data_outbox_events WHERE aggregate_id=$1 ORDER BY aggregate_version",[exhausted.id]))).rows;
+ assert.deepEqual(terminalEvents.map(e=>e.event_type),['object_version.requested.v1','object_version.failed.v1']);assert.equal(terminalEvents[1].payload_json.reconciledBy,a.userId);
+ assert.equal((await scope(()=>jobs.get(a,exhaustedRow.job_id))).state,'dead_letter');
+
 });

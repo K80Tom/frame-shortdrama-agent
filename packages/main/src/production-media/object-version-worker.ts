@@ -2,6 +2,14 @@ import type {JobHandler,JobHandlerContext} from '../jobs/worker';
 import {JobQueueError} from '../jobs/contracts';
 import {validateMaxBytes,type ObjectStorage} from '../infrastructure/object-storage';
 import {PostgresObjectVersionRepository,OBJECT_VERSION_QUEUE,OBJECT_VERSION_JOB_KIND} from './object-versions';
+import type {PostgresDatabase} from '../db/client';
+
+/** Shares main's configured storage and database. Construction neither enqueues nor copies bytes. */
+export async function createObjectVersionRuntime(database:PostgresDatabase,objects:ObjectStorage){
+  if(!await database.hasMigrations(['040']))return null;
+  const repository=new PostgresObjectVersionRepository(database);
+  return {repository,handler:new ObjectVersionJobHandler(repository,objects)};
+}
 
 /** Existing PersistentJobWorker provides claim, tenant resolution, heartbeat and fencing. No second queue/Outbox. */
 export class ObjectVersionJobHandler implements JobHandler {
