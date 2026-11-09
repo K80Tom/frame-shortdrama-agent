@@ -18,3 +18,7 @@ export * from './novel-domain';
 export * from './novel-checkpoint';
 export * from './novel-registry';
 export * from './novel-adaptation';
+export * from './agent/contracts';
+export * from './agent/runtime';
+export * from './agent/skills';
+export * from './agent/mcp';
