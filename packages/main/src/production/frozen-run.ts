@@ -48,6 +48,11 @@ export function compileFrozenProductionRun(tenantValue: unknown, requestValue: u
   run.methodPacks=methods;
   run.inputSnapshot={schemaVersion:'lyra-production-binding/1',workspaceId:tenant.workspaceId,episodeId:snapshot.episodeId,
     snapshotId:snapshot.id,snapshotDigest:snapshot.snapshotDigest};
+  // V2 already freezes global asset references. Never run the V1 mutable catalog/re-generation coordinator.
+  // Per-shot asset tasks still resolve and verify the exact frozen packs/objects before video submission.
+  const assets=run.tasks.find(t=>t.stage==='assets')!;
+  assets.status='skipped';assets.blockingReason={code:'FROZEN_ASSET_REFS',message:'全局资产引用已冻结，精确对象绑定由镜头任务完成。'};
+  run.tasks.find(t=>t.stage==='storyboard')!.dependencies=[run.tasks.find(t=>t.stage==='breakdown')!.id];
   for (const task of run.tasks) {
     task.inputManifest=task.inputManifest.filter(ref=>ref.kind!=='script');
     task.inputManifest.unshift({kind:'productionInput',id:snapshot.id,revisionId:snapshot.id,digest:snapshot.snapshotDigest},

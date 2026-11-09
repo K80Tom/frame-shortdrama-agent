@@ -6,6 +6,7 @@ const {sealProductionInputSnapshot,verifyProductionInputSnapshot}=require('../di
 const {compileFrozenProductionRun,FrozenProductionRunCreator}=require('../dist/production/frozen-run');
 const {MemoryProductionRepository}=require('../dist/production/repository');
 const {ProductionService}=require('../dist/production/service');
+const {BreakdownProductionExecutor,StoryboardProductionExecutor}=require('../dist/production/runtime');
 const at='2026-11-09T09:00:00.000Z';
 const tenant={userId:'usr_'+'a'.repeat(32),workspaceId:'ws_'+'b'.repeat(32),role:'owner',requestId:'frozen-run-test'};
 const ref=id=>({id,versionId:id,digest:'c'.repeat(64)});
@@ -86,4 +87,80 @@ test('unfinished V2 is never handed to legacy current-project executors or legac
   await service.tick(run.id);assert.equal(calls,0);assert.equal((await repo.get(run.id)).attempts.length,0);
   await assert.rejects(service.action(run.id,{type:'raiseBudget',budgetMicros:1,reason:'unsafe'}),e=>e.code==='FROZEN_BUDGET_REQUIRES_NEW_SNAPSHOT');
   const legacy=Object.fromEntries(shared.CREATE_KEYS.map(k=>[k,run[k]]));await assert.rejects(service.create(legacy),e=>e.code==='PRODUCTION_REQUEST_REUSED');
+});
+test('native frozen source executors expand exact ShotSpec versions without any current lookup or generation',async()=>{
+  const f=fixture(),run=compileFrozenProductionRun(tenant,request(f),f,at);
+  let calls=0;const forbidden=new Proxy({}, {get(){return ()=>{calls++;throw Error('mutable reader/generation must not be used');};}});
+  const breakdown=new BreakdownProductionExecutor(forbidden,forbidden,{estimateCostMicros:100});
+  const storyboard=new StoryboardProductionExecutor(forbidden,forbidden,{estimateCostMicros:100});
+  for(const executor of [breakdown,storyboard]) {
+    const task=run.tasks.find(t=>t.stage===executor.stage),context={run,task,frozenInput:f.input,attemptId:'attempt_one',inputDigest:'x',operationKey:null};
+    const prepared=await executor.prepare(context);assert.equal(prepared.requiresPaid,false);assert.equal(prepared.estimateCostMicros,0);
+    const outcome=await executor.execute(context);assert.equal(outcome.state,'succeeded');
+    assert.equal(outcome.artifacts[0].metadata.snapshotDigest,f.input.snapshot.snapshotDigest);
+    if(executor.stage==='storyboard') {
+      assert.deepEqual([...new Set(outcome.spawnTasks.map(t=>t.scope.id))],['shot_one']);
+      assert.equal(outcome.artifacts[0].metadata.shots[0].revisionId,f.input.shots[0].revisionId);
+      assert.equal(outcome.artifacts[0].metadata.shots[0].durationMs,5000);
+    }
+    await assert.rejects(executor.prepare({run,task}),e=>e.code==='SNAPSHOT_NOT_READY');
+    await executor.review({...context,input:{decision:'approve'}});
+  }
+  assert.equal(calls,0);
+});
+test('scheduler loads and validates the frozen bundle, then runs native source stages before unsupported media',async()=>{
+  const f=fixture(),repo=new MemoryProductionRepository(),run=await repo.create(compileFrozenProductionRun(tenant,request(f),f,at));
+  const forbidden=new Proxy({}, {get(){return ()=>{throw Error('current input forbidden');};}});
+  let loads=0;const service=new ProductionService(repo,{frozenInputLoader:async persisted=>{loads++;assert.equal(persisted.id,run.id);return structuredClone(f.input);},
+    executors:[new BreakdownProductionExecutor(forbidden,forbidden,{estimateCostMicros:100}),new StoryboardProductionExecutor(forbidden,forbidden,{estimateCostMicros:100})]});
+  assert.equal(run.tasks.find(t=>t.stage==='storyboard').status,'pending');
+  await service.tick(run.id);let stored=await repo.get(run.id);
+  assert.equal(stored.tasks.find(t=>t.stage==='prepare').status,'succeeded');assert.equal(stored.tasks.find(t=>t.stage==='breakdown').status,'ready');
+  await service.tick(run.id);await service.tick(run.id);stored=await repo.get(run.id);
+  assert.equal(stored.tasks.find(t=>t.stage==='storyboard').status,'succeeded');assert.equal(loads,3);
+  assert.ok(stored.tasks.some(t=>t.stage==='video'&&t.scope.kind==='shot'&&t.scope.id==='shot_one'));
+  assert.ok(stored.tasks.every(t=>t.inputManifest.some(r=>r.kind==='productionInput'&&r.digest===run.inputSnapshot.snapshotDigest)));
+  assert.equal(stored.externalOperations.length,0);assert.equal(stored.budgetLedger.length,0);
+});
+test('tampered loader result or an unadapted executor is blocked before prepare, claim or budget',async()=>{
+  const f=fixture();for(const malformed of [true,false]) {
+    const repo=new MemoryProductionRepository(),run=await repo.create(compileFrozenProductionRun(tenant,request(f),f,at));let calls=0;
+    const executor={stage:'prepare',...(malformed?{frozenInputVersion:1}:{}),async prepare(){calls++;return {executor:'stub',inputDigest:'x',estimateCostMicros:0,requiresPaid:false,provider:null};},async execute(){calls++;return {state:'succeeded'};}};
+    const bad=structuredClone(f.input);if(malformed)bad.shots[0].durationMs++;
+    const service=new ProductionService(repo,{frozenInputLoader:async()=>bad,executors:[executor]});await service.tick(run.id);
+    const saved=await repo.get(run.id);assert.equal(calls,0);assert.equal(saved.attempts.length,0);assert.equal(saved.budgetLedger.length,0);
+  }
+});
+test('snapshotDigest binds the paid operation and a new service reconciles the same frozen input without resubmit',async()=>{
+  const f=fixture(),repo=new MemoryProductionRepository(),run=await repo.create(compileFrozenProductionRun(tenant,request(f),f,at));
+  let submits=0,authorizations=0,reconciles=0;let key;
+  const executor={stage:'prepare',frozenInputVersion:1,
+    async prepare(ctx){assert.deepEqual(ctx.frozenInput,f.input);return {executor:'stub-paid',inputDigest:'exact-provider-input',estimateCostMicros:0,requiresPaid:true,provider:'offline-stub'};},
+    async execute(ctx){submits++;key=ctx.operationKey;assert.ok(key);return {state:'waitingExternal',providerTaskId:'stub_one'};},
+    async reconcile(ctx,op){reconciles++;assert.deepEqual(ctx.frozenInput,f.input);assert.equal(ctx.operationKey,key);assert.equal(op.providerTaskId,'stub_one');return {state:'succeeded',actualCostMicros:0};}};
+  const options={frozenInputLoader:async()=>structuredClone(f.input),authorizeFrozenPaidExecution:async()=>{authorizations++;},executors:[executor]};
+  await new ProductionService(repo,options).tick(run.id);
+  const saved=await repo.get(run.id);const expected=shared.canonicalDigest({snapshotDigest:run.inputSnapshot.snapshotDigest,executorInputDigest:'exact-provider-input'});
+  assert.equal(saved.attempts[0].inputDigest,expected);
+  assert.equal(key,shared.canonicalDigest({runId:run.id,taskId:run.tasks[0].id,taskVersion:0,attempt:1,inputDigest:expected}));
+  await new ProductionService(repo,options).tick(run.id);
+  assert.equal(submits,1);assert.equal(authorizations,1);assert.equal(reconciles,1);
+  assert.equal((await repo.get(run.id)).externalOperations[0].status,'succeeded');
+});
+test('missing/revoked current paid authorization never reaches the executor and settles at zero, not unknown',async()=>{
+  const f=reseal(fixture(),d=>{d.budgetPolicy.limitMicros=100;});
+  for(const [revoked,requiresPaid] of [[false,true],[true,true],[false,false],[true,false]]) {
+    const repo=new MemoryProductionRepository(),run=await repo.create(compileFrozenProductionRun(tenant,request(f),f,at));let calls=0;
+    const options={frozenInputLoader:async()=>f.input,executors:[{stage:'prepare',frozenInputVersion:1,
+      async prepare(){return {executor:'stub',inputDigest:'x',estimateCostMicros:50,requiresPaid,provider:requiresPaid?'offline-stub':null};},
+      async execute(){calls++;return {state:'succeeded'};}}]};
+    if(revoked)options.authorizeFrozenPaidExecution=async()=>{throw Error('revoked secret');};
+    await new ProductionService(repo,options).tick(run.id);const saved=await repo.get(run.id);
+    assert.equal(calls,0);
+    if(requiresPaid) {assert.equal(saved.externalOperations[0].status,'failed');assert.equal(saved.externalOperations[0].actualCostMicros,0);}
+    else assert.equal(saved.externalOperations.length,0);
+    assert.equal(saved.tasks[0].blockingReason.code,'FROZEN_INPUT_AUTHORIZATION_REQUIRED');
+    assert.equal(saved.budgetLedger.filter(e=>e.kind==='charge').reduce((n,e)=>n+e.amountMicros,0),0);
+    assert.equal(saved.budgetLedger.filter(e=>e.kind==='release').reduce((n,e)=>n+e.amountMicros,0),50);
+  }
 });

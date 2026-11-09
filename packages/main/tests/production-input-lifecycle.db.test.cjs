@@ -20,6 +20,8 @@ const { PostgresFrozenProductionInputReader } = require('../dist/production/froz
 const { compileFrozenProductionRun } = require('../dist/production/frozen-run');
 const { PostgresProductionRepository } = require('../dist/production/repository');
 const { PostgresRunFrozenInputReader } = require('../dist/production/run-frozen-input-reader');
+const { ProductionService } = require('../dist/production/service');
+const { BreakdownProductionExecutor, StoryboardProductionExecutor } = require('../dist/production/runtime');
 const { DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY, productionId, TENANT_DATA_EVENT_SCHEMA_VERSION } = require('@lyra/shared');
 const token = () => randomBytes(16).toString('hex');
 test('real adopted source chain compiles, validates, blocks revoked policy and freezes transactionally', {
@@ -173,5 +175,19 @@ test('real adopted source chain compiles, validates, blocks revoked policy and f
       e=>e.code==='23514');
     const changed={...saved,updatedAt:'2026-11-09T09:00:00.000Z'};
     assert.equal((await scoped(()=>production.replace(changed,0))).version,1);
+    let forbiddenCalls=0;
+    const forbidden=new Proxy({}, {get(){return ()=>{forbiddenCalls++;throw Error('no current-project source or paid generation is permitted');};}});
+    const runtimeOptions={frozenInputLoader:async persisted=>new PostgresRunFrozenInputReader(recoveredDatabase).load(tenant,persisted.id),
+      executors:[new BreakdownProductionExecutor(forbidden,forbidden,{estimateCostMicros:100}),
+        new StoryboardProductionExecutor(forbidden,forbidden,{estimateCostMicros:100})]};
+    await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // actual deterministic preflight
+    await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // fresh service consumes historical plan
+    await scoped(()=>new ProductionService(production,runtimeOptions).tick(saved.id)); // fresh service expands exact frozen shots
+    const executed=await scoped(()=>production.get(saved.id));
+    assert.equal(executed.tasks.find(t=>t.stage==='storyboard'&&t.scope.kind==='episode').status,'succeeded');
+    assert.ok(executed.tasks.some(t=>t.stage==='video'&&t.scope.kind==='shot'&&t.scope.id===spec.shotId));
+    assert.equal(executed.artifacts.find(a=>a.metadata.key==='storyboard').metadata.shots[0].revisionId,spec.revisionId);
+    assert.equal(executed.inputSnapshot.snapshotDigest,candidate.snapshotDigest);
+    assert.equal(executed.externalOperations.length,0);assert.equal(executed.budgetLedger.length,0);assert.equal(forbiddenCalls,0);
   } finally { await recoveredDatabase.close(); }
 });
