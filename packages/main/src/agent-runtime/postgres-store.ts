@@ -1,9 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import type { PostgresDatabase } from '../db/client';
 import {
-  AgentContractError,
-  type AgentApprovalRequest, type AgentApprovalState, type AgentEvent, type AgentRunRecord,
-  type AgentRunState, type AgentStep, type FrozenAgentSnapshot,
+  AgentContractError, digestOf,
+  type AgentApprovalRequest, type AgentApprovalState, type AgentEvent, type AgentRunAttempt,
+  type AgentRunCheckpoint, type AgentRunRecord, type AgentRunState, type AgentStep, type FrozenAgentSnapshot,
+  type TenantDataEvent,
 } from '@lyra/shared';
+import { appendDataEvent } from '../data/outbox';
 import type {
   AgentContextSnapshot, AgentEventRecord, AgentRuntimeStore,
 } from '@lyra/agent';
@@ -21,9 +24,22 @@ const iso = (value: Date | string): string => value instanceof Date ? value.toIS
 interface RunRow {
   run_id: string; workspace_id: string; state: AgentRunState; version: number;
   snapshot_json: FrozenAgentSnapshot; attempt_count: number; step_count: number;
+  current_attempt_id: string | null;
   reason_summary: string; terminal_error_code: string | null;
   lease_owner: string | null; lease_expires_at: Date | string | null;
   deadline_at: Date | string; created_at: Date | string; updated_at: Date | string;
+}
+
+interface AttemptRow {
+  attempt_id: string; workspace_id: string; run_id: string; attempt_number: number; state: AgentRunAttempt['state'];
+  lease_owner: string; started_at: Date | string; ended_at: Date | string | null;
+  error_json: { code?: string } | null;
+}
+interface CheckpointRow {
+  checkpoint_id: string; workspace_id: string; run_id: string; attempt_id: string | null;
+  step_id: string | null; sequence: number; phase: AgentRunCheckpoint['phase'];
+  payload_digest: string; payload_json: Record<string, unknown>;
+  pending_invocation_id: string | null; cursor: string | null; created_at: Date | string;
 }
 
 interface EventRow { workspace_id: string; run_id: string; sequence: number; event_json: AgentEvent; created_at: Date | string }
@@ -52,6 +68,7 @@ const runOf = (row: RunRow): AgentRunRecord => ({
   snapshot: row.snapshot_json,
   attemptCount: Number(row.attempt_count),
   stepCount: Number(row.step_count),
+  ...(row.current_attempt_id ? { currentAttemptId: row.current_attempt_id } : {}),
   reasonSummary: row.reason_summary,
   ...(row.terminal_error_code ? { terminalErrorCode: row.terminal_error_code } : {}),
   ...(row.lease_owner ? { leaseOwner: row.lease_owner } : {}),
@@ -82,6 +99,97 @@ const approvalOf = (row: ApprovalRow): AgentApprovalRequest => ({
   ...(row.decision_note ? { decisionNote: row.decision_note } : {}),
 });
 
+const attemptOf = (row: AttemptRow): AgentRunAttempt => ({
+  attemptId: row.attempt_id, runId: row.run_id, attemptNumber: Number(row.attempt_number),
+  state: row.state, leaseOwner: row.lease_owner, startedAt: iso(row.started_at),
+  ...(row.ended_at ? { endedAt: iso(row.ended_at) } : {}),
+  ...(row.error_json?.code ? { errorCode: row.error_json.code } : {}),
+});
+
+const checkpointOf = (row: CheckpointRow): AgentRunCheckpoint => ({
+  checkpointId: row.checkpoint_id, runId: row.run_id, attemptId: row.attempt_id,
+  stepId: row.step_id, sequence: Number(row.sequence), phase: row.phase,
+  payloadDigest: row.payload_digest, payload: row.payload_json,
+  pendingInvocationId: row.pending_invocation_id, cursor: row.cursor, createdAt: iso(row.created_at),
+});
+
+/**
+ * 把 AgentEvent 投影为统一 Outbox 的 DataEventV2（不新建 Dispatcher）。
+ * text 事件只留在 Agent 事件流，不进入 Outbox；其余事件只暴露可公开标量。
+ */
+function outboxEventOf(
+  workspaceId: string, runId: string, sequence: number, event: AgentEvent, at: string,
+): TenantDataEvent | null {
+  const eventType = eventTypeOf(event);
+  if (!eventType) return null;
+  const payload: Record<string, string | number | boolean | null> = {};
+  const add = (key: string, value: string | number | boolean | undefined | null): void => {
+    if (value !== undefined && value !== null) payload[key] = value;
+  };
+  const summary = 'summary' in event ? String(event.summary).slice(0, 512) : '';
+  add('summary', summary);
+  if (event.type === 'run_state') { add('state', event.state); add('version', event.version); }
+  if (event.type === 'step_started') { add('stepId', event.stepId); add('stepIndex', event.index); }
+  if (event.type === 'checkpoint') {
+    add('checkpointId', event.checkpointId); add('phase', event.phase);
+    add('checkpointSequence', event.sequence); add('pendingInvocationId', event.pendingInvocationId);
+    if (event.stepId) add('stepId', event.stepId);
+  }
+  if (event.type === 'tool_proposed') { add('proposalId', event.proposalId); add('toolId', event.toolId); add('version', event.version); }
+  if (event.type === 'tool_denied') { add('reasonCode', event.reasonCode); add('proposalId', event.proposalId); }
+  if (event.type === 'tool_started' || event.type === 'tool_result') {
+    add('invocationId', event.invocationId);
+    if (event.type === 'tool_started') add('toolId', event.toolId);
+    if (event.type === 'tool_result') { add('status', event.status); add('reasonCode', event.reasonCode); }
+  }
+  if (event.type === 'approval_required') {
+    add('approvalId', event.approval.approvalId); add('approvalState', event.approval.state);
+    add('kind', event.approval.kind); add('estimateMicros', event.approval.estimateMicros);
+    add('currency', event.approval.currency);
+  }
+  if (event.type === 'approval_decided') { add('approvalId', event.approvalId); add('approvalState', event.state); add('decidedBy', event.decidedBy); }
+  if (event.type === 'budget_reserved') { add('invocationId', event.invocationId); add('amountMicros', event.amountMicros); add('currency', event.currency); }
+  if (event.type === 'budget_settled') { add('invocationId', event.invocationId); add('reservedMicros', event.reservedMicros); add('settledMicros', event.settledMicros); }
+  if (event.type === 'completed') add('state', event.state);
+  if (event.type === 'error') add('code', event.code);
+  return {
+    eventId: `evt_${randomBytes(16).toString('hex')}`,
+    eventType,
+    schemaVersion: 'lyra.data.event/v2',
+    aggregateType: 'agent_run',
+    aggregateId: runId,
+    aggregateVersion: sequence,
+    occurredAt: at,
+    recordedAt: at,
+    correlationId: `agent-run:${runId}`,
+    causationId: null,
+    idempotencyKey: `agent.run:${runId}:${sequence}`,
+    authoritativeRef: { kind: 'agent_run', id: runId, revisionId: null, digest: digestOf({ workspaceId, runId, sequence, event }) },
+    payload,
+    workspaceId,
+  };
+}
+
+function eventTypeOf(event: AgentEvent): string | null {
+  switch (event.type) {
+    case 'run_state': return 'agent.run.state';
+    case 'step_started': return 'agent.step.started';
+    case 'checkpoint': return 'agent.run.checkpoint';
+    case 'tool_proposed': return 'agent.tool.proposed';
+    case 'tool_denied': return 'agent.tool.denied';
+    case 'tool_started': return 'agent.tool.started';
+    case 'tool_result': return 'agent.tool.result';
+    case 'approval_required': return 'agent.approval.required';
+    case 'approval_decided': return 'agent.approval.decided';
+    case 'budget_reserved': return 'agent.budget.reserved';
+    case 'budget_settled': return 'agent.budget.settled';
+    case 'completed': return 'agent.run.completed';
+    case 'error': return 'agent.run.error';
+    case 'text': return null;
+    default: return null;
+  }
+}
+
 export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
   constructor(private readonly database: PostgresDatabase) {}
 
@@ -90,13 +198,14 @@ export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
       await this.database.query(`
         INSERT INTO agent_runs (
           run_id, workspace_id, project_id, state, version, snapshot_json, snapshot_digest,
-          attempt_count, step_count, reason_summary, terminal_error_code,
+          attempt_count, step_count, current_attempt_id, reason_summary, terminal_error_code,
           lease_owner, lease_expires_at, heartbeat_at, deadline_at, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       `, [
         record.runId, record.workspaceId, record.snapshot.projectId, record.state, record.version,
         JSON.stringify(record.snapshot), record.snapshot.contextSnapshotDigest,
-        record.attemptCount, record.stepCount, record.reasonSummary, record.terminalErrorCode ?? null,
+        record.attemptCount, record.stepCount, record.currentAttemptId ?? null,
+        record.reasonSummary, record.terminalErrorCode ?? null,
         record.leaseOwner ?? null, record.leaseExpiresAt ?? null,
         record.leaseOwner ? record.updatedAt : null, record.deadlineAt, record.createdAt, record.updatedAt,
       ]);
@@ -114,15 +223,81 @@ export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
     const result = await this.database.query(`
       UPDATE agent_runs SET
         state = $3, version = $4, reason_summary = $5, terminal_error_code = $6,
-        attempt_count = $7, step_count = $8, lease_owner = $9, lease_expires_at = $10,
-        heartbeat_at = $11, updated_at = $12
-      WHERE workspace_id = $13 AND run_id = $1 AND version = $2
+        attempt_count = $7, step_count = $8, current_attempt_id = $9,
+        lease_owner = $10, lease_expires_at = $11,
+        heartbeat_at = $12, updated_at = $13
+      WHERE workspace_id = $14 AND run_id = $1 AND version = $2
     `, [
       next.runId, expectedVersion, next.state, next.version, next.reasonSummary, next.terminalErrorCode ?? null,
-      next.attemptCount, next.stepCount, next.leaseOwner ?? null, next.leaseExpiresAt ?? null,
+      next.attemptCount, next.stepCount, next.currentAttemptId ?? null,
+      next.leaseOwner ?? null, next.leaseExpiresAt ?? null,
       next.leaseOwner ? next.updatedAt : null, next.updatedAt, next.workspaceId,
     ]);
     return result.rowCount === 1;
+  }
+
+  async createAttempt(attempt: AgentRunAttempt): Promise<void> {
+    await this.database.query(`
+      INSERT INTO agent_run_attempts (
+        attempt_id, workspace_id, run_id, attempt_number, state, lease_owner, started_at, ended_at, error_json
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+    `, [attempt.attemptId, await this.requireWorkspaceOfRun(attempt.runId), attempt.runId,
+      attempt.attemptNumber, attempt.state, attempt.leaseOwner, attempt.startedAt,
+      attempt.endedAt ?? null, attempt.errorCode ? JSON.stringify({ code: attempt.errorCode }) : null]);
+  }
+
+  async completeAttempt(
+    attemptId: string,
+    patch: Pick<AgentRunAttempt, 'state' | 'endedAt' | 'errorCode'>,
+  ): Promise<void> {
+    await this.database.query(`
+      UPDATE agent_run_attempts SET state = $2, ended_at = $3, error_json = $4::jsonb
+      WHERE attempt_id = $1
+    `, [attemptId, patch.state, patch.endedAt ?? null,
+      patch.errorCode ? JSON.stringify({ code: patch.errorCode }) : null]);
+  }
+
+  async listAttempts(runId: string): Promise<AgentRunAttempt[]> {
+    const result = await this.database.query<AttemptRow>(`
+      SELECT * FROM agent_run_attempts WHERE run_id = $1 ORDER BY attempt_number
+    `, [runId]);
+    return result.rows.map(attemptOf);
+  }
+
+  async appendCheckpoint(checkpoint: AgentRunCheckpoint): Promise<void> {
+    const workspaceId = await this.requireWorkspaceOfRun(checkpoint.runId);
+    try {
+      await this.database.query(`
+        INSERT INTO agent_run_checkpoints (
+          checkpoint_id, workspace_id, run_id, attempt_id, step_id, sequence, phase,
+          payload_digest, payload_json, pending_invocation_id, cursor, created_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)
+      `, [checkpoint.checkpointId, workspaceId, checkpoint.runId, checkpoint.attemptId,
+        checkpoint.stepId, checkpoint.sequence, checkpoint.phase, checkpoint.payloadDigest,
+        JSON.stringify(checkpoint.payload), checkpoint.pendingInvocationId, checkpoint.cursor, checkpoint.createdAt]);
+    } catch (error) {
+      const pgCode = error && typeof error === 'object' ? (error as { code?: string }).code : undefined;
+      if (pgCode === '23505') {
+        throw new AgentContractError(409, 'AGENT_CHECKPOINT_STALE', 'Checkpoint sequence 已被其他执行器写入。');
+      }
+      throw persistenceError(error, 'AGENT_CHECKPOINT_PERSISTENCE_ERROR', 'Checkpoint 写入失败。');
+    }
+  }
+
+  async latestCheckpoint(runId: string): Promise<AgentRunCheckpoint | null> {
+    const result = await this.database.query<CheckpointRow>(`
+      SELECT * FROM agent_run_checkpoints WHERE run_id = $1
+      ORDER BY sequence DESC LIMIT 1
+    `, [runId]);
+    return result.rows[0] ? checkpointOf(result.rows[0]) : null;
+  }
+
+  async listCheckpoints(runId: string, afterSequence = 0, limit = 500): Promise<AgentRunCheckpoint[]> {
+    const result = await this.database.query<CheckpointRow>(`
+      SELECT * FROM agent_run_checkpoints WHERE run_id = $1 AND sequence > $2
+      ORDER BY sequence LIMIT $3
+    `, [runId, afterSequence, Math.min(1000, Math.max(1, limit))]);
+    return result.rows.map(checkpointOf);
   }
 
   async appendEvent(runId: string, event: AgentEvent): Promise<AgentEventRecord> {
@@ -141,7 +316,11 @@ export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
       `, [workspaceId, runId, sequence, event.type, JSON.stringify(event)]);
       const row = inserted.rows[0];
       if (!row) throw new AgentContractError(500, 'AGENT_EVENT_PERSISTENCE_ERROR', '事件写入失败。');
-      return { runId, sequence, event: row.event_json, at: iso(row.created_at) };
+      const at = iso(row.created_at);
+      const dataEvent = outboxEventOf(workspaceId, runId, sequence, event, at);
+      // 权威事件与 Outbox 同一事务；Outbox 失败则整个事件回滚。
+      if (dataEvent) await appendDataEvent(client, dataEvent);
+      return { runId, sequence, event: row.event_json, at };
     });
   }
 

@@ -14,12 +14,14 @@ export const DATA_EVENT_MAX_PAYLOAD_BYTES = 4096;
 export type DataAggregateType =
   | 'novel_chapter' | 'script' | 'asset' | 'production_run' | 'production_attempt'
   | 'external_operation' | 'quality_check' | 'delivery_artifact' | 'evaluation_run' | 'shot_spec'
-  | 'production_input' | 'director_scene' | 'object_version' | 'method_pack' | 'method_profile';
+  | 'production_input' | 'director_scene' | 'object_version' | 'method_pack' | 'method_profile'
+  | 'agent_run' | 'agent_tool_invocation';
 
 export const DATA_AGGREGATE_TYPES: readonly DataAggregateType[] = Object.freeze([
   'novel_chapter', 'script', 'asset', 'production_run', 'production_attempt',
   'external_operation', 'quality_check', 'delivery_artifact', 'evaluation_run', 'shot_spec',
   'production_input', 'director_scene', 'object_version', 'method_pack', 'method_profile',
+  'agent_run', 'agent_tool_invocation',
 ]);
 
 export interface DataEventFieldIssue {

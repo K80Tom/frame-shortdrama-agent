@@ -1,5 +1,6 @@
 import type {
-  AgentApprovalRequest, AgentApprovalState, AgentEvent, AgentRunRecord, AgentStep,
+  AgentApprovalRequest, AgentApprovalState, AgentEvent, AgentRunAttempt, AgentRunCheckpoint,
+  AgentRunRecord, AgentStep,
 } from '@lyra/shared';
 
 /**
@@ -33,6 +34,14 @@ export interface AgentRuntimeStore {
   getRun(runId: string): Promise<AgentRunRecord | null>;
   updateRun(expectedVersion: number, next: AgentRunRecord): Promise<boolean>;
 
+  createAttempt(attempt: AgentRunAttempt): Promise<void>;
+  completeAttempt(attemptId: string, patch: Pick<AgentRunAttempt, 'state' | 'endedAt' | 'errorCode'>): Promise<void>;
+  listAttempts(runId: string): Promise<AgentRunAttempt[]>;
+
+  appendCheckpoint(checkpoint: AgentRunCheckpoint): Promise<void>;
+  latestCheckpoint(runId: string): Promise<AgentRunCheckpoint | null>;
+  listCheckpoints(runId: string, afterSequence?: number, limit?: number): Promise<AgentRunCheckpoint[]>;
+
   appendEvent(runId: string, event: AgentEvent): Promise<AgentEventRecord>;
   listEvents(runId: string, afterSequence?: number, limit?: number): Promise<AgentEventRecord[]>;
 
@@ -56,6 +65,8 @@ export class InMemoryAgentRuntimeStore implements AgentRuntimeStore {
   private readonly steps = new Map<string, AgentStep>();
   private readonly snapshots = new Map<string, AgentContextSnapshot[]>();
   private readonly approvals = new Map<string, AgentApprovalRequest>();
+  private readonly attempts = new Map<string, AgentRunAttempt>();
+  private readonly checkpoints = new Map<string, AgentRunCheckpoint[]>();
 
   async createRun(record: AgentRunRecord): Promise<void> {
     if (this.runs.has(record.runId)) throw new Error(`Run 已存在：${record.runId}`);
@@ -72,6 +83,46 @@ export class InMemoryAgentRuntimeStore implements AgentRuntimeStore {
     if (!current || current.version !== expectedVersion) return false;
     this.runs.set(next.runId, structuredClone(next));
     return true;
+  }
+
+  async createAttempt(attempt: AgentRunAttempt): Promise<void> {
+    if (this.attempts.has(attempt.attemptId)) throw new Error(`Attempt 已存在：${attempt.attemptId}`);
+    this.attempts.set(attempt.attemptId, structuredClone(attempt));
+  }
+
+  async completeAttempt(attemptId: string, patch: Pick<AgentRunAttempt, 'state' | 'endedAt' | 'errorCode'>): Promise<void> {
+    const attempt = this.attempts.get(attemptId);
+    if (!attempt) return;
+    this.attempts.set(attemptId, structuredClone({ ...attempt, ...patch }));
+  }
+
+  async listAttempts(runId: string): Promise<AgentRunAttempt[]> {
+    return [...this.attempts.values()]
+      .filter(attempt => attempt.runId === runId)
+      .sort((left, right) => left.attemptNumber - right.attemptNumber)
+      .map(attempt => structuredClone(attempt));
+  }
+
+  async appendCheckpoint(checkpoint: AgentRunCheckpoint): Promise<void> {
+    const list = this.checkpoints.get(checkpoint.runId) ?? [];
+    if (list.some(item => item.sequence === checkpoint.sequence)) {
+      throw new Error(`Checkpoint sequence 已存在：${checkpoint.sequence}`);
+    }
+    list.push(structuredClone(checkpoint));
+    list.sort((left, right) => left.sequence - right.sequence);
+    this.checkpoints.set(checkpoint.runId, list);
+  }
+
+  async latestCheckpoint(runId: string): Promise<AgentRunCheckpoint | null> {
+    const list = this.checkpoints.get(runId);
+    return list && list.length > 0 ? structuredClone(list[list.length - 1]!) : null;
+  }
+
+  async listCheckpoints(runId: string, afterSequence = 0, limit = 500): Promise<AgentRunCheckpoint[]> {
+    return (this.checkpoints.get(runId) ?? [])
+      .filter(checkpoint => checkpoint.sequence > afterSequence)
+      .slice(0, Math.min(1000, Math.max(1, limit)))
+      .map(checkpoint => structuredClone(checkpoint));
   }
 
   async appendEvent(runId: string, event: AgentEvent): Promise<AgentEventRecord> {

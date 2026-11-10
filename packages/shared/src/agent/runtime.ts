@@ -123,6 +123,8 @@ export interface AgentRunRecord {
   snapshot: FrozenAgentSnapshot;
   attemptCount: number;
   stepCount: number;
+  /** 当前运行 attempt；Worker 崩溃后旧 attempt 保留，新 attempt 只能由 claim 创建。 */
+  currentAttemptId?: string;
   /** 可公开的执行摘要，不保存模型隐藏推理。 */
   reasonSummary: string;
   terminalErrorCode?: string;
@@ -166,6 +168,10 @@ export type AgentEvent =
   | { type: 'tool_result'; stepId: string; invocationId: string; status: string; summary: string; reasonCode: string }
   | { type: 'approval_required'; stepId: string; approval: AgentApprovalRequest }
   | { type: 'approval_decided'; approvalId: string; state: AgentApprovalState; decidedBy: string }
+  | {
+    type: 'checkpoint'; checkpointId: string; phase: AgentCheckpointPhase; sequence: number;
+    stepId: string | null; pendingInvocationId: string | null; summary: string;
+  }
   | { type: 'budget_reserved'; invocationId: string; amountMicros: number; currency: string }
   | { type: 'budget_settled'; invocationId: string; reservedMicros: number; settledMicros: number }
   | { type: 'completed'; state: 'succeeded' | 'failed' | 'cancelled' | 'inconclusive'; summary: string }
@@ -181,6 +187,43 @@ export interface AgentStep {
   toolCallCount: number;
   startedAt: string;
   endedAt?: string;
+}
+
+/** Worker 的每次领取都是一个不可覆盖的 attempt；崩溃恢复会创建新 attempt。 */
+export interface AgentRunAttempt {
+  attemptId: string;
+  runId: string;
+  attemptNumber: number;
+  state: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'lost' | 'interrupted';
+  leaseOwner: string;
+  startedAt: string;
+  endedAt?: string;
+  errorCode?: string;
+}
+
+/**
+ * 可恢复 Checkpoint 的阶段。
+ * - before_tool：Tool Invocation 已持久化，但执行结果尚未确认；
+ * - after_tool：本次 Tool 结果已写入，恢复时不得再次执行；
+ * - step_completed / run_completed：终态 Checkpoint，恢复直接返回。
+ */
+export type AgentCheckpointPhase = 'before_tool' | 'after_tool' | 'step_completed' | 'run_completed';
+
+/** 每个 Tool 调用前后都会落盘的恢复点；payload 只保存可公开的编排状态。 */
+export interface AgentRunCheckpoint {
+  checkpointId: string;
+  runId: string;
+  attemptId: string | null;
+  stepId: string | null;
+  /** 同一 Run 内严格递增，用于 latest 与断点重放。 */
+  sequence: number;
+  phase: AgentCheckpointPhase;
+  payloadDigest: string;
+  payload: Record<string, unknown>;
+  /** before_tool 时指向待确认的 Invocation；after_tool 为 null。 */
+  pendingInvocationId: string | null;
+  cursor: string | null;
+  createdAt: string;
 }
 
 const ID_PATTERN = /^[a-z][a-z0-9_-]{2,127}$/;
