@@ -456,13 +456,17 @@ export class ToolKernel {
       try {
         const adapter = this.registry.adapterFor(current.tool);
         raw = await withTimeout(adapter.execute(current.proposal.arguments, context), definition.retry.timeoutMs);
+        retainReservation = reservation !== null || definition.sideEffect === 'external_write' || definition.sideEffect === 'paid_external';
         if (options.validateOutput) validateToolOutput(definition.outputSchema, raw);
       } catch (failure) {
         const info = classifyFailure(failure);
         lastCode = info.code;
         lastSummary = info.summary;
         const endedAt = this.now().toISOString();
-        if (info.unknown) {
+        const uncertainEffect = definition.sideEffect === 'external_write' || definition.sideEffect === 'paid_external'
+          || definition.idempotency.strategy === 'none' || reservation !== null;
+        if (info.unknown || definition.retry.unknownCodes.includes(info.code) || retainReservation
+          || uncertainEffect && !(failure instanceof ToolAdapterError)) {
           retainReservation = true; // Includes failures while persisting the reconciliation state.
           const result = failureResult(definition, current, activeAttemptId, 'inconclusive', info.code, info.summary, startedAt, endedAt);
           const next = await this.commit(current, { state: 'reconciling', result });
@@ -492,7 +496,7 @@ export class ToolKernel {
       const result = successResult(definition, current, activeAttemptId, raw, startedAt, this.now(), this.options.maxObservationChars);
       let next: ToolInvocationRecord;
       try {
-        // 先提交成功状态，再结算；提交 CAS 失败时 reservation 仍然 open，可安全释放。
+        // 先提交成功状态，再结算；持久化或结算失败必须保留预留，恢复时按已确认结果补结算。
         next = await this.commit(current, { state: 'succeeded', result });
       } catch (failure) {
         await releaseOpen('AGENT_TOOL_INVOCATION_STALE');

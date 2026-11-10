@@ -399,3 +399,30 @@ for (const sideEffect of ['none','external_write','paid_external']) test('unknow
   assert.ok(attempts.every(r=>r.status==='rejected'),'the full budget must remain unavailable to concurrent callers');
   assert.equal(executed,0);
 });
+
+
+for(const mode of ['unknown','generic_error','unknown_commit','result_commit','settle','known_failure']) test('paid execution budget fault: '+mode,async()=>{
+ const definition=makeTool({sideEffect:'paid_external',executionOwner:'workflow_only',allowedWorkflowIds:['wf_paid'],requiredPermission:'workspace_write',cost:{estimatorRevision:'quote-v1',budgetDimension:'money',estimateMicros:5000,currency:'CNY'}});
+ const registry=new ToolRegistry();let executed=0;
+ registry.register(definition,{execute:async()=>{executed++;if(mode==='generic_error')throw new Error('connection closed after submit');if(mode.startsWith('unknown'))throw new ToolAdapterError('E_UNKNOWN','unknown',{unknown:true});if(mode==='known_failure')throw new ToolAdapterError('E_NOT_EXECUTED','confirmed not executed');return {summary:'confirmed',costMicros:4200};}});
+ const store=new InMemoryToolInvocationStore(),ledger=new InMemoryBudgetLedger({ws_demo:100000}),approvals=new InMemoryToolApprovalStore();
+ const kernel=new ToolKernel(registry,store,ledger,{approvals});const ctx=context({grantedPermissions:['workspace_write']});
+ const base={workspaceId:'ws_demo',agentId:'demo-agent',agentRunId:'run_demo',stepId:'stp_demo',proposal:proposal(definition),context:ctx,role:'member',grantedPermissions:ctx.grantedPermissions,workflow:{workflowId:'wf_paid',stage:'render',approvedPaidMicros:5000},budgetRemainingMicros:100000};
+ const pending=await kernel.prepare(base);await approvals.updateApproval(pending.approval.approvalId,{...pending.approval,state:'approved',decidedBy:'usr_owner',decidedAt:new Date().toISOString()});
+ const ready=await kernel.prepare({...base,approvalId:pending.approval.approvalId});assert.equal(ready.kind,'ready');
+ const update=store.update.bind(store),settle=ledger.settle.bind(ledger);
+ store.update=async(version,next)=>{if(mode==='result_commit'&&next.state==='succeeded'||mode==='unknown_commit'&&next.state==='reconciling')return false;return update(version,next);};
+ if(mode==='settle')ledger.settle=async()=>{throw new Error('settlement unavailable');};
+ if(['result_commit','unknown_commit','settle'].includes(mode))await assert.rejects(kernel.execute(ready.invocation,ctx));else await kernel.execute(ready.invocation,ctx);
+ assert.equal(executed,1);
+ assert.equal(ledger.reservationFor('ws_demo',ready.invocation.invocationId).state,mode==='known_failure'?'released':'reserved');
+ assert.equal(ledger.balanceOf('ws_demo'),mode==='known_failure'?100000:95000);
+ store.update=update;ledger.settle=settle;
+ if(mode==='settle'){
+  await kernel.recover(await store.get(ready.invocation.invocationId),ctx);
+  assert.equal(ledger.balanceOf('ws_demo'),95800);assert.equal(ledger.reservationFor('ws_demo',ready.invocation.invocationId).state,'settled');
+ }else if(mode!=='known_failure'){
+  const replay=await kernel.recover(await store.get(ready.invocation.invocationId),ctx);assert.equal(replay.invocation.state,'reconciling');assert.equal(ledger.balanceOf('ws_demo'),95000);
+ }
+ assert.equal(executed,1);
+});

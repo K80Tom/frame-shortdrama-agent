@@ -4,7 +4,7 @@ if (!process.env.DATABASE_URL) {
   console.error('test:db requires DATABASE_URL. For local development run: node --env-file=.env scripts/test-db.mjs');
   process.exitCode = 1;
 } else {
-  const result = spawnSync(process.execPath, ['--test',
+  const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1',
     'tests/breakdown-persistence.db.test.cjs', 'tests/production-persistence.db.test.cjs',
     'tests/production-e2e.db.test.cjs', 'tests/evaluation-catalog.db.test.cjs',
     'tests/evaluation-run-persistence.db.test.cjs',
