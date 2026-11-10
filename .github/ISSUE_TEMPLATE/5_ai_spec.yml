@@ -1,0 +1,110 @@
+name: "🤖 AI Task Spec (可执行规范卡)"
+description: "面向 AI 辅助流水线的标准化开发规范卡：明确边界、契约先行、测试用例与验证闭环。"
+title: "spec(<area>): <任务简要说明>"
+labels: ["type/feat", "ai-ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 💡 AI 流水线协作原则
+        本规范卡专为 **“契约先行 → 测试红灯 → 黑盒自愈 → 体验质检”** 的 4 拍流水线设计。
+        请在分配给 AI 开发前完整填写契约与验收用例，防止 AI 产生幻觉与代码冗余。
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "🔥 优先级"
+      options:
+        - "priority/P0 (阻塞级，核心链路不可用)"
+        - "priority/P1 (关键级，本轮重点交付能力)"
+        - "priority/P2 (演进级，持续优化与增强)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: package_boundaries
+    attributes:
+      label: "🧱 影响包与边界隔离 (严格遵守 AGENTS.md)"
+      description: "勾选本次改动涉及的代码包，AI 严禁跨越未勾选包或违背硬约束。"
+      options:
+        - label: "`packages/shared`：公共领域契约与类型定义（零服务依赖）"
+        - label: "`packages/agent`：AI 工作区编排/只读工具/状态机（纯逻辑，禁连数据库/读密钥）"
+        - label: "`packages/main`：数据与付费主权（NestJS / PostgreSQL / 模型密钥 / 媒体链）"
+        - label: "`packages/web`：React 工作台界面与交互"
+        - label: "`packages/cli`：命令行客户端工具"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: "🎯 业务意图与需求背景"
+      description: "清晰说明要做什么，解决什么业务问题或研发痛点。"
+      placeholder: "例如：实现小说拆解后的角色白名单校验，过滤不在资产库中的虚构角色..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract_spec
+    attributes:
+      label: "📐 阶段一：契约草案 (Contracts / Types)"
+      description: "在编写实现前必须确立的 TypeScript 接口、数据结构或 API 契约。"
+      value: |
+        ```typescript
+        // packages/shared 预期的接口或类型定义
+        export interface ExampleInput {
+          id: string;
+        }
+
+        export interface ExampleResult {
+          success: boolean;
+        }
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_scenarios
+    attributes:
+      label: "🧪 阶段二：验收场景与测试用例 (Acceptance Criteria / TDD Spec)"
+      description: "列举具体的测试场景（正常流、边界条件、异常分支），AI 将据此编写测试代码。"
+      value: |
+        - [ ] **用例 1 (正常流)**：
+          - 输入：...
+          - 预期行为与输出：...
+        - [ ] **用例 2 (边界/异常流)**：
+          - 输入：...
+          - 预期错误与状态：...
+        - [ ] **用例 3 (依赖倒置/外部 Mock)**：
+          - 外部依赖失败时：...
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification_commands
+    attributes:
+      label: "⚙️ 阶段三：自愈验证命令 (Verification Commands)"
+      description: "AI 在实现过程中必须自行运行并通过的命令序列。"
+      value: |
+        ```sh
+        # 1. 编译共享契约
+        npm --prefix packages/shared run build
+
+        # 2. 运行单测与集成测试（自愈目标：必须全绿）
+        npm --prefix packages/agent test
+        # 或 npm --prefix packages/main test
+
+        # 3. Monorepo 级构建检查
+        npm run build
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: human_acceptance
+    attributes:
+      label: "🎨 阶段四：人工质检与体验关注点 (Human Review Focus)"
+      description: "代码由测试保证，人类只重点关注这部分体验与质感。"
+      placeholder: "例如：前端卡片动效是否平滑、CLI 输出日志是否易读美观、报错提示语是否对用户友好..."
+    validations:
+      required: false
