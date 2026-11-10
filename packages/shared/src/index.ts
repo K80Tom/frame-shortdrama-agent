@@ -5,6 +5,7 @@
  * main / agent / cli / web 都从这里取同一套语言，避免各包自定义合同。
  */
 export * from './models';
+export * from './model-presets';
 export * from './platform-preflight';
 export * from './production';
 export * from './canvas';

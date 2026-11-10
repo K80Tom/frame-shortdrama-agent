@@ -7,8 +7,8 @@ import { readFile } from 'node:fs/promises';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { compatibleProfiles, profileDraft, copyProfileDraft, profilePayload, validateProfileDraft, modelSettingsApi } = await server.ssrLoadModule('/src/model-connections.ts');
-const { ProfileCard, RoleSelection } = await server.ssrLoadModule('/src/ModelLibrary.tsx');
+const { compatibleProfiles, profileDraft, copyProfileDraft, profilePayload, validateProfileDraft, modelSettingsApi, presetProfileDraft } = await server.ssrLoadModule('/src/model-connections.ts');
+const { ProfileCard, RoleSelection, PresetQuickAdd } = await server.ssrLoadModule('/src/ModelLibrary.tsx');
 const names = ['DeepSeek', 'Kimi K3', 'GPT-5.6 Sol', 'GPT-5.6 Terra'];
 const profiles = names.map((name, i) => ({ id: `model_${i}`, name, model: name === 'DeepSeek' ? 'deepseek-v4.1-flash-1017' : name === 'Kimi K3' ? 'kimi-k3' : name,
   kind: 'text', endpoint: `https://private-${i}.test/v1/chat/completions`, authType: i === 0 ? 'api-key' : 'bearer',
@@ -57,6 +57,43 @@ test('profile drafts support editing, creation and server-side credential reuse 
   assert.ok(validateProfileDraft({ ...draft, name: 'bad\nname' }));
   const media = profileDraft(undefined, 'video');
   assert.equal(media.kind, 'video'); assert.equal(media.apiKey, '');
+});
+
+test('preset drafts auto-fill endpoint/model/timeout and send only presetCode plus the user key', () => {
+  const provider = { id: 'deepseek', label: 'DeepSeek', vendor: 'DeepSeek', platform: 'openai_compatible',
+    defaultBaseUrl: 'https://api.deepseek.com/v1/chat/completions', credentialUrl: 'https://platform.deepseek.com/api_keys',
+    documentationUrl: 'https://api-docs.deepseek.com/', hint: '官方接口', supportedKinds: ['text'] };
+  const preset = { code: 'deepseek-chat', name: 'DeepSeek Chat', providerId: 'deepseek', kind: 'text', modelCode: 'deepseek-chat',
+    description: '官方预设', capabilities: ['文本对话'], contextWindow: 131072,
+    defaultBaseUrl: provider.defaultBaseUrl, config: { defaultTimeoutMs: 180000 } };
+  const draft = presetProfileDraft(preset, provider);
+  assert.equal(draft.presetCode, 'deepseek-chat');
+  assert.equal(draft.endpoint, provider.defaultBaseUrl);
+  assert.equal(draft.model, 'deepseek-chat');
+  assert.equal(draft.timeoutMs, 180000);
+  assert.equal(draft.apiKey, '');
+  assert.equal(validateProfileDraft(draft), null);
+  assert.deepEqual(profilePayload({ ...draft, apiKey: 'sk-user-own-key' }), { presetCode: 'deepseek-chat',
+    name: 'DeepSeek Chat', apiKey: 'sk-user-own-key', clearApiKey: false });
+});
+
+test('preset picker is grouped by provider and exposes the official API key link without a key input', () => {
+  const provider = { id: 'kling', label: '快手可灵', vendor: '快手', platform: 'newapi', defaultBaseUrl: 'https://api.klingai.com',
+    credentialUrl: 'https://app.klingai.com/global/dev', documentationUrl: 'https://kling.ai/dev/docs',
+    hint: '官方任务接口', supportedKinds: ['video'] };
+  const preset = { code: 'kling-v2-1-video', name: 'Kling Video 2.1', providerId: 'kling', kind: 'video', modelCode: 'kling-v2-1',
+    description: '视频预设', capabilities: ['图生视频-首帧'], defaultBaseUrl: provider.defaultBaseUrl,
+    config: { supportedResolutions: ['720p', '1080p'], supportedAspectRatios: ['16:9', '9:16'], defaultTimeoutMs: 300000 } };
+  const catalog = { providers: [provider], presets: [preset], groups: [{ provider, presets: [preset] }], total: 1,
+    filters: { kind: null, providerId: null }, secretsReturned: false };
+  const html = renderToStaticMarkup(createElement(PresetQuickAdd, { catalog, loading: false, error: '', busy: false,
+    onPick: noop, onRetry: noop, onClose: noop }));
+  assert.ok(html.includes('从厂商预设快速添加'));
+  assert.ok(html.includes('快手可灵'));
+  assert.ok(html.includes('Kling Video 2.1'));
+  assert.ok(html.includes('前往申请 API Key'));
+  assert.ok(html.includes('https://app.klingai.com/global/dev'));
+  assert.equal(html.includes('type="password"'), false);
 });
 
 test('selection requests send only profile identity and expected role version, never a credential', async t => {

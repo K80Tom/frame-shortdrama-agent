@@ -2,12 +2,15 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ArrowLeft, ArrowUpRight, Check, Copy, Download, FileText, Film, Image, KeyRound, Pencil, Plus, RefreshCw, Save, Settings2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Card, PageHeading, Tag } from './components';
 import { compatibleProfiles, copyProfileDraft, isTextRole, kindForRole, kindNames, modelRoles, modelSettingsApi,
-  profileDraft, profilePayload, roleInfo, validateProfileDraft, type ModelCatalog, type ModelConnection, type ModelProfile, type ModelRole, type ProfileDraft } from './model-connections';
+  presetProfileDraft, profileDraft, profilePayload, roleInfo, validateProfileDraft, type ModelCatalog, type ModelConnection,
+  type ModelPreset, type ModelPresetCatalog, type ModelProfile, type ModelRole, type ProfileDraft, type ProviderCatalog } from './model-connections';
 import './model-connections.css';
 import './model-library.css';
+import './model-presets.css';
 
 const icons = { breakdown: FileText, image: Image, video: Film, general: Sparkles };
-type Editor = { profile?: ModelProfile; copySource?: ModelProfile; draft: ProfileDraft; baseline: ProfileDraft };
+type PresetSource = { provider: ProviderCatalog; preset: ModelPreset };
+type Editor = { profile?: ModelProfile; copySource?: ModelProfile; presetSource?: PresetSource; draft: ProfileDraft; baseline: ProfileDraft };
 const signal = () => AbortSignal.timeout(15000);
 
 export function ModelConnectionSummary() {
@@ -39,6 +42,42 @@ export function ProfileCard({ profile, disabled, onEdit, onCopy }: { profile: Mo
   </article>;
 }
 
+function presetMeta(preset: ModelPreset): string {
+  if (preset.kind === 'text') return `${Math.round((preset.contextWindow ?? 0) / 1000)}K 上下文`;
+  if (preset.kind === 'video') {
+    const resolutions = preset.config?.supportedResolutions?.slice(0, 3).join(' / ');
+    const ratios = preset.config?.supportedAspectRatios?.slice(0, 3).join(' / ');
+    return [resolutions, ratios].filter(Boolean).join(' · ');
+  }
+  return preset.config?.supportedAspectRatios?.slice(0, 4).join(' / ') ?? '图像生成';
+}
+
+export function PresetQuickAdd({ catalog, loading, error, busy, onPick, onRetry, onClose }: {
+  catalog: ModelPresetCatalog | null; loading: boolean; error: string; busy: boolean;
+  onPick: (preset: ModelPreset, provider: ProviderCatalog) => void; onRetry: () => void; onClose: () => void;
+}) {
+  return <section className="model-preset-picker" id="model-preset-picker" aria-label="从厂商预设快速添加">
+    <div className="model-preset-heading"><div><p className="eyebrow">PROVIDER PRESETS</p><h3>从厂商预设快速添加</h3>
+      <p>选择预设后自动回填 Endpoint、模型名与默认超时；API Key 仍需你自己粘贴，且只保存在本机后端。</p></div>
+      <button type="button" className="button secondary" disabled={busy} onClick={onClose}>收起预设</button></div>
+    {loading && <p className="model-loading" role="status">正在读取厂商预设…</p>}
+    {error && <div className="model-preset-error"><p className="model-alert error" role="alert">{error}</p>
+      <button type="button" className="button secondary" disabled={loading} onClick={onRetry}><RefreshCw size={14} />重试读取</button></div>}
+    {catalog && <div className="model-preset-providers">{catalog.groups.map(group => <article className="model-preset-provider" key={group.provider.id}>
+      <div className="model-preset-provider-head"><div><strong>{group.provider.label}</strong><span>{group.provider.vendor}</span></div>
+        {group.provider.credentialUrl && <a className="model-preset-key-link" href={group.provider.credentialUrl} target="_blank" rel="noreferrer">前往申请 API Key <ArrowUpRight size={12} /></a>}
+      </div>
+      {group.provider.hint && <p className="model-preset-hint">{group.provider.hint}</p>}
+      <div className="model-preset-list">{group.presets.map(preset => <button type="button" className="model-preset-item" key={preset.code}
+        disabled={busy} onClick={() => onPick(preset, group.provider)}>
+        <span><strong>{preset.name}</strong><small>{kindNames[preset.kind]} · {preset.modelCode}</small></span>
+        <span>{presetMeta(preset)}</span>
+      </button>)}</div>
+    </article>)}</div>}
+    <p className="model-preset-foot">预设只包含公开元数据，不包含任何真实密钥；申请链接会打开厂商官方控制台。</p>
+  </section>;
+}
+
 export function RoleSelection({ item, profiles, selectedId, busy, onChange, onApply, onAdd }: { item: ModelConnection; profiles: ModelProfile[];
   selectedId: string; busy: boolean; onChange: (id: string) => void; onApply: () => void; onAdd: () => void }) {
   const choices = compatibleProfiles(profiles, item.role);
@@ -62,12 +101,14 @@ export function RoleSelection({ item, profiles, selectedId, busy, onChange, onAp
 
 function ProfileEditor({ editor, busy, onEdit, onSave, onCancel, editorRef }: { editor: Editor; busy: boolean;
   onEdit: (patch: Partial<ProfileDraft>) => void; onSave: () => void; onCancel: () => void; editorRef: RefObject<HTMLElement | null> }) {
-  const { draft, profile, copySource } = editor;
+  const { draft, profile, copySource, presetSource } = editor;
   const canReuse = copySource && draft.endpoint.trim() === copySource.endpoint && draft.authType === copySource.authType;
   return <section className="model-profile-editor" ref={editorRef} aria-label="模型连接编辑器">
     <form className="model-form panel" autoComplete="off" onSubmit={event => { event.preventDefault(); onSave(); }}>
-      <div className="model-form-heading"><span className="round-icon"><Settings2 size={23} /></span><div><small>SAVED MODEL CONNECTION</small><h2>{profile ? `编辑 ${profile.name}` : copySource ? '复制为新模型连接' : '添加模型连接'}</h2></div><Tag>{profile ? '修改已有连接' : '不会自动分配用途'}</Tag></div>
-      <p className="model-form-description">{profile?.roles.length ? `这份连接正在用于：${profile.roles.map(role => roleInfo[role].short).join('、')}。修改将影响这些用途的新任务；进行中的任务不变。` : '名称、地址、模型与密钥作为一套连接保存。保存不调用上游，也不改变当前用途选择。'}</p>
+      <div className="model-form-heading"><span className="round-icon"><Settings2 size={23} /></span><div><small>SAVED MODEL CONNECTION</small><h2>{profile ? `编辑 ${profile.name}` : copySource ? '复制为新模型连接' : '添加模型连接'}</h2></div><Tag>{profile ? '修改已有连接' : presetSource ? '厂商预设 · 待填密钥' : '不会自动分配用途'}</Tag></div>
+      <p className="model-form-description">{profile?.roles.length ? `这份连接正在用于：${profile.roles.map(role => roleInfo[role].short).join('、')}。修改将影响这些用途的新任务；进行中的任务不变。` : presetSource ? `已从「${presetSource.provider.label}」预设回填 Endpoint、模型名与默认参数；只差粘贴你自己的 API Key。` : '名称、地址、模型与密钥作为一套连接保存。保存不调用上游，也不改变当前用途选择。'}</p>
+      {presetSource && <div className="model-preset-source"><span><Sparkles size={15} />{presetSource.preset.name} · {kindNames[presetSource.preset.kind]}</span>
+        {presetSource.provider.credentialUrl && <a href={presetSource.provider.credentialUrl} target="_blank" rel="noreferrer">前往申请 API Key <ArrowUpRight size={13} /></a>}</div>}
       <fieldset disabled={busy}>
         <div className="model-field-row"><label>连接名称<input aria-label="连接名称" maxLength={80} value={draft.name} placeholder="例如 DeepSeek、Kimi K3" onChange={event => onEdit({ name: event.target.value })} /></label>
           <label>连接类型<select aria-label="连接类型" value={draft.kind} disabled={Boolean(profile?.roles.length)} onChange={event => onEdit({ kind: event.target.value as ProfileDraft['kind'] })}><option value="text">文本模型</option><option value="image">生图模型</option><option value="video">生视频模型</option></select></label></div>
@@ -96,8 +137,13 @@ export default function ModelConnections({ onUnsavedChange }: { onUnsavedChange?
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [presetOpen, setPresetOpen] = useState(false);
+  const [presetCatalog, setPresetCatalog] = useState<ModelPresetCatalog | null>(null);
+  const [presetLoading, setPresetLoading] = useState(false);
+  const [presetError, setPresetError] = useState('');
   const [reload, setReload] = useState(0);
   const busyRef = useRef(false);
+  const presetLoadingRef = useRef(false);
   const mounted = useRef(true);
   const editorRef = useRef<HTMLElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -155,10 +201,38 @@ export default function ModelConnections({ onUnsavedChange }: { onUnsavedChange?
     setEditor(current => {
       if (!current) return null;
       const draft = { ...current.draft, ...patch };
+      const presetLocked = ['endpoint', 'model', 'kind', 'authType', 'maxOutputTokens', 'timeoutMs']
+        .some(key => key in patch);
+      if (current.presetSource && presetLocked) {
+        draft.presetCode = undefined;
+        current = { ...current, presetSource: undefined };
+      }
       if (current.copySource && (draft.endpoint.trim() !== current.copySource.endpoint || draft.authType !== current.copySource.authType)) draft.copyCredentialsFrom = undefined;
       return { ...current, draft };
     });
     setMessage(''); setError('');
+  }
+  function loadPresetCatalog(force = false) {
+    if (!force && (presetCatalog || presetLoadingRef.current)) return;
+    presetLoadingRef.current = true;
+    setPresetLoading(true); setPresetError('');
+    void modelSettingsApi<ModelPresetCatalog>('/api/model-presets', undefined, signal())
+      .then(result => { if (mounted.current) setPresetCatalog(result); })
+      .catch(cause => { if (mounted.current) setPresetError(cause instanceof Error && cause.name !== 'TimeoutError'
+        ? cause.message : '读取厂商预设超时，请重试；不会写入任何连接。'); })
+      .finally(() => { presetLoadingRef.current = false; if (mounted.current) setPresetLoading(false); });
+  }
+  function openPresetPicker() {
+    if (editorDirty && !window.confirm('当前连接编辑尚未保存，确定放弃后打开厂商预设？')) return;
+    if (editorDirty) setEditor(null);
+    setPresetOpen(true); setMessage(''); setError(''); loadPresetCatalog();
+  }
+  function choosePreset(preset: ModelPreset, provider: ProviderCatalog) {
+    const draft = presetProfileDraft(preset, provider);
+    setEditor({ presetSource: { preset, provider }, draft, baseline: draft });
+    setPresetOpen(false);
+    setMessage(`已载入「${preset.name}」预设：Endpoint、模型名与默认参数已回填，请粘贴自己的 API Key 后保存。`);
+    setError('');
   }
   function saveProfile() {
     if (!editor) return;
@@ -174,7 +248,7 @@ export default function ModelConnections({ onUnsavedChange }: { onUnsavedChange?
   }
   function refresh() {
     if (dirty && !window.confirm('重新读取会丢弃尚未保存的模型选择、连接编辑与新输入密钥，确定继续？')) return;
-    setSelections({}); setEditor(null); setReload(value => value + 1); setMessage('');
+    setSelections({}); setEditor(null); setPresetOpen(false); setPresetCatalog(null); setPresetError(''); setReload(value => value + 1); setMessage('');
   }
   return <div className="model-connections">
     <a className="model-back" href="#/settings"><ArrowLeft size={15} />工作台设置</a>
@@ -196,11 +270,14 @@ export default function ModelConnections({ onUnsavedChange }: { onUnsavedChange?
         <aside className="model-guide"><div><ShieldCheck size={22} /><h3>切换模型，不重填凭据</h3><p>连接库保存多套完整配置。每种用途只选择一个连接，同一文本连接也可同时用于拆解和通用。</p></div><p className="model-guide-foot">配置完整不等于上游可用。保存与切换不测试连接、不消耗模型额度；进行中的任务使用原快照。</p></aside>
       </div>
       <section className="saved-model-library" aria-label="已保存模型连接库"><div className="saved-model-heading"><div><p className="eyebrow">YOUR MODEL LIBRARY</p><h2>已保存模型 <span>{catalog.profiles.length}</span></h2><p>每个模型一份完整连接，随时选用；密钥不回显。</p></div><div className="saved-model-actions">
+        <button className="button secondary" disabled={Boolean(busy)} onClick={openPresetPicker} aria-expanded={presetOpen} aria-controls="model-preset-picker"><Sparkles size={14} />从厂商预设快速添加</button>
         {catalog.legacyImportAvailable && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void action('导入旧环境连接', async () => {
           const result = await modelSettingsApi<ModelCatalog>('/api/model-profiles/import-environment', {}, signal());
           if (mounted.current) { setCatalog(result); setMessage('旧环境模型已保留在连接库中，当前用途选择未变；重复导入不覆盖已保存密钥。'); }
         })}><Download size={14} />导入旧环境连接</button>}
         <button className="button secondary" disabled={Boolean(busy)} onClick={() => openEditor()}><Plus size={14} />添加模型连接</button></div></div>
+        {presetOpen && <PresetQuickAdd catalog={presetCatalog} loading={presetLoading} error={presetError} busy={Boolean(busy)}
+          onPick={choosePreset} onRetry={() => loadPresetCatalog(true)} onClose={() => setPresetOpen(false)} />}
         <div className="saved-model-grid">{catalog.profiles.map(profile => <ProfileCard key={profile.id} profile={profile} disabled={Boolean(busy)} onEdit={() => openEditor(profile)} onCopy={() => openEditor(profile, true)} />)}</div>
         {!catalog.profiles.length && <p className="model-field-help">连接库为空，请添加模型连接，再分配用途。</p>}
       </section>
