@@ -150,6 +150,9 @@ export interface CreateAssetRetrievalPolicyPayloadInput {
 
 export interface AssetRetrievalGovernanceServiceOptions {
   now?: () => Date;
+  /** Main-owned authority; absent or failing proof must never produce clean positive labels. */
+  verifyAuthorization?: (workspaceId: string, observation: AssetRetrievalObservation,
+    decision: { selectedAssetId: string | null; selectedAssetVersionId: string | null }) => Promise<boolean>;
   gate?: EvolutionGateService;
   evaluationRegistrar?: AssetRetrievalEvaluationDatasetRegistrar;
   tokenLimit?: number;
@@ -215,6 +218,12 @@ export class AssetRetrievalGovernanceService {
     return { items: await this.repository.listObservations(workspaceId) };
   }
 
+  private async authorized(workspaceId: string, observation: AssetRetrievalObservation,
+    decision: { selectedAssetId: string | null; selectedAssetVersionId: string | null }): Promise<boolean> {
+    try { return await this.options.verifyAuthorization?.(workspaceId, observation, decision) === true; }
+    catch { return false; }
+  }
+
   async recordDecision(workspaceId: string, body: unknown): Promise<AssetRetrievalDecision> {
     const input = parseRecordAssetRetrievalDecisionInput(body);
     const observation = await this.repository.getObservation(workspaceId, input.observationId);
@@ -227,6 +236,9 @@ export class AssetRetrievalGovernanceService {
         && input.selectedAssetVersionId !== candidate.assetVersionId) {
         bad(422, 'ASSET_RETRIEVAL_DECISION_TARGET_UNKNOWN', '所选资产版本与观测候选不一致。');
       }
+    }
+    if (input.authorization.quality === 'clean' && !await this.authorized(workspaceId, observation, input)) {
+      input.authorization = { ...input.authorization, quality: 'unverified', verifiedAt: null };
     }
     const existing = input.decisionId
       ? await this.repository.getDecision(workspaceId, input.decisionId)
@@ -288,7 +300,8 @@ export class AssetRetrievalGovernanceService {
       if (filters.labeledOnly && !decision) continue;
       if (decision && (decision.decision === 'accept' || decision.decision === 'override')) {
         const quality = decision.authorization.quality;
-        if (quality !== 'clean' || filters.excludeAuthorizationQualities.includes(quality)) {
+        if (quality !== 'clean' || filters.excludeAuthorizationQualities.includes(quality)
+          || !await this.authorized(workspaceId, observation, decision)) {
           // 未回库核验/跨租户/授权失效的资产绝不能成为正样本；整条观测不进冻结集。
           deduplicatedCount += 1;
           continue;
@@ -377,7 +390,13 @@ export class AssetRetrievalGovernanceService {
       const observation = await this.repository.getObservation(workspaceId, observationId);
       if (!observation) bad(409, 'ASSET_RETRIEVAL_DATASET_INTEGRITY_FAILED', '数据集引用的观测已不可用。');
       const decision = await this.repository.getDecisionForObservation(workspaceId, observationId);
-      if (decision && revision.source.decisionIds.includes(decision.decisionId)) samples.push({ observation, decision });
+      if (decision && revision.source.decisionIds.includes(decision.decisionId)) {
+        if ((decision.decision === 'accept' || decision.decision === 'override')
+          && (decision.authorization.quality !== 'clean' || !await this.authorized(workspaceId, observation, decision))) {
+          bad(422, 'ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED', '正样本授权无法重新核验，禁止使用该数据集。');
+        }
+        samples.push({ observation, decision });
+      }
     }
     return samples;
   }

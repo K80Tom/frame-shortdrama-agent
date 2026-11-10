@@ -482,7 +482,7 @@ export function parseRecordAssetRetrievalDecisionInput(value: unknown): ParsedAs
     fail(400, 'ASSET_RETRIEVAL_DECISION_INVALID', `${kind} 不能把选中资产写成复用结果。`, 'asset');
   }
   const authorizationRaw = raw.authorization === undefined ? {} : object(raw.authorization, 'authorization');
-  const quality = authorizationRaw.quality === undefined ? 'clean'
+  const quality = authorizationRaw.quality === undefined ? 'unverified'
     : authorizationRaw.quality;
   if (!ASSET_RETRIEVAL_AUTHORIZATION_QUALITIES.includes(quality as AssetRetrievalAuthorizationQuality)) {
     fail(400, 'ASSET_RETRIEVAL_DECISION_INVALID', 'authorization.quality 无效。', 'asset');
