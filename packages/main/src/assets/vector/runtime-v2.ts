@@ -81,16 +81,22 @@ export function createTenantAwareAssetRetriever(config: AssetVectorConfig,
     semanticProvider,
     async retrieve(query, assets, policy) {
       const current = executionScope.current();
+      // The workspace is server-derived; a request body copy must never widen it.
+      const scopedQuery = current?.kind === 'tenant'
+        ? { ...query, workspaceId: current.tenant.workspaceId } : query;
       if (!runtime.enabled || current?.kind !== 'tenant') {
-        const lexical = retrieveAssetForGeneration(query, assets, policy);
+        const lexical = retrieveAssetForGeneration(scopedQuery, assets, policy);
         return { ...lexical, ruleVersion: ASSET_RETRIEVAL_HYBRID_RULE_VERSION,
-          mode: 'hybrid_semantic_lexical', semantic: { status: 'degraded', attempted: false,
-            model: config.embeddingModel, candidateCount: 0, reason: 'projection_unavailable' } };
+          mode: 'hybrid_semantic_lexical', retrievalMode: 'lexical',
+          degradationReason: runtime.enabled ? 'tenant-scope-required' : 'semantic-disabled',
+          semantic: { status: 'degraded', attempted: false,
+            model: config.embeddingModel, candidateCount: 0,
+            reason: runtime.enabled ? 'scope_required' : 'not_configured' } };
       }
       return new HybridAssetRetriever({ embedding,
         store: runtime.bind({ workspaceId: current.tenant.workspaceId }),
         model: config.embeddingModel, revision: config.revision,
-        queryCostMicros: config.queryCostMicros }).retrieve(query, assets, policy);
+        queryCostMicros: config.queryCostMicros }).retrieve(scopedQuery, assets, policy);
     },
   };
 }

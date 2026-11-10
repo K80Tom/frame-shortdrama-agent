@@ -35,7 +35,7 @@ export interface MilvusAssetVectorStoreDependencies {
 }
 export interface AssetVectorStore {
   upsert(record: AssetVectorRecord): Promise<void>;
-  search(vector: number[], kind: AssetKind, limit?: number): Promise<AssetVectorHit[]>;
+  search(vector: number[], kind: AssetKind, limit?: number, options?: { assetIds?: string[] }): Promise<AssetVectorHit[]>;
   deleteByAssetIds(assetIds: string[]): Promise<void>;
 }
 

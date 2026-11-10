@@ -19,9 +19,10 @@ export class ScopedAssetVectorStoreV2 implements AssetVectorStore {
     });
   }
 
-  async search(vector: number[], kind: AssetKind, limit = 12): Promise<AssetVectorHit[]> {
+  async search(vector: number[], kind: AssetKind, limit = 12, options?: { assetIds?: string[] }): Promise<AssetVectorHit[]> {
     return (await this.store.search(this.scope, {
       ...(this.projectId ? { projectId: this.projectId } : {}), kind, vector, limit,
+      ...(options?.assetIds !== undefined ? { assetIds: options.assetIds } : {}),
     })).map(hit => ({ assetId: hit.assetId, score: hit.score, sourceVersion: hit.sourceVersion }));
   }
 

@@ -41,5 +41,8 @@ export const LINEAGE_MIGRATIONS = ["048"] as const;
 /** Unified append-only evaluation results, evidence, and layered metrics (#134). */
 export const EVALUATION_RESULTS_MIGRATIONS = ["049"] as const;
 
+/** Versioned, immutable multi-view asset packs with tenant RLS (#126). */
+export const ASSET_PACK_MIGRATIONS = ["051"] as const;
+
 /** 候选门禁闭环：Candidate 状态机、049 门禁绑定、Canary 分流与 Registry Revision（#135）。 */
 export const EVOLUTION_GATE_MIGRATIONS = ["052"] as const;
