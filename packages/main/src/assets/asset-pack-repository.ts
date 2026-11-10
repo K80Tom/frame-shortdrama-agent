@@ -172,7 +172,7 @@ function databaseError(error: unknown): never {
 }
 
 export class PostgresAssetPackRepository implements AssetPackRepository {
-  constructor(private readonly db: PostgresDatabase) {}
+  constructor(private readonly db: Pick<PostgresDatabase, 'query' | 'transaction'>) {}
 
   async create(version: AssetPackVersion): Promise<AssetPackVersion> {
     const parsed = parse(version);

@@ -1,3 +1,6 @@
+import { assetRetrievalAuthorizationTransaction } from './asset-retrieval-governance/authorization-transaction';
+import { assetRetrievalAuthorization } from './asset-retrieval-governance/authorization';
+import { PostgresAssetPackRepository } from './assets/asset-pack-repository';
 import { PlatformPreflightService } from './platform/preflight';
 import { createPlatformProbes } from './platform/probes';
 import { createApp } from './app';
@@ -370,6 +373,8 @@ async function main() {
             new PostgresAssetRetrievalGovernanceRepository(database),
             {
               gate: evolutionGateService,
+              verifyAuthorization: assetRetrievalAuthorization(new PostgresAssetPackRepository(database)),
+              authorizationTransaction: assetRetrievalAuthorizationTransaction(database),
               evaluationRegistrar: evaluationService
                 ? new EvaluationServiceAssetRetrievalRegistrar(evaluationService) : undefined,
             },

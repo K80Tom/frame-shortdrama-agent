@@ -226,7 +226,7 @@ function refsFromRow(row: RefsRow): AssetRetrievalGovernanceRefs {
 }
 
 export class PostgresAssetRetrievalGovernanceRepository implements AssetRetrievalGovernanceRepository {
-  constructor(private readonly database: PostgresDatabase) {}
+  constructor(private readonly database: Pick<PostgresDatabase, 'query'>) {}
 
   async getObservation(workspaceId: string, observationId: string) {
     const result = await this.database.query<ObservationRow>(

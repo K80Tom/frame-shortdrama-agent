@@ -1,3 +1,10 @@
+const { EvaluationService } = require('../dist/evaluation/service');
+const { PostgresEvaluationRepository } = require('../dist/evaluation/postgres-repository');
+const { EvaluationServiceAssetRetrievalRegistrar } = require('../dist/asset-retrieval-governance/evaluation-registrar');
+const { assetRetrievalAuthorizationTransaction } = require('../dist/asset-retrieval-governance/authorization-transaction');
+const { assetPackContentDigest, parseAssetPackVersion, ASSET_PACK_SCHEMA_VERSION } = require('@lyra/shared');
+const { PostgresAssetPackRepository } = require('../dist/assets/asset-pack-repository');
+const { assetRetrievalAuthorization } = require('../dist/asset-retrieval-governance/authorization');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { randomBytes, createHash } = require('node:crypto');
@@ -32,7 +39,8 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE
     ON ALL TABLES IN SCHEMA public TO "${appRole.replaceAll('"', '""')}"`);
   const repository = new PostgresAssetRetrievalGovernanceRepository(database);
-  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at) });
+  const packs = new PostgresAssetPackRepository(database);
+  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: assetRetrievalAuthorization(packs, () => new Date(at)), authorizationTransaction: assetRetrievalAuthorizationTransaction(database, () => new Date(at)), evaluationRegistrar: new EvaluationServiceAssetRetrievalRegistrar(new EvaluationService(new PostgresEvaluationRepository(database))) });
   const contexts = [0, 1].map(() => {
     const suffix = token();
     return { userId: 'usr_' + suffix, workspaceId: 'ws_' + suffix,
@@ -75,7 +83,17 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
   const ids = new Map();
   for (const ctx of contexts) {
     ids.set(ctx.workspaceId, await scoped(ctx, async () => {
-      const observation = await service.recordObservation(ctx.workspaceId, observationInput(ctx.clientRequestId, 'asset_' + token()));
+      const base = { schemaVersion: ASSET_PACK_SCHEMA_VERSION, id: 'apv_' + token(), workspaceId: ctx.workspaceId,
+        projectScope:'project',projectId:ctx.projectId,kind:'character',logicalAssetId:'asset_'+token(),version:1,parentVersionId:null,
+        displayName:'Fixture',aliases:[],description:'',tags:[],sourceType:'imported',sourceRefs:[],license:'internal',
+        authorizationStatus:'allowed',authorizationReason:null,reviewStatus:'approved',reviewedBy:ctx.userId,reviewedAt:at,
+        validFrom:at,validUntil:null,allowedUsages:['evaluation'],restrictedProjects:[],mediaEntries:[],status:'adopted',createdBy:ctx.userId,createdAt:at };
+      const version = parseAssetPackVersion({...base,contentDigest:assetPackContentDigest(base)});
+      await packs.create(version);
+      await packs.adopt({workspaceId:ctx.workspaceId,adoptionId:'apa_'+token(),logicalAssetId:version.logicalAssetId,versionId:version.id,adoptedBy:ctx.userId,reason:'explicit fixture adoption',createdAt:at});
+      const observed = observationInput(ctx.clientRequestId, version.logicalAssetId); observed.projectId=ctx.projectId;
+      observed.candidates[0].assetVersionId=version.id; observed.candidates[0].assetVersionDigest=version.contentDigest;
+      const observation = await service.recordObservation(ctx.workspaceId, observed);
       await service.recordDecision(ctx.workspaceId, {
         observationId: observation.observationId, clientRequestId: 'decision-' + ctx.clientRequestId,
         decision: 'accept', selectedAssetId: observation.candidates[0].assetId,
@@ -93,7 +111,7 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
         assetRetrievalDatasetRevisionId: dataset.datasetRevisionId,
         policy: { threshold: 0.6, ambiguityMargin: 0.08, semanticWeight: 0.9 }, createdBy: ctx.userId,
       });
-      return { observation, dataset, payload };
+      return { observation, dataset, payload, version };
     }));
   }
 
@@ -118,6 +136,51 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
     error => error.code === '23514');
   });
 
+  await scoped(a, async () => {
+    const own=ids.get(a.workspaceId);
+    const registered=await service.registerEvaluationDataset(a.workspaceId,own.dataset.datasetRevisionId,{authorization:{status:'granted',basis:'internal approval',scope:'asset retrieval evaluation',grantedBy:a.userId,grantedAt:'2026-11-01',expiresAt:'2027-11-01',restrictions:[]}});
+    assert.equal(registered.evaluation.caseCount,1);
+    const counts=async()=>{
+      const result={};
+      for(const table of ['evaluation_datasets','evaluation_dataset_revisions','evaluation_cases','evaluation_lifecycle_events']) {
+        result[table]=Number((await admin.query(`SELECT count(*) FROM ${table} WHERE workspace_id=$1`,[a.workspaceId])).rows[0].count);
+      }
+      return result;
+    };
+    const before=await counts(), constraint='reject_refs_'+token();
+    await admin.query(`ALTER TABLE asset_retrieval_governance_refs ADD CONSTRAINT ${constraint} CHECK(workspace_id<>'${a.workspaceId}' OR evaluation_dataset_version_id IS NULL) NOT VALID`);
+    try {
+      await assert.rejects(service.registerEvaluationDataset(a.workspaceId,own.dataset.datasetRevisionId,{authorization:{status:'granted',basis:'internal approval',scope:'asset retrieval evaluation',grantedBy:a.userId,grantedAt:'2026-11-01',expiresAt:'2027-11-01',restrictions:[]}}));
+      assert.deepEqual(await counts(),before,'typed-ref failure rolls back dataset, revision, case and lifecycle rows');
+    } finally {await admin.query(`ALTER TABLE asset_retrieval_governance_refs DROP CONSTRAINT ${constraint}`);}
+
+    const revoked={...own.version,id:'apv_'+token(),version:2,parentVersionId:own.version.id,status:'revoked',authorizationStatus:'revoked'};
+    revoked.contentDigest=assetPackContentDigest(revoked);
+    let release, reached;
+    const hold=new Promise(resolve=>{release=resolve;});const ready=new Promise(resolve=>{reached=resolve;});
+    const freezing=assetRetrievalAuthorizationTransaction(database,()=>new Date(at))(async txService=>{
+      await txService.createDatasetRevision(a.workspaceId,{purpose:'evaluation',observationIds:[own.observation.observationId],createdBy:a.userId});
+      reached();await hold;
+    });
+    await Promise.race([ready,freezing.then(()=>{throw new Error('freeze did not reach barrier');})]);
+    const revoking=packs.create(parseAssetPackVersion(revoked));
+    try {
+      let blocked=false;const deadline=Date.now()+5000;
+      while(Date.now()<deadline){
+        const waiting=await admin.query("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%INSERT INTO asset_pack_versions%'");
+        if(waiting.rowCount){blocked=true;break;}await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.equal(blocked,true,'actual revocation INSERT waits until authoritative freeze transaction commits');
+    } finally {release();await Promise.all([freezing,revoking]);}
+    // The historical immutable row is still allowed; the new authoritative restriction must nevertheless block consumption.
+    assert.equal((await packs.get(a.workspaceId,own.version.id)).authorizationStatus,'allowed');
+    await assert.rejects(service.datasetSamples(a.workspaceId,own.dataset.datasetRevisionId),e=>e.code==='ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED');
+    await assert.rejects(service.createDatasetRevision(a.workspaceId,{purpose:'evaluation',observationIds:[own.observation.observationId],createdBy:a.userId}),e=>e.code==='ASSET_RETRIEVAL_DATASET_EMPTY');
+    const forged=observationInput('forged-'+token(),'asset_missing');
+    const obs=await service.recordObservation(a.workspaceId,forged);
+    const decision=await service.recordDecision(a.workspaceId,{observationId:obs.observationId,clientRequestId:'forged-decision-'+token(),decision:'accept',selectedAssetId:forged.candidates[0].assetId,selectedAssetVersionId:forged.candidates[0].assetVersionId,reason:'forged clean',actorId:a.userId,authorization:{quality:'clean'}});
+    assert.equal(decision.authorization.quality,'unverified');
+  });
   const rls = await admin.query(`SELECT relname, relrowsecurity, relforcerowsecurity
     FROM pg_class WHERE relnamespace='public'::regnamespace AND relname LIKE 'asset_retrieval_%' AND relkind='r'`);
   assert.equal(rls.rowCount, 5);

@@ -173,7 +173,7 @@ export class AssetRetrievalGovernanceController {
     const tenant = session(request, workspaceId);
     const value = body(raw);
     return this.gate(tenant.workspaceId).startEvaluation(tenant.workspaceId, candidateId, {
-      expectedVersion: this.expectedVersion(value),
+      expectedVersion: this.expectedVersion(value.expectedVersion),
       actorId: tenant.actorId,
       reason: this.reason(value.reason),
     });
@@ -200,7 +200,7 @@ export class AssetRetrievalGovernanceController {
       throw new ProductionError(400, 'ASSET_RETRIEVAL_ROLLOUT_REQUIRED', 'Adopt 必须提供 #135 rolloutId。');
     }
     return this.gate(tenant.workspaceId).promote(tenant.workspaceId, value.rolloutId, {
-      expectedVersion: this.expectedVersion(value),
+      expectedVersion: this.expectedVersion(value.expectedVersion),
       rolloutExpectedVersion: this.expectedVersion(value.rolloutExpectedVersion, 'rolloutExpectedVersion'),
       actorId: tenant.actorId,
       reason: this.reason(value.reason, true),
@@ -216,7 +216,7 @@ export class AssetRetrievalGovernanceController {
       throw new ProductionError(400, 'ASSET_RETRIEVAL_CANDIDATE_REQUIRED', 'Rollback 必须提供 candidateVersionId。');
     }
     return this.gate(tenant.workspaceId).rollback(tenant.workspaceId, value.candidateVersionId, {
-      expectedVersion: this.expectedVersion(value),
+      expectedVersion: this.expectedVersion(value.expectedVersion),
       actorId: tenant.actorId,
       reason: this.reason(value.reason, true),
     });
@@ -226,7 +226,7 @@ export class AssetRetrievalGovernanceController {
     const tenant = session(request, workspaceId);
     const value = body(raw);
     return this.gate(tenant.workspaceId).startCanary(tenant.workspaceId, candidateId, {
-      expectedVersion: this.expectedVersion(value),
+      expectedVersion: this.expectedVersion(value.expectedVersion),
       actorId: tenant.actorId,
       reason: this.reason(value.reason),
       routingKey: typeof value.routingKey === 'string' && value.routingKey.trim() ? value.routingKey : undefined,
