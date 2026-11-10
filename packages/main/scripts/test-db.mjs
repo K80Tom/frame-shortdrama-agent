@@ -19,7 +19,8 @@ if (!process.env.DATABASE_URL) {
     'tests/infra-outbox.db.test.cjs',
     'tests/lineage-persistence.db.test.cjs',
     'tests/lineage-source-reader.db.test.cjs',
-    'tests/method-packs.db.test.cjs'], {
+    'tests/method-packs.db.test.cjs',
+    'tests/asset-pack.db.test.cjs'], {
     stdio: 'inherit',
     env: process.env,
   });

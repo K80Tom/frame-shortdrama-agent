@@ -27,6 +27,8 @@ export interface VectorSearchQuery {
   kind: string;
   vector: number[];
   limit?: number;
+  /** PostgreSQL-prefiltered, authorized asset ids; Milvus must never widen this set. */
+  assetIds?: string[];
 }
 
 export interface VectorSearchHit {
