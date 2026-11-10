@@ -60,8 +60,15 @@ import type { AssetEvolutionService } from './evolution/service';
 import { EVOLUTION_GATE_SERVICE, EvolutionGateController } from './evolution/gate-controller';
 import type { EvolutionGateService } from './evolution/gate-service';
 import { EVALUATION_SERVICE, EvaluationController } from './evaluation/controller';
-import { EvaluationError } from '@lyra/shared';
+import { AssetRetrievalGovernanceError, EvaluationError, EvolutionGateError } from '@lyra/shared';
 import type { EvaluationService } from './evaluation/service';
+import {
+  AssetRetrievalGovernanceController,
+} from './asset-retrieval-governance/controller';
+import {
+  ASSET_RETRIEVAL_GOVERNANCE_SERVICE,
+  type AssetRetrievalGovernanceService,
+} from './asset-retrieval-governance/service';
 import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
 import { methodReference } from './prompt-packs/runtime';
 import { PromptPackError, type PromptPackService } from './prompt-packs/service';
@@ -142,6 +149,8 @@ export interface AppDependencies {
   /** 052 迁移就绪后注入的候选门禁闭环服务（#135）。 */
   evolutionGateService?: EvolutionGateService;
   evaluationService?: EvaluationService;
+  /** 054 迁移就绪后的资产检索观测、数据集与策略载荷 Facade（#128）。 */
+  assetRetrievalGovernanceService?: AssetRetrievalGovernanceService;
   promptPacksService?: PromptPackService;
   /** 050 迁移就绪后的方法包目录、准入、项目配置与运行冻结服务。 */
   methodPacksService?: MethodPackService;
@@ -471,6 +480,14 @@ class SafeErrors implements ExceptionFilter {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message,
         details: error.details } });
     }
+    if (error instanceof AssetRetrievalGovernanceError) {
+      return reply.status(error.status).send({ error: { code: error.code, message: error.message,
+        source: error.source } });
+    }
+    if (error instanceof EvolutionGateError) {
+      return reply.status(error.status).send({ error: { code: error.code, message: error.message,
+        source: 'governance' } });
+    }
     if (error instanceof CanvasError) {
       return reply.status(error.status).send({ error: { code: error.code, message: error.message,
         details: error.details } });
@@ -517,6 +534,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evolutionGateService ? [EvolutionGateController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
+    ...(dependencies.assetRetrievalGovernanceService ? [AssetRetrievalGovernanceController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : []),
     ...(dependencies.methodPacksService ? [MethodPacksController] : []),
     ...(dependencies.outboxTaskService ? [OutboxTaskController] : [])], providers: [ModelsService,
@@ -549,6 +567,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVOLUTION_GATE_SERVICE, useValue: dependencies.evolutionGateService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
+    { provide: ASSET_RETRIEVAL_GOVERNANCE_SERVICE,
+      useValue: dependencies.assetRetrievalGovernanceService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: METHOD_PACK_SERVICE, useValue: dependencies.methodPacksService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
@@ -561,6 +581,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
       || request.url.startsWith('/api/evaluation')
+      || request.url.includes('/asset-retrieval-governance')
       || request.url.startsWith('/api/assistant')
       || request.url.startsWith('/api/prompt-packs')
       || request.url.includes('/method-packs') || request.url.includes('/method-profiles')

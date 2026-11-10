@@ -23,4 +23,5 @@ test('the merged canvas/assistant migrations and evolution upgrade retain separa
  assert.equal(files.get('032'),'032_canvas_documents.sql');
  assert.equal(files.get('039'),'039_assistant_turns.sql');
  assert.equal(files.get('045'),'045_evolution_registry_tenancy.sql');
+ assert.equal(files.get('054'),'054_retrieval_policy_observations.sql');
 });
