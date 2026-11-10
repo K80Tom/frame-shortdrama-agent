@@ -405,8 +405,9 @@ export class ToolKernel {
     let current = await this.cas(loaded, 'running');
     let reservation: BudgetReservation | null = null;
     let reservationOpen = false;
+    let retainReservation = false;
     const releaseOpen = async (reason: string): Promise<void> => {
-      if (!reservation || !reservationOpen) return;
+      if (!reservation || !reservationOpen || retainReservation) return;
       await this.budget.release({ reservationId: reservation.reservationId, reason });
       reservationOpen = false;
     };
@@ -462,7 +463,7 @@ export class ToolKernel {
         lastSummary = info.summary;
         const endedAt = this.now().toISOString();
         if (info.unknown) {
-          await releaseOpen(info.code);
+          retainReservation = true; // Includes failures while persisting the reconciliation state.
           const result = failureResult(definition, current, activeAttemptId, 'inconclusive', info.code, info.summary, startedAt, endedAt);
           const next = await this.commit(current, { state: 'reconciling', result });
           await this.store.completeAttempt(activeAttemptId, { state: 'inconclusive', endedAt, reasonCode: info.code, summary: info.summary });
@@ -487,6 +488,7 @@ export class ToolKernel {
         return { invocation: next, result };
       }
 
+      retainReservation = true; // Provider success must not be refunded if result persistence or settlement fails.
       const result = successResult(definition, current, activeAttemptId, raw, startedAt, this.now(), this.options.maxObservationChars);
       let next: ToolInvocationRecord;
       try {
@@ -574,8 +576,12 @@ export class ToolKernel {
       return { invocation: loaded, result: loaded.result };
     }
 
-    if (loaded.state === 'failed' || loaded.state === 'cancelled' || loaded.state === 'inconclusive'
-      || loaded.state === 'reconciling') {
+    if (loaded.state === 'reconciling' || loaded.state === 'inconclusive' || loaded.result?.reconciliation === 'pending') {
+      // Unknown is not free: replay must retain the same reservation until an authoritative outcome exists.
+      if (loaded.result) return { invocation: loaded, result: loaded.result };
+      throw new AgentContractError(409, 'AGENT_TOOL_RECONCILIATION_REQUIRED', '外部结果未知，必须完成对账，预算预留保持不变。');
+    }
+    if (loaded.state === 'failed' || loaded.state === 'cancelled') {
       await this.budget.releaseForInvocation({
         workspaceId: loaded.workspaceId, invocationId: loaded.invocationId, reason: 'AGENT_TOOL_RECOVERY_TERMINAL',
       }).catch(() => undefined);
@@ -611,9 +617,7 @@ export class ToolKernel {
     const idempotent = definition.idempotency.strategy !== 'none';
     if (external || !idempotent) {
       // 外部结果未知：不能把“可能已经扣费/已写外部系统”的调用当普通重试。
-      await this.budget.releaseForInvocation({
-        workspaceId: loaded.workspaceId, invocationId: loaded.invocationId, reason: 'AGENT_TOOL_RECONCILIATION_REQUIRED',
-      });
+      // Keep reserved; the provider may already have executed or charged.
       const result = failureResult(
         definition, loaded, `rec_${randomUUID().replace(/-/g, '')}`, 'inconclusive',
         'AGENT_TOOL_RECONCILIATION_REQUIRED',
@@ -629,6 +633,9 @@ export class ToolKernel {
   }
 
   async cancel(invocation: ToolInvocationRecord, reason: string): Promise<ToolInvocationRecord> {
+    if (['running', 'waiting_external', 'reconciling'].includes(invocation.state) || invocation.result?.reconciliation === 'pending') {
+      throw new AgentContractError(409, 'AGENT_TOOL_RECONCILIATION_REQUIRED', '执行或外部结果未确认，不能通过取消释放预算。');
+    }
     if (invocation.state === 'succeeded' || invocation.state === 'failed' || invocation.state === 'inconclusive') {
       throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_TERMINAL', '已结束的 Invocation 不能取消。');
     }

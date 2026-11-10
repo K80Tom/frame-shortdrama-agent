@@ -280,11 +280,14 @@ test('同一付费 Invocation 并发 execute 只预留一次预算，取消会�
   await started;
   const live = await cancelStore.get(cancelReady.invocation.invocationId);
   assert.equal(live.state, 'running');
-  await cancelKernel.cancel(live, '测试取消');
+  await assert.rejects(cancelKernel.cancel(live, '用户取消'), error => error.code === 'AGENT_TOOL_RECONCILIATION_REQUIRED');
+  assert.equal(cancelLedger.balanceOf('ws_demo'), 95000);
+  assert.equal(cancelLedger.reservationFor('ws_demo', cancelReady.invocation.invocationId).state, 'reserved');
   finishResolve();
-  await assert.rejects(() => running, error => error.code === 'AGENT_TOOL_INVOCATION_STALE');
-  assert.equal(cancelLedger.balanceOf('ws_demo'), 100000);
-  assert.equal(cancelLedger.reservationFor('ws_demo', cancelReady.invocation.invocationId).state, 'released');
+  const completed = await running;
+  assert.equal(completed.invocation.state, 'succeeded');
+  assert.equal(cancelLedger.balanceOf('ws_demo'), 95800);
+  assert.equal(cancelLedger.reservationFor('ws_demo', cancelReady.invocation.invocationId).state, 'settled');
 });
 
 test('可重试失败按策略重试，外部结果未知进入 reconciling 而非失败', async () => {
@@ -372,4 +375,27 @@ test('多轮 tool_calls 循环逐轮重新校验，遇到需确认调用立即 W
   assert.equal(suspended.confirmationState, WAITING_CONFIRMATION);
   assert.equal(suspended.approval.estimateMicros, 5000);
   assert.equal(executed, 0);
+});
+
+
+for (const sideEffect of ['none','external_write','paid_external']) test('unknown '+sideEffect+' recovery/replay/cancel cannot recycle reserved workspace budget', async () => {
+  const definition = makeTool({sideEffect,...(sideEffect==='paid_external'?{executionOwner:'workflow_only',allowedWorkflowIds:['wf_paid'],cost:{estimatorRevision:'quote-v1',budgetDimension:'money',estimateMicros:5000,currency:'CNY'}}:{}),requiredPermission: sideEffect==='none'?'workspace_read':'workspace_write',idempotency:{strategy:'none',keyVersion:1}});
+  const registry = new ToolRegistry();let executed=0;
+  registry.register(definition,{execute:async()=>{executed++;return {summary:'must not run'};}});
+  const store = new InMemoryToolInvocationStore(), ledger = new InMemoryBudgetLedger({ws_demo:5000});
+  const kernel = new ToolKernel(registry,store,ledger,{approvals:new InMemoryToolApprovalStore()});
+  const ctx=context({grantedPermissions:['workspace_read','workspace_write']});
+  const prepared=await kernel.prepare({workspaceId:'ws_demo',agentId:'demo-agent',agentRunId:'run_demo',stepId:'stp_demo',proposal:proposal(definition),context:ctx,role:'member',grantedPermissions:ctx.grantedPermissions,workflow:sideEffect==='paid_external'?{workflowId:'wf_paid',stage:'render',approvedPaidMicros:0}:null,budgetRemainingMicros:5000});
+  assert.ok(prepared.invocation);
+  const live=await store.get(prepared.invocation.invocationId);
+  const running={...live,state:'running',version:live.version+1,attemptCount:1};assert.equal(await store.update(live.version,running),true);
+  await ledger.reserve({workspaceId:'ws_demo',agentRunId:'run_demo',invocationId:running.invocationId,amountMicros:5000,currency:'CNY'});
+  await assert.rejects(kernel.cancel(running,'user cancellation'),e=>e.code==='AGENT_TOOL_RECONCILIATION_REQUIRED');
+  const recovered=await kernel.recover(await store.get(running.invocationId),ctx);
+  assert.equal(recovered.invocation.state,'reconciling');
+  await kernel.recover(await store.get(running.invocationId),ctx);
+  await assert.rejects(kernel.cancel(recovered.invocation,'cancel unknown'),e=>e.code==='AGENT_TOOL_RECONCILIATION_REQUIRED');
+  const attempts=await Promise.allSettled([1,2].map(n=>ledger.reserve({workspaceId:'ws_demo',agentRunId:'another-run',invocationId:'another-'+n,amountMicros:1,currency:'CNY'})));
+  assert.ok(attempts.every(r=>r.status==='rejected'),'the full budget must remain unavailable to concurrent callers');
+  assert.equal(executed,0);
 });
