@@ -140,7 +140,7 @@ function locked(code: string, message: string): never {
 }
 
 /** PostgreSQL 实现；用事务 + advisory lock 分配 revision 号，用 Trigger 兜底不可变。 */export class PostgresEvaluationRepository implements EvaluationRepository {
-  constructor(private readonly database: PostgresDatabase) {}
+  constructor(private readonly database: Pick<PostgresDatabase, 'query' | 'transaction'>) {}
 
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     try {

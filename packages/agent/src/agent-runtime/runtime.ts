@@ -159,10 +159,8 @@ export class AgentRuntime {
       leaseExpiresAt: new Date(new Date(timestamp).getTime() + ttl).toISOString(),
       reasonSummary: '执行器已接管 Run。',
     };
-    const applied = await this.store.updateRun(run.version, next);
+    const applied = await this.store.claimRun(run.version, next, attempt);
     if (!applied) throw new AgentContractError(409, 'AGENT_RUN_STALE', '领取租约时 Run 已被其他执行器推进。');
-    await this.store.createAttempt(attempt);
-    await this.store.appendEvent(runId, { type: 'run_state', state: 'running', version: next.version, summary: next.reasonSummary });
     return clone(next);
   }
 

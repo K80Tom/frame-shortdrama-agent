@@ -100,6 +100,8 @@ function serviceFixture() {
   const gate = new EvolutionGateService(new InMemoryEvolutionGateRepository(), () => new Date(at));
   const service = new AssetRetrievalGovernanceService(repository, {
     now: () => new Date(at), gate,
+    // Explicit trusted test double for ranking/governance fixtures, not PG authorization evidence.
+    verifyAuthorization: async () => true,
   });
   return { repository, gate, service };
 }
@@ -279,7 +281,7 @@ test('registerEvaluationDataset delegates to #134 adapter and only stores typed 
   };
   const delegated = new AssetRetrievalGovernanceService(
     new InMemoryAssetRetrievalGovernanceRepository(),
-    { now: () => new Date(at), evaluationRegistrar: registrar },
+    { now: () => new Date(at), evaluationRegistrar: registrar, verifyAuthorization: async () => true },
   );
   const obs = await delegated.recordObservation(workspaceId,
     observationInput('eval-2', [candidate('asset_a', 1, 0.93, 0.91), candidate('asset_b', 2, 0.7, 0.7)]));
@@ -342,4 +344,38 @@ test('workspace-local payload refuses candidate creation in another tenant', asy
   });
   await assert.rejects(service.registerPolicyCandidate(ws(), payload.payloadId, { actorId: 'intruder' }),
     error => error.code === 'ASSET_RETRIEVAL_POLICY_PAYLOAD_NOT_FOUND');
+});
+
+
+test('missing authority, omitted quality and forged clean cannot enter a labeled dataset', async () => {
+  for (const mode of ['missing', 'omitted', 'forged', 'error']) {
+    const repository = new InMemoryAssetRetrievalGovernanceRepository();
+    const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at),
+      ...(mode === 'missing' ? {} : { verifyAuthorization: async () => { if (mode === 'error') throw new Error('private'); return false; } }) });
+    const workspaceId = ws();
+    const obs = await service.recordObservation(workspaceId, observationInput('unsafe-' + mode, [candidate('asset_a', 1, .9, .9)]));
+    const input = decisionInput(obs.observationId, 'unsafe-decision-' + mode);
+    if (mode === 'omitted') delete input.authorization;
+    const decision = await service.recordDecision(workspaceId, input);
+    assert.equal(decision.authorization.quality, 'unverified');
+    await assert.rejects(service.createDatasetRevision(workspaceId, { purpose: 'evaluation', observationIds: [obs.observationId], createdBy: 'user_fixture' }), e => e.code === 'ASSET_RETRIEVAL_DATASET_EMPTY');
+  }
+});
+
+test('authoritative revocation blocks freezing and all subsequent dataset consumption without rewriting history', async () => {
+  let allowed = true, registered = 0;
+  const repository = new InMemoryAssetRetrievalGovernanceRepository();
+  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: async () => allowed,
+    evaluationRegistrar: { async register() { registered++; throw new Error('must not register'); } } });
+  const workspaceId = ws();
+  const pair = await recordPair(service, workspaceId, 'revocation', [candidate('asset_a', 1, .9, .9)]);
+  const request = { purpose: 'evaluation', observationIds: [pair.observation.observationId], createdBy: 'user_fixture' };
+  const revision = await service.createDatasetRevision(workspaceId, request);
+  allowed = false;
+  await assert.rejects(service.createDatasetRevision(workspaceId, request), e => e.code === 'ASSET_RETRIEVAL_DATASET_EMPTY');
+  await assert.rejects(service.datasetSamples(workspaceId, revision.datasetRevisionId), e => e.code === 'ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED');
+  await assert.rejects(service.searchPolicy(workspaceId, revision.datasetRevisionId), e => e.code === 'ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED');
+  await assert.rejects(service.registerEvaluationDataset(workspaceId, revision.datasetRevisionId, { authorization: { status: 'granted' } }), e => e.code === 'ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED');
+  assert.equal(registered, 0);
+  assert.equal((await service.getDecision(workspaceId, pair.decision.decisionId)).authorization.quality, 'clean');
 });

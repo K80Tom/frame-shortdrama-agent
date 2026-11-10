@@ -6,7 +6,7 @@ const { PostgresAgentRuntimeStore } = require('../dist/agent-runtime/postgres-st
 const {
   PostgresBudgetLedger, PostgresToolInvocationStore, createAgentTooling,
 } = require('../dist/agent-runtime/index');
-const { AgentRuntime, ToolKernel, ToolRegistry } = require('@lyra/agent');
+const { AgentRuntime, ToolKernel, ToolRegistry, ToolAdapterError } = require('@lyra/agent');
 const { defineTool, digestOf } = require('@lyra/shared');
 
 const connectionString = process.env.DATABASE_URL;
@@ -49,7 +49,7 @@ function snapshot(userId) {
   };
 }
 
-test('041 预算预留按 Invocation 唯一，并发执行不重复扣费，取消释放预留', {
+test('041 paid calls reserve once, running cancellation retains funds and unknown replay cannot oversell', {
   skip: connectionString ? false : 'DATABASE_URL is required',
 }, async t => {
   const database = new PostgresDatabase({ connectionString }, { unscopedAccess: 'deny' });
@@ -181,20 +181,31 @@ test('041 预算预留按 Invocation 唯一，并发执行不重复扣费，取�
     await started;
     const live = await cancelTooling.invocationStore.get(cancelReady.invocation.invocationId);
     assert.equal(live.state, 'running');
-    await cancelTooling.toolKernel.cancel(live, '数据库取消测试');
-    finishResolve();
-    await assert.rejects(() => running, error => error.code === 'AGENT_TOOL_INVOCATION_STALE');
-    const cancelledReservation = await database.query(
-      'SELECT state FROM agent_budget_reservations WHERE workspace_id = $1 AND invocation_id = $2',
-      [workspaceId, cancelReady.invocation.invocationId],
-    );
-    assert.equal(cancelledReservation.rows[0].state, 'released');
-    const restored = await database.query(
-      'SELECT available_micros, reserved_micros FROM agent_budget_accounts WHERE workspace_id = $1 AND currency = $2',
-      [workspaceId, 'CNY'],
-    );
-    assert.equal(Number(restored.rows[0].available_micros), 95800);
-    assert.equal(Number(restored.rows[0].reserved_micros), 0);
+    await assert.rejects(cancelTooling.toolKernel.cancel(live,'user cancellation'),e=>e.code==='AGENT_TOOL_RECONCILIATION_REQUIRED');
+    finishResolve();await running;
+    const settled=await database.query('SELECT state FROM agent_budget_reservations WHERE workspace_id=$1 AND invocation_id=$2',[workspaceId,cancelReady.invocation.invocationId]);
+    assert.equal(settled.rows[0].state,'settled');
+    const restored=await database.query('SELECT available_micros,reserved_micros FROM agent_budget_accounts WHERE workspace_id=$1 AND currency=$2',[workspaceId,'CNY']);
+    assert.equal(Number(restored.rows[0].available_micros),91600);assert.equal(Number(restored.rows[0].reserved_micros),0);
+
+    // Authoritative test fixture funds exactly one unknown call; no provider is contacted.
+    await database.query('UPDATE agent_budget_accounts SET available_micros=5000,reserved_micros=0,version=version+1 WHERE workspace_id=$1 AND currency=$2',[workspaceId,'CNY']);
+    const unknownDefinition=paidTool('db.pay.unknown'),unknownRegistry=new ToolRegistry();let unknownCalls=0;
+    unknownRegistry.register(unknownDefinition,{execute:async()=>{unknownCalls++;throw new ToolAdapterError('E_UNKNOWN','provider outcome unknown',{unknown:true});}});
+    const unknownTooling=createAgentTooling(database,unknownRegistry);
+    const unknownContext={...context,toolCallId:'unknown-'+token(),requestId:'unknown-'+token()};
+    const unknownBase={...base,context:unknownContext,budgetRemainingMicros:5000,proposal:{...proposal,proposalId:'prop_unknown',toolId:unknownDefinition.toolId,version:unknownDefinition.version,manifestDigest:unknownDefinition.manifestDigest}};
+    const waitingUnknown=await unknownTooling.toolKernel.prepare(unknownBase);
+    const approval=await runtimeStore.getApproval(waitingUnknown.approval.approvalId);
+    await runtimeStore.updateApproval(approval.approvalId,{...approval,state:'approved',decidedBy:'usr_db_owner',decidedAt:now.toISOString()});
+    const readyUnknown=await unknownTooling.toolKernel.prepare({...unknownBase,approvalId:approval.approvalId});
+    const outcome=await unknownTooling.toolKernel.execute(readyUnknown.invocation,unknownContext);assert.equal(outcome.invocation.state,'reconciling');
+    await unknownTooling.toolKernel.recover(await unknownTooling.invocationStore.get(readyUnknown.invocation.invocationId),unknownContext);
+    await assert.rejects(unknownTooling.toolKernel.cancel(outcome.invocation,'cancel unknown'),e=>e.code==='AGENT_TOOL_RECONCILIATION_REQUIRED');
+    const concurrent=await Promise.allSettled([ledgerA,ledgerB].map((ledger,i)=>ledger.reserve({workspaceId,agentRunId:runId,invocationId:'inv_'+token(),amountMicros:1,currency:'CNY'})));
+    assert.ok(concurrent.every(r=>r.status==='rejected'));
+    const held=await database.query('SELECT available_micros,reserved_micros FROM agent_budget_accounts WHERE workspace_id=$1 AND currency=$2',[workspaceId,'CNY']);
+    assert.equal(Number(held.rows[0].available_micros),0);assert.equal(Number(held.rows[0].reserved_micros),5000);assert.equal(unknownCalls,1);
 
     // 真实 DB 的并发 approve/reject：只有一个 CAS 能写决定，另一个必须失败。
     const approvalId = `apr_${hex(12)}`;
