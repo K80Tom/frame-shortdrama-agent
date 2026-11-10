@@ -140,6 +140,20 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
     const own=ids.get(a.workspaceId);
     const registered=await service.registerEvaluationDataset(a.workspaceId,own.dataset.datasetRevisionId,{authorization:{status:'granted',basis:'internal approval',scope:'asset retrieval evaluation',grantedBy:a.userId,grantedAt:'2026-11-01',expiresAt:'2027-11-01',restrictions:[]}});
     assert.equal(registered.evaluation.caseCount,1);
+    const counts=async()=>{
+      const result={};
+      for(const table of ['evaluation_datasets','evaluation_dataset_revisions','evaluation_cases','evaluation_lifecycle_events']) {
+        result[table]=Number((await admin.query(`SELECT count(*) FROM ${table} WHERE workspace_id=$1`,[a.workspaceId])).rows[0].count);
+      }
+      return result;
+    };
+    const before=await counts(), constraint='reject_refs_'+token();
+    await admin.query(`ALTER TABLE asset_retrieval_governance_refs ADD CONSTRAINT ${constraint} CHECK(workspace_id<>'${a.workspaceId}' OR evaluation_dataset_version_id IS NULL) NOT VALID`);
+    try {
+      await assert.rejects(service.registerEvaluationDataset(a.workspaceId,own.dataset.datasetRevisionId,{authorization:{status:'granted',basis:'internal approval',scope:'asset retrieval evaluation',grantedBy:a.userId,grantedAt:'2026-11-01',expiresAt:'2027-11-01',restrictions:[]}}));
+      assert.deepEqual(await counts(),before,'typed-ref failure rolls back dataset, revision, case and lifecycle rows');
+    } finally {await admin.query(`ALTER TABLE asset_retrieval_governance_refs DROP CONSTRAINT ${constraint}`);}
+
     const revoked={...own.version,id:'apv_'+token(),version:2,parentVersionId:own.version.id,status:'revoked',authorizationStatus:'revoked'};
     revoked.contentDigest=assetPackContentDigest(revoked);
     let release, reached;
