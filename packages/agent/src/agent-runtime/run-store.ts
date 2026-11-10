@@ -1,3 +1,4 @@
+import { AgentContractError } from '@lyra/shared';
 import type {
   AgentApprovalRequest, AgentApprovalState, AgentEvent, AgentRunAttempt, AgentRunCheckpoint,
   AgentRunRecord, AgentStep,
@@ -34,6 +35,8 @@ export interface AgentRuntimeStore {
   getRun(runId: string): Promise<AgentRunRecord | null>;
   updateRun(expectedVersion: number, next: AgentRunRecord): Promise<boolean>;
 
+  /** CAS + Attempt + run_state event must commit together. No sequential fallback is safe. */
+  claimRun(expectedVersion: number, next: AgentRunRecord, attempt: AgentRunAttempt): Promise<boolean>;
   createAttempt(attempt: AgentRunAttempt): Promise<void>;
   completeAttempt(attemptId: string, patch: Pick<AgentRunAttempt, 'state' | 'endedAt' | 'errorCode'>): Promise<void>;
   listAttempts(runId: string): Promise<AgentRunAttempt[]>;
@@ -59,6 +62,14 @@ export interface AgentRuntimeStore {
   listApprovals(runId: string): Promise<AgentApprovalRequest[]>;
 }
 
+export function assertAgentClaim(expectedVersion: number, next: AgentRunRecord, attempt: AgentRunAttempt): void {
+  if (next.version !== expectedVersion + 1 || next.state !== 'running' || next.currentAttemptId !== attempt.attemptId
+    || next.runId !== attempt.runId || next.attemptCount !== attempt.attemptNumber || attempt.state !== 'running'
+    || !next.leaseOwner || next.leaseOwner !== attempt.leaseOwner || next.updatedAt !== attempt.startedAt) {
+    throw new AgentContractError(400, 'AGENT_CLAIM_INVALID', '领取状态与 Attempt 关联不一致。');
+  }
+}
+
 export class InMemoryAgentRuntimeStore implements AgentRuntimeStore {
   private readonly runs = new Map<string, AgentRunRecord>();
   private readonly events = new Map<string, AgentEventRecord[]>();
@@ -82,6 +93,22 @@ export class InMemoryAgentRuntimeStore implements AgentRuntimeStore {
     const current = this.runs.get(next.runId);
     if (!current || current.version !== expectedVersion) return false;
     this.runs.set(next.runId, structuredClone(next));
+    return true;
+  }
+
+  async claimRun(expectedVersion: number, next: AgentRunRecord, attempt: AgentRunAttempt): Promise<boolean> {
+    assertAgentClaim(expectedVersion, next, attempt);
+    const current = this.runs.get(next.runId);
+    if (!current || current.workspaceId !== next.workspaceId || current.version !== expectedVersion || current.state !== 'queued') return false;
+    if (next.attemptCount !== current.attemptCount + 1 || this.attempts.has(attempt.attemptId)) {
+      throw new AgentContractError(409, 'AGENT_ATTEMPT_CONFLICT', 'Attempt 标识或序号冲突。');
+    }
+    // Prepare every copy BEFORE mutating maps; no awaited operation can expose half a claim.
+    const runCopy = structuredClone(next), attemptCopy = structuredClone(attempt);
+    const events = [...(this.events.get(next.runId) ?? [])];
+    events.push({ runId: next.runId, sequence: events.length + 1, at: next.updatedAt,
+      event: { type: 'run_state', state: 'running', version: next.version, summary: next.reasonSummary } });
+    this.runs.set(next.runId, runCopy); this.attempts.set(attempt.attemptId, attemptCopy); this.events.set(next.runId, events);
     return true;
   }
 
