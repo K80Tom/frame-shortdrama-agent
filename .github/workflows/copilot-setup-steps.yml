@@ -9,6 +9,9 @@ on:
     paths:
       - .github/workflows/copilot-setup-steps.yml
 
+permissions:
+  contents: read
+
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
@@ -25,13 +28,19 @@ jobs:
           node-version: 22.19.0
           cache: npm
           cache-dependency-path: |
-            shortdrama-agent-lab/package-lock.json
-            shortdrama-agent-lab/web/package-lock.json
+            packages/shared/package-lock.json
+            packages/agent/package-lock.json
+            packages/main/package-lock.json
+            packages/web/package-lock.json
+
+      - name: Install and build shared contract
+        run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
 
       - name: Install backend dependencies
-        working-directory: shortdrama-agent-lab
-        run: npm ci
+        run: npm --prefix packages/agent ci --install-links && npm --prefix packages/main ci
+
+      - name: Build agent
+        run: npm --prefix packages/agent run build
 
       - name: Install frontend dependencies
-        working-directory: shortdrama-agent-lab/web
-        run: npm ci
+        run: npm --prefix packages/web ci --install-links

@@ -33,6 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v6
+      - name: Enforce read-only GitHub Actions
+        run: node deploy/check-workflows-readonly.mjs
       - name: Verify target branch policy
         env:
           EVENT_NAME: ${{ github.event_name }}

@@ -6,3 +6,7 @@
 **/dist/
 **/.vite/
 outputs/
+
+# 本地发布产物（由 deploy/build-release-bundle.sh 生成，禁止提交）
+lyra-docker-v*.tar.gz
+lyra-docker-v*.tar.gz.sha256
