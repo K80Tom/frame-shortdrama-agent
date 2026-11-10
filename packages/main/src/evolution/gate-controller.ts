@@ -1,11 +1,11 @@
+import { requireEvolutionPublisher } from './gate-authorization';
 // 候选门禁闭环 HTTP 接口（#135 H 子集）。
 // 工作区与操作者身份全部来自认证会话（request.auth.tenant，由 app.ts 的
 // preHandler 写入 AsyncLocalStorage；PostgreSQL RLS 消费同一会话变量），
 // 绝不信任请求体中的租户。所有状态变更要求 expectedVersion（CAS，409）；
 // 审批/停止/Promote/回滚要求非空 reason（422）。
 //
-// RBAC 说明：viewer 由全局请求门禁拦截；Approver / Release Manager 的
-// 细粒度角色门禁属 #135 E2 后续阶段，本切片先保证服务端状态机与门禁约束。
+// 发布/审批/灰度变更由认证 workspace owner/admin 执行；成员仍可提出候选与启动评测。
 
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
@@ -143,6 +143,7 @@ export class EvolutionGateController {
 
   @Post('candidates/:candidateId/gate') @HttpCode(200)
   bindGate(@Req() request: FastifyRequest, @Param('candidateId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     const value = body(raw);
     const input: BindGateInput = {
@@ -158,24 +159,28 @@ export class EvolutionGateController {
 
   @Post('candidates/:candidateId/approvals') @HttpCode(200)
   approve(@Req() request: FastifyRequest, @Param('candidateId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     return this.gate.approve(workspaceId, candidateId(id), { ...evolveInput(body(raw)), actorId });
   }
 
   @Post('candidates/:candidateId/rejections') @HttpCode(200)
   reject(@Req() request: FastifyRequest, @Param('candidateId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     return this.gate.reject(workspaceId, candidateId(id), { ...evolveInput(body(raw)), actorId });
   }
 
   @Post('candidates/:candidateId/rollback') @HttpCode(200)
   rollback(@Req() request: FastifyRequest, @Param('candidateId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     return this.gate.rollback(workspaceId, candidateId(id), { ...evolveInput(body(raw)), actorId });
   }
 
   @Post('candidates/:candidateId/canary') @HttpCode(201)
   startCanary(@Req() request: FastifyRequest, @Param('candidateId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     const value = body(raw);
     return this.gate.startCanary(workspaceId, candidateId(id), {
@@ -197,6 +202,7 @@ export class EvolutionGateController {
 
   @Post('rollouts/:rolloutId/observations') @HttpCode(200)
   observe(@Req() request: FastifyRequest, @Param('rolloutId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId } = session(request);
     const value = body(raw);
     const input: ObserveInput = {
@@ -210,6 +216,7 @@ export class EvolutionGateController {
 
   @Post('rollouts/:rolloutId/stop') @HttpCode(200)
   stop(@Req() request: FastifyRequest, @Param('rolloutId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     const value = body(raw);
     return this.gate.stopCanary(workspaceId, rolloutId(id), {
@@ -222,6 +229,7 @@ export class EvolutionGateController {
 
   @Post('rollouts/:rolloutId/promote') @HttpCode(200)
   promote(@Req() request: FastifyRequest, @Param('rolloutId') id: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const { workspaceId, actorId } = session(request);
     const value = body(raw);
     return this.gate.promote(workspaceId, rolloutId(id), {

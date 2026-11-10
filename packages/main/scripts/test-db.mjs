@@ -14,6 +14,7 @@ if (!process.env.DATABASE_URL) {
     'tests/stage1-data-foundation.db.test.cjs',
     'tests/stage1-storage-migration.db.test.cjs',
     'tests/production-media-object-projection.db.test.cjs',
+    'tests/evolution-gate-atomic.db.test.cjs',
     'tests/agent-runtime-persistence.db.test.cjs',
     'tests/agent-runtime-checkpoint.db.test.cjs',
     'tests/agent-budget-concurrency.db.test.cjs',

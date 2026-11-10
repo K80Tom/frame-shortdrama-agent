@@ -59,7 +59,14 @@ function mapCandidate(row: CandidateRow): EvolutionCandidate {
 }
 
 export class PostgresEvolutionGateRepository implements EvolutionGateRepository {
-  constructor(private readonly database: PostgresDatabase) {}
+  constructor(private readonly database: Pick<PostgresDatabase, 'query' | 'transaction'>) {}
+
+  async atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T> {
+    return this.database.transaction(client => work(new PostgresEvolutionGateRepository({
+      query: (text, values = []) => client.query(text, [...values]),
+      transaction: callback => callback(client),
+    })));
+  }
 
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     try { return await this.database.transaction(work); } catch (error) { return failure(error); }
@@ -190,6 +197,15 @@ export class PostgresEvolutionGateRepository implements EvolutionGateRepository 
       updatedAt: new Date(row.updated_at as string).toISOString(),
       stateVersion: row.state_version as number,
     };
+  }
+
+  async listCandidateRollouts(workspaceId: string, candidateId: string): Promise<EvolutionRollout[]> {
+    void workspaceId;
+    try {
+      const result = await this.database.query(
+        `SELECT * FROM evolution_gate_rollouts WHERE workspace_id = ${WS} AND candidate_id = $1`, [candidateId]);
+      return result.rows.map(row => PostgresEvolutionGateRepository.mapRollout(row));
+    } catch (error) { return failure(error); }
   }
 
   async getRollout(workspaceId: string, rolloutId: string): Promise<EvolutionRollout | null> {

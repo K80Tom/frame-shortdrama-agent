@@ -386,15 +386,18 @@ test('人工 Stop：候选进入 paused，路由停止；Promote 需满足最小
     current = observed.rollout;
     version = current.stateVersion;
   }
+  const staleStop = await statusOf(gate.stopCanary(WS, rollout.rolloutId, {
+    expectedVersion: 6, rolloutExpectedVersion: version, actorId: 'release-1', reason: '陈旧状态' }));
+  assert.equal(staleStop.code, 'EVOLUTION_STALE_STATE');
   const stopped = await gate.stopCanary(WS, rollout.rolloutId, {
-    expectedVersion: 6, rolloutExpectedVersion: version,
+    expectedVersion: 5, rolloutExpectedVersion: version,
     actorId: 'release-1', reason: '人工暂停观察' });
   assert.equal(stopped.rollout.status, 'paused');
   assert.equal(stopped.candidate.state, 'paused');
   const routeError = await statusOf(gate.route(WS, rollout.rolloutId, 'another-run'));
   assert.equal(routeError.status, 409);
   const promoted = await gate.promote(WS, rollout.rolloutId,
-    { expectedVersion: 7, rolloutExpectedVersion: stopped.rollout.stateVersion, actorId: 'release-1', reason: '补足样本后达标' });
+    { expectedVersion: 6, rolloutExpectedVersion: stopped.rollout.stateVersion, actorId: 'release-1', reason: '补足样本后达标' });
   assert.equal(promoted.candidate.state, 'promoted');
 });
 
@@ -467,4 +470,24 @@ test('observeRolloutRun：非 active 状态拒绝观测（CAS 防线之一）', 
     stoppedReason: '人工', startedAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z', stateVersion: 2,
   };
   assert.throws(() => observeRolloutRun(rollout, { anomaly: false }), /灰度已停止/);
+});
+
+
+test('InMemory commands serialize competing quota claims and discard failed snapshots', async () => {
+  const repository = new InMemoryEvolutionGateRepository();
+  const gate = new EvolutionGateService(repository);
+  const results = await Promise.allSettled(Array.from({ length: 5 }, (_, index) =>
+    gate.createCandidate(WS, createInput({ candidateRevision: `v-${index}`, maxCandidatesPerProposal: 1 }))));
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const candidate = results.find(result => result.status === 'fulfilled').value;
+  const before = await repository.getCandidate(WS, candidate.candidateId);
+  await assert.rejects(repository.atomic(async scoped => {
+    await scoped.updateCandidateState(WS, candidate.candidateId, 1,
+      { ...before, state: 'evaluating', stateVersion: 2 });
+    assert.deepEqual(await repository.getCandidate(WS, candidate.candidateId), before);
+    throw new Error('injected');
+  }), /injected/);
+  assert.deepEqual(await repository.getCandidate(WS, candidate.candidateId), before);
+  await gate.startEvaluation(WS, candidate.candidateId, { expectedVersion: 1, actorId: 'user-1' });
+  assert.equal((await repository.getCandidate(WS, candidate.candidateId)).state, 'evaluating');
 });

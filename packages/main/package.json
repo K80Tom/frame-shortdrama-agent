@@ -25,7 +25,7 @@
     "assets:vector-rebuild": "npm run build && node --env-file-if-exists=.env dist/assets/vector/rebuild.js",
     "auth:bootstrap": "npm run build && node --env-file-if-exists=.env dist/auth/bootstrap-admin.js",
     "test:db": "npm run build && node --env-file-if-exists=.env scripts/test-db.mjs",
-    "test:rls": "npm run build && node --test tests/stage1-tenant-isolation.db.test.cjs tests/evolution-tenant-isolation.db.test.cjs tests/production-input-source-reader.db.test.cjs tests/production-input-lifecycle.db.test.cjs tests/production-input-retention-migration.db.test.cjs tests/object-versions.db.test.cjs tests/method-packs-rls.db.test.cjs tests/asset-retrieval-governance.db.test.cjs tests/agent-claim-atomic.db.test.cjs",
+    "test:rls": "npm run build && node --test tests/stage1-tenant-isolation.db.test.cjs tests/evolution-tenant-isolation.db.test.cjs tests/evolution-gate-atomic.db.test.cjs tests/production-input-source-reader.db.test.cjs tests/production-input-lifecycle.db.test.cjs tests/production-input-retention-migration.db.test.cjs tests/object-versions.db.test.cjs tests/method-packs-rls.db.test.cjs tests/asset-retrieval-governance.db.test.cjs tests/agent-claim-atomic.db.test.cjs",
     "test:novel-db": "npm run build && node --test tests/novel-persistence.db.test.cjs",
     "test:assets-db": "npm run build && node --test tests/assets.db.test.cjs tests/novel-assets.db.test.cjs",
     "models:list": "node --env-file=.env examples/models-client.mjs list",

@@ -71,11 +71,14 @@ export interface ObserveInput {
 }
 
 export class EvolutionGateService {
-  constructor(private readonly repository: EvolutionGateRepository, private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly repository: EvolutionGateRepository, private readonly now: () => Date = () => new Date(),
+    private readonly inTransaction = false) {}
 
   // ---------- 创建（不可变 Candidate） ----------
 
   async createCandidate(workspaceId: string, input: CreateCandidateInput): Promise<EvolutionCandidate> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).createCandidate(workspaceId, input));
     if (input.scope === 'project' && !input.projectId) {
       throw new EvolutionGateError(422, 'EVOLUTION_SCOPE_INVALID', 'project 作用域必须提供 projectId。');
     }
@@ -169,6 +172,8 @@ export class EvolutionGateService {
   // ---------- 状态机（CAS） ----------
 
   async startEvaluation(workspaceId: string, candidateId: string, input: EvolveInput): Promise<EvolutionCandidate> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).startEvaluation(workspaceId, candidateId, input));
     return this.transition(workspaceId, candidateId, input, 'evaluating', 'evaluation.started');
   }
 
@@ -178,6 +183,8 @@ export class EvolutionGateService {
    */
   async bindGate(workspaceId: string, candidateId: string, input: BindGateInput):
     Promise<{ candidate: EvolutionCandidate; binding: EvolutionGateBinding }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).bindGate(workspaceId, candidateId, input));
     const candidate = await this.loadCandidate(workspaceId, candidateId);
     this.assertFresh(candidate, input.expectedVersion);
     const verdict = arbitrateEvolutionGate({
@@ -233,6 +240,8 @@ export class EvolutionGateService {
   }
 
   async approve(workspaceId: string, candidateId: string, input: EvolveInput): Promise<EvolutionCandidate> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).approve(workspaceId, candidateId, input));
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '批准必须提供非空人工理由。');
     }
@@ -255,6 +264,8 @@ export class EvolutionGateService {
   }
 
   async reject(workspaceId: string, candidateId: string, input: EvolveInput): Promise<EvolutionCandidate> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).reject(workspaceId, candidateId, input));
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '拒绝必须提供非空人工理由。');
     }
@@ -265,6 +276,8 @@ export class EvolutionGateService {
 
   async startCanary(workspaceId: string, candidateId: string, input: StartCanaryInput):
     Promise<{ candidate: EvolutionCandidate; rollout: EvolutionRollout }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).startCanary(workspaceId, candidateId, input));
     const candidate = await this.loadCandidate(workspaceId, candidateId);
     this.assertFresh(candidate, input.expectedVersion);
     const config: EvolutionRolloutConfig = {
@@ -319,6 +332,8 @@ export class EvolutionGateService {
 
   async observe(workspaceId: string, rolloutId: string, input: ObserveInput):
     Promise<{ rollout: EvolutionRollout; candidate: EvolutionCandidate | null }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).observe(workspaceId, rolloutId, input));
     const rollout = await this.loadRollout(workspaceId, rolloutId);
     if (rollout.stateVersion !== input.expectedVersion) {
       throw new EvolutionGateError(409, 'EVOLUTION_STALE_STATE', '灰度状态已变化（CAS），请刷新后重试。');
@@ -352,6 +367,8 @@ export class EvolutionGateService {
 
   async stopCanary(workspaceId: string, rolloutId: string, input: EvolveInput & { rolloutExpectedVersion: number }):
     Promise<{ rollout: EvolutionRollout; candidate: EvolutionCandidate | null }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).stopCanary(workspaceId, rolloutId, input));
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '人工停止必须提供非空理由。');
     }
@@ -370,7 +387,8 @@ export class EvolutionGateService {
     const current = await this.loadCandidate(workspaceId, rollout.candidateId);
     let candidate: EvolutionCandidate | null = null;
     if (current.state === 'canary') {
-      candidate = await this.applyTransition(workspaceId, current, current.stateVersion, 'paused',
+      this.assertFresh(current, input.expectedVersion);
+      candidate = await this.applyTransition(workspaceId, current, input.expectedVersion, 'paused',
         'canary.stopped', input.actorId, { rolloutId });
     }
     await this.audit(workspaceId, {
@@ -391,6 +409,8 @@ export class EvolutionGateService {
 
   async promote(workspaceId: string, rolloutId: string, input: EvolveInput & { rolloutExpectedVersion: number }):
     Promise<{ candidate: EvolutionCandidate; revision: EvolutionRegistryRevision }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).promote(workspaceId, rolloutId, input));
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', 'Promote 必须提供非空人工理由。');
     }
@@ -409,7 +429,8 @@ export class EvolutionGateService {
     if (candidate.state !== 'canary' && candidate.state !== 'paused') {
       throw new EvolutionGateError(422, 'EVOLUTION_PROMOTE_INVALID', `候选状态为 ${candidate.state}，不允许 Promote。`);
     }
-    const candidateUpdated = await this.applyTransition(workspaceId, candidate, candidate.stateVersion, 'promoted',
+    this.assertFresh(candidate, input.expectedVersion);
+    const candidateUpdated = await this.applyTransition(workspaceId, candidate, input.expectedVersion, 'promoted',
       'candidate.promoted', input.actorId, { rolloutId });
     const revision = await this.appendRevision(workspaceId, {
       domain: rollout.domain, scope: rollout.scope, projectId: rollout.projectId,
@@ -419,7 +440,8 @@ export class EvolutionGateService {
     });
     const rolloutNext: EvolutionRollout = { ...rollout, status: 'promoted',
       stateVersion: rollout.stateVersion + 1, updatedAt: this.now().toISOString() };
-    await this.repository.updateRollout(workspaceId, rolloutId, rollout.stateVersion, rolloutNext);
+    const updated = await this.repository.updateRollout(workspaceId, rolloutId, rollout.stateVersion, rolloutNext);
+    if (!updated) throw new EvolutionGateError(409, 'EVOLUTION_STALE_STATE', '灰度状态已变化，发布事务已回滚。');
     await this.audit(workspaceId, {
       candidateId: candidate.candidateId,
       rolloutId,
@@ -437,6 +459,8 @@ export class EvolutionGateService {
   /** 回滚：追加一个指向已知安全版本（基线）的新 Registry Revision；历史全部保留（EV-28）。 */
   async rollback(workspaceId: string, candidateId: string, input: EvolveInput):
     Promise<{ candidate: EvolutionCandidate; revision: EvolutionRegistryRevision }> {
+    if (!this.inTransaction) return this.repository.atomic(repository =>
+      new EvolutionGateService(repository, this.now, true).rollback(workspaceId, candidateId, input));
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '回滚必须提供非空人工理由。');
     }
@@ -453,6 +477,16 @@ export class EvolutionGateService {
       activeDigest: candidate.baselineDigest, activeRevision: candidate.baselineRevision,
       previousDigest: candidate.candidateDigest, reason: input.reason.trim(), actor: input.actorId, rolloutId: null,
     });
+    // A rollback must also stop routing through any live rollout of this candidate.
+    for (const rollout of await this.repository.listCandidateRollouts(workspaceId, candidateId)) {
+      if (rollout.status !== 'active' && rollout.status !== 'paused') continue;
+      const next: EvolutionRollout = { ...rollout, status: 'paused',
+        stoppedReason: '候选已回滚：' + input.reason.trim(),
+        updatedAt: this.now().toISOString(), stateVersion: rollout.stateVersion + 1 };
+      if (!await this.repository.updateRollout(workspaceId, rollout.rolloutId, rollout.stateVersion, next)) {
+        throw new EvolutionGateError(409, 'EVOLUTION_STALE_STATE', '灰度状态已变化，回滚事务已撤销。');
+      }
+    }
     await this.audit(workspaceId, {
       candidateId,
       rolloutId: null,
