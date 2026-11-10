@@ -1,3 +1,4 @@
+import { requireEvolutionPublisher } from '../evolution/gate-authorization';
 // #128 资产检索策略治理领域 Facade。
 // 租户与操作者身份只来自认证会话；路径中的 workspaceId 仅用于路由，必须与会话一致。
 // Dataset/Evaluation 注册委托 #134，Candidate/Canary/Adopt/Rollback 委托 #135；
@@ -194,6 +195,7 @@ export class AssetRetrievalGovernanceController {
   @Post('candidates/:candidateId/adopt') @HttpCode(200)
   adopt(@Req() request: FastifyRequest, @Param('workspaceId') workspaceId: string,
     @Param('candidateId') candidateId: string, @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const tenant = session(request, workspaceId);
     const value = body(raw);
     if (typeof value.rolloutId !== 'string' || !value.rolloutId.trim()) {
@@ -210,6 +212,7 @@ export class AssetRetrievalGovernanceController {
   @Post('registry/rollback') @HttpCode(200)
   rollback(@Req() request: FastifyRequest, @Param('workspaceId') workspaceId: string,
     @Body() raw: unknown) {
+    requireEvolutionPublisher(request);
     const tenant = session(request, workspaceId);
     const value = body(raw);
     if (typeof value.candidateVersionId !== 'string' || !value.candidateVersionId.trim()) {
@@ -223,6 +226,7 @@ export class AssetRetrievalGovernanceController {
   }
 
   private startCanary(request: FastifyRequest, workspaceId: string, candidateId: string, raw: unknown) {
+    requireEvolutionPublisher(request);
     const tenant = session(request, workspaceId);
     const value = body(raw);
     return this.gate(tenant.workspaceId).startCanary(tenant.workspaceId, candidateId, {
