@@ -45,5 +45,5 @@
 
 - `npm run build` 通过（shared → agent → main → cli → web）。
 - `npm --prefix packages/agent test`：35/35，覆盖每次调用前后 Checkpoint、结果落库前崩溃复用、running 恢复、completed 重放、并发领取与新 Attempt。
-- `DATABASE_URL=... npm --prefix packages/main run test:db`：34 pass / 1 skip（既有 DB 用例）；053 在全新库与增量库均迁移通过；非超管 `lyra_app` 验证跨 Workspace 读不到 Checkpoint。
+- `DATABASE_URL=... npm --prefix packages/main run test:db`：36 pass / 1 skip（既有 DB 用例）；053 在全新库迁移通过，并在既有库增量应用后用非超管 `lyra_app` 验证跨 Workspace 读不到 Checkpoint。
 - 未完成：生产 Worker 调度器与 HTTP API；真实进程 kill / 租约过期自动回收演练；真实领域 Agent 绑定与付费工具；真实供应商对账。
