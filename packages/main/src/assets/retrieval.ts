@@ -1,5 +1,5 @@
-import type { AssetKind, AssetRecord } from '@lyra/shared';
-import { DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
+import type { AssetAuthorizationStatus, AssetKind, AssetPackRequirementGap, AssetRecord, AssetView } from '@lyra/shared';
+import { ASSET_AUTHORIZATION_ERROR_CODES, DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
 
 export const ASSET_RETRIEVAL_RULE_VERSION = 'asset-rag-structured/1';
 export const ASSET_RETRIEVAL_HYBRID_RULE_VERSION = 'asset-rag-hybrid/1';
@@ -13,6 +13,25 @@ const MAX_CANDIDATES = 5;
 export type AssetRetrievalRuleVersion = typeof ASSET_RETRIEVAL_RULE_VERSION
   | typeof ASSET_RETRIEVAL_HYBRID_RULE_VERSION;
 export type AssetRetrievalMode = 'structured_lexical' | 'hybrid_semantic_lexical';
+/** User-facing mode matrix. `mode` above stays for compatibility with earlier runs. */
+export type AssetRetrievalStrategyMode = 'lexical' | 'hybrid' | 'degraded-lexical' | 'blocked';
+
+/** Optional pack facts attached to a legacy AssetRecord for hard filtering. */
+export interface AssetRetrievalSubject extends AssetRecord {
+  workspaceId?: string;
+  projectId?: string | null;
+  assetPackVersionId?: string;
+  logicalAssetId?: string;
+  views?: AssetView[];
+  states?: string[];
+  traits?: string[];
+  authorizationStatus?: AssetAuthorizationStatus;
+  authorizationReason?: string | null;
+  reviewStatus?: 'pending' | 'approved' | 'rejected';
+  allowedUsages?: string[];
+  restrictedProjects?: string[];
+  qualityScore?: number;
+}
 
 export interface AssetRetrievalQuery {
   kind: AssetKind;
@@ -20,15 +39,47 @@ export interface AssetRetrievalQuery {
   aliases: string[];
   description?: string;
   sourceQuotes?: string[];
+  /** Server-derived workspace; never trust a request body copy. */
+  workspaceId?: string;
+  projectId?: string;
+  shotId?: string;
+  requiredEntities?: string[];
+  requiredView?: AssetView;
+  requiredState?: string;
+  requiredTraits?: string[];
+  excludedTraits?: string[];
+  usage?: string;
+  authorizationRequired?: boolean;
+  reviewRequired?: boolean;
+  topK?: number;
+  candidateBudget?: number;
 }
 
+export type AssetRetrievalMatchedField = 'name' | 'description' | 'semantic' | 'constraint' | 'quality';
+export type AssetAuthorizationDecision = {
+  allowed: boolean;
+  status: AssetAuthorizationStatus;
+  reason: string | null;
+  code: string | null;
+};
+
 export interface AssetRetrievalCandidate {
-  asset: AssetRecord;
+  asset: AssetRetrievalSubject;
   score: number;
-  matchedFields: Array<'name' | 'description' | 'semantic'>;
+  matchedFields: AssetRetrievalMatchedField[];
   matchedTerms: string[];
   lexicalScore?: number;
   semanticScore?: number;
+  viewScore?: number;
+  constraintScore?: number;
+  qualityScore?: number;
+  combinedScore?: number;
+  matchedTraits?: string[];
+  missingRequirements?: string[];
+  conflicts?: string[];
+  authorizationDecision?: AssetAuthorizationDecision;
+  assetPackVersionId?: string;
+  explanation?: string;
 }
 
 export interface AssetRetrievalSemanticDiagnostics {
@@ -37,7 +88,7 @@ export interface AssetRetrievalSemanticDiagnostics {
   attempted: boolean;
   model: string | null;
   candidateCount: number;
-  reason: 'not_configured' | 'available' | 'projection_unavailable';
+  reason: 'not_configured' | 'available' | 'projection_unavailable' | 'scope_required' | 'verification_failed' | 'budget_exceeded';
 }
 
 export interface AssetRetrievalProvider {
@@ -49,7 +100,7 @@ export interface AssetRetrievalProvider {
 
 export interface AssetRetriever {
   readonly semanticProvider?: AssetRetrievalProvider;
-  retrieve(query: AssetRetrievalQuery, assets: AssetRecord[], policy?: AssetRetrievalPolicy): Promise<AssetRetrievalResult>;
+  retrieve(query: AssetRetrievalQuery, assets: AssetRetrievalSubject[], policy?: AssetRetrievalPolicy): Promise<AssetRetrievalResult>;
 }
 
 export interface AssetRetrievalResult {
@@ -63,6 +114,89 @@ export interface AssetRetrievalResult {
   candidates: AssetRetrievalCandidate[];
   ambiguousCandidates: AssetRetrievalCandidate[];
   semantic: AssetRetrievalSemanticDiagnostics;
+  /** Explicit matrix; `mode` remains as the legacy wire field. */
+  retrievalMode?: AssetRetrievalStrategyMode;
+  degradationReason?: string | null;
+  requirementGaps?: AssetPackRequirementGap[];
+}
+
+/** Hard authorization/project gate; a false decision must never be auto-bound. */
+export function assetAuthorizationDecision(query: AssetRetrievalQuery, asset: AssetRetrievalSubject): AssetAuthorizationDecision | null {
+  if (!asset.authorizationStatus && !query.authorizationRequired && !query.usage && !asset.restrictedProjects?.length) return null;
+  const status: AssetAuthorizationStatus = asset.authorizationStatus ?? 'unknown';
+  const base = { allowed: status === 'allowed', status, reason: asset.authorizationReason ?? null,
+    code: status === 'allowed' ? null : ASSET_AUTHORIZATION_ERROR_CODES[status] };
+  if (status !== 'allowed' && query.authorizationRequired) return base;
+  if (query.usage && asset.allowedUsages && !asset.allowedUsages.includes(query.usage)) {
+    return { allowed: false, status: 'usage_mismatch', reason: `用途 ${query.usage} 不在授权范围内。`, code: ASSET_AUTHORIZATION_ERROR_CODES.usage_mismatch };
+  }
+  if (query.projectId && asset.restrictedProjects?.includes(query.projectId)) {
+    return { allowed: false, status: 'project_mismatch', reason: `项目 ${query.projectId} 被授权限制。`, code: ASSET_AUTHORIZATION_ERROR_CODES.project_mismatch };
+  }
+  return base;
+}
+
+export function assetAuthorizationGap(query: AssetRetrievalQuery, asset: AssetRetrievalSubject): AssetPackRequirementGap | null {
+  if (query.workspaceId && asset.workspaceId && asset.workspaceId !== query.workspaceId) {
+    return { code: 'ASSET_PACK_AUTHORIZATION_DENIED', field: 'authorization', detail: '资产不属于当前 workspace。', requiredView: query.requiredView ?? null, requiredState: query.requiredState ?? null };
+  }
+  if (query.projectId && asset.projectId && asset.projectId !== query.projectId) {
+    return { code: 'ASSET_PACK_AUTHORIZATION_DENIED', field: 'authorization', detail: '资产不属于当前项目。', requiredView: query.requiredView ?? null, requiredState: query.requiredState ?? null };
+  }
+  if (query.reviewRequired && asset.reviewStatus !== 'approved') {
+    return { code: 'ASSET_PACK_REVIEW_REQUIRED', field: 'review', detail: `资产审核状态为 ${asset.reviewStatus ?? 'unknown'}。`, requiredView: query.requiredView ?? null, requiredState: query.requiredState ?? null };
+  }
+  const auth = assetAuthorizationDecision(query, asset);
+  if (auth && !auth.allowed) {
+    return { code: 'ASSET_PACK_AUTHORIZATION_DENIED', field: 'authorization', detail: auth.reason ?? auth.status, requiredView: query.requiredView ?? null, requiredState: query.requiredState ?? null };
+  }
+  return null;
+}
+
+export function assetIsHardEligible(query: AssetRetrievalQuery, asset: AssetRetrievalSubject): boolean {
+  if (asset.kind !== query.kind) return false;
+  if (assetAuthorizationGap(query, asset)) return false;
+  return !(query.excludedTraits?.length && asset.traits?.some(trait => query.excludedTraits!.includes(trait)));
+}
+
+/** Structured view/state/trait check. Missing media is a gap, never a fake match. */
+export function assetConstraintEvaluation(query: AssetRetrievalQuery, asset: AssetRetrievalSubject): {
+  score: number; missing: string[]; matchedTraits: string[];
+} {
+  const missing: string[] = [];
+  const required: string[] = [];
+  if (query.requiredView) {
+    required.push(`view:${query.requiredView}`);
+    if (!asset.views?.includes(query.requiredView)) missing.push(`view:${query.requiredView}`);
+  }
+  if (query.requiredState) {
+    required.push(`state:${query.requiredState}`);
+    if (!asset.states?.includes(query.requiredState)) missing.push(`state:${query.requiredState}`);
+  }
+  const traits = query.requiredTraits ?? [];
+  for (const trait of traits) {
+    required.push(`trait:${trait}`);
+    if (!asset.traits?.includes(trait)) missing.push(`trait:${trait}`);
+  }
+  const matchedTraits = (asset.traits ?? []).filter(trait => !traits.length || traits.includes(trait)).slice(0, 8);
+  for (const trait of query.excludedTraits ?? []) {
+    if (asset.traits?.includes(trait)) missing.push(`excluded:${trait}`);
+  }
+  const score = required.length ? (required.length - missing.length) / required.length : 1;
+  return { score: Math.max(0, Math.min(1, score)), missing, matchedTraits };
+}
+
+export function assetCandidateExplanation(candidate: AssetRetrievalCandidate): string {
+  const parts = [`词法 ${candidate.score.toFixed(2)}`];
+  if (candidate.semanticScore !== undefined) parts.push(`语义 ${candidate.semanticScore.toFixed(2)}`);
+  if (candidate.viewScore !== undefined) parts.push(`角度 ${candidate.viewScore.toFixed(2)}`);
+  if (candidate.constraintScore !== undefined) parts.push(`约束 ${candidate.constraintScore.toFixed(2)}`);
+  if (candidate.qualityScore !== undefined) parts.push(`质量 ${candidate.qualityScore.toFixed(2)}`);
+  if (candidate.combinedScore !== undefined) parts.push(`综合 ${candidate.combinedScore.toFixed(2)}`);
+  if (candidate.matchedTerms.length) parts.push(`命中 ${candidate.matchedTerms.join('、')}`);
+  if (candidate.missingRequirements?.length) parts.push(`缺失 ${candidate.missingRequirements.join('、')}`);
+  if (candidate.authorizationDecision?.status) parts.push(`授权 ${candidate.authorizationDecision.status}`);
+  return parts.join('；');
 }
 
 /**
@@ -81,7 +215,7 @@ function partialNameCap(policy: AssetRetrievalPolicy): number {
 
 export function retrieveAssetForGeneration(
   query: AssetRetrievalQuery,
-  assets: AssetRecord[],
+  assets: AssetRetrievalSubject[],
   policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY,
 ): AssetRetrievalResult {
   const names = [...new Set([query.name, ...query.aliases]
@@ -95,12 +229,29 @@ export function retrieveAssetForGeneration(
   const clauses = description.split(/[\s，。！？、；：,!.?;:]+/u)
     .filter(value => codePointLength(value) >= 4 && !STOP_WORDS.has(value));
 
-  const candidates = assets.filter(asset => asset.kind === query.kind).map(asset => {
+  const gaps: AssetPackRequirementGap[] = [];
+  const seenGaps = new Set<string>();
+  const pushGap = (gap: AssetPackRequirementGap): void => {
+    const signature = `${gap.code}\0${gap.field}\0${gap.detail}`;
+    if (!seenGaps.has(signature)) { seenGaps.add(signature); gaps.push(gap); }
+  };
+  const eligible = assets.filter(asset => {
+    if (asset.kind !== query.kind) return false;
+    const gap = assetAuthorizationGap(query, asset);
+    if (gap) { pushGap(gap); return false; }
+    if (query.excludedTraits?.length && asset.traits?.some(trait => query.excludedTraits!.includes(trait))) {
+      pushGap({ code: 'ASSET_PACK_AUTHORIZATION_DENIED', field: 'authorization', detail: '资产包含被排除的特征。',
+        requiredView: query.requiredView ?? null, requiredState: query.requiredState ?? null });
+      return false;
+    }
+    return true;
+  });
+  const candidates = eligible.map(asset => {
     const assetName = normalizeSearchText(asset.name);
     const assetDescription = cleanDescription(asset.description, [assetName]);
     const byName = coverage(nameTokens, assetName, assetDescription);
     const byDescription = coverage(descriptionTokens, assetName, assetDescription);
-    const matchedFields = new Set<'name' | 'description'>([...byName.fields, ...byDescription.fields]);
+    const matchedFields = new Set<AssetRetrievalMatchedField>([...byName.fields, ...byDescription.fields]);
     const matchedTerms = new Set<string>([...byName.terms, ...byDescription.terms]);
     const exactName = names.some(anchor => anchor === assetName);
     // "沈玥" inside "沈玥的姐姐", or "林晚" inside "林晚晴", stays outside the reuse band.
@@ -130,50 +281,92 @@ export function retrieveAssetForGeneration(
       descriptionScore = Math.max(descriptionScore, 0.74);
       matchedFields.add('name'); matchedTerms.add(assetName);
     }
-    const score = Math.max(nameScore, descriptionScore);
-    return {
-      asset,
-      score: Math.round(Math.min(score, 1) * 10_000) / 10_000,
+    const lexicalScore = Math.round(Math.min(Math.max(nameScore, descriptionScore), 1) * 10_000) / 10_000;
+    const constraint = assetConstraintEvaluation(query, asset);
+    const hasConstraints = Boolean(query.requiredView || query.requiredState || query.requiredTraits?.length);
+    const missingRequirements = constraint.missing;
+    const qualityScore = Math.max(0, Math.min(1, asset.qualityScore ?? 1));
+    const combinedScore = hasConstraints
+      ? Math.round(Math.min(1, lexicalScore * 0.72 + constraint.score * 0.18 + qualityScore * 0.10) * 10_000) / 10_000
+      : undefined;
+    let score = lexicalScore;
+    // A present front image cannot claim a missing profile/back view. Keep the
+    // candidate explainable but below the automatic-adoption threshold.
+    if (missingRequirements.some(item => item.startsWith('view:') || item.startsWith('state:') || item.startsWith('excluded:'))) {
+      score = Math.min(score, Math.max(0, policy.threshold - 0.0001));
+    }
+    if (hasConstraints) matchedFields.add('constraint');
+    const viewScore = query.requiredView ? (asset.views?.includes(query.requiredView) ? 1 : 0) : undefined;
+    const authorizationDecision = assetAuthorizationDecision(query, asset) ?? undefined;
+    const candidate: AssetRetrievalCandidate = {
+      asset, score,
       matchedFields: [...matchedFields],
       matchedTerms: [...matchedTerms].slice(0, 8),
-    } satisfies AssetRetrievalCandidate;
+      lexicalScore,
+      viewScore,
+      constraintScore: hasConstraints ? constraint.score : undefined,
+      qualityScore: hasConstraints ? qualityScore : undefined,
+      combinedScore,
+      matchedTraits: constraint.matchedTraits,
+      missingRequirements,
+      authorizationDecision,
+      assetPackVersionId: asset.assetPackVersionId,
+    };
+    candidate.explanation = assetCandidateExplanation(candidate);
+    return candidate;
   }).filter(candidate => candidate.score >= RECALL_THRESHOLD && candidate.matchedTerms.length > 0)
-    .sort((left, right) => right.score - left.score
+    .sort((left, right) => (right.combinedScore ?? right.score) - (left.combinedScore ?? left.score)
       || right.asset.createdAt.localeCompare(left.asset.createdAt)
       || left.asset.id.localeCompare(right.asset.id));
+  for (const candidate of candidates) {
+    for (const requirement of candidate.missingRequirements ?? []) {
+      pushGap({ code: 'ASSET_PACK_MEDIA_MISSING', field: 'media',
+        detail: `资产缺少镜头要求 ${requirement}。`, requiredView: query.requiredView ?? null,
+        requiredState: query.requiredState ?? null });
+    }
+  }
 
   return finalizeAssetRetrieval(candidates, {
     ruleVersion: ASSET_RETRIEVAL_RULE_VERSION,
     mode: 'structured_lexical',
     semantic: { status: 'disabled', attempted: false, model: null, candidateCount: 0, reason: 'not_configured' },
+    retrievalMode: 'lexical', degradationReason: 'semantic-disabled', requirementGaps: gaps,
   }, policy);
 }
 
 /** Shared ranking/ambiguity gate for lexical-only and hydrated hybrid candidates. */
 export function finalizeAssetRetrieval(
   recalled: AssetRetrievalCandidate[],
-  metadata: Pick<AssetRetrievalResult, 'ruleVersion' | 'mode' | 'semantic'>,
+  metadata: Pick<AssetRetrievalResult, 'ruleVersion' | 'mode' | 'semantic'>
+    & Partial<Pick<AssetRetrievalResult, 'retrievalMode' | 'degradationReason' | 'requirementGaps'>>,
   policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY,
+  limit = MAX_CANDIDATES,
 ): AssetRetrievalResult {
+  const rank = (candidate: AssetRetrievalCandidate): number => candidate.combinedScore ?? candidate.score;
   const candidates = recalled.filter(candidate => candidate.score >= RECALL_THRESHOLD
       && (candidate.matchedTerms.length > 0 || candidate.semanticScore !== undefined))
-    .sort((left, right) => right.score - left.score
+    .sort((left, right) => rank(right) - rank(left)
       || right.asset.createdAt.localeCompare(left.asset.createdAt)
       || left.asset.id.localeCompare(right.asset.id));
   const top = candidates[0] ?? null;
-  const close = top ? candidates.filter(candidate => top.score - candidate.score < policy.ambiguityMargin) : [];
+  const topRank = top ? rank(top) : null;
+  const close = top ? candidates.filter(candidate => topRank! - rank(candidate) < policy.ambiguityMargin) : [];
+  const blocked = top?.missingRequirements?.some(item => item.startsWith('view:') || item.startsWith('state:') || item.startsWith('excluded:')) ?? false;
   const status = !top ? 'no_candidates'
-    : top.score < policy.threshold ? 'below_threshold'
+    : blocked || topRank! < policy.threshold ? 'below_threshold'
       : close.length > 1 ? 'ambiguous' : 'unique';
   return {
     ...metadata,
     status,
     asset: status === 'unique' ? top!.asset : null,
-    score: top?.score ?? null,
+    score: topRank,
     threshold: policy.threshold,
     ambiguityMargin: policy.ambiguityMargin,
-    candidates: candidates.slice(0, MAX_CANDIDATES),
+    candidates: candidates.slice(0, Math.max(1, Math.min(limit, MAX_CANDIDATES))),
     ambiguousCandidates: status === 'ambiguous' ? close : [],
+    retrievalMode: metadata.retrievalMode ?? (metadata.mode === 'structured_lexical' ? 'lexical' : 'hybrid'),
+    degradationReason: metadata.degradationReason ?? null,
+    requirementGaps: metadata.requirementGaps ?? [],
   };
 }
 

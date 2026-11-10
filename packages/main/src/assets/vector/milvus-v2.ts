@@ -93,11 +93,15 @@ export class MilvusAssetVectorStoreV2 implements VectorStore {
   async search(scope: VectorStoreScope, raw: VectorSearchQuery): Promise<VectorSearchHit[]> {
     const workspaceId = parseWorkspaceId(scope.workspaceId);
     const query = validateQuery(raw);
+    // An empty PostgreSQL-authorized set is authoritative: return no rows instead
+    // of dropping the filter and letting Milvus widen the candidate set.
+    if (query.assetIds !== undefined && query.assetIds.length === 0) return [];
     // Search is read-only and must never provision a missing collection.
     const client = await this.readyClient(false);
     const limit = Number.isSafeInteger(query.limit) ? Math.min(Math.max(query.limit!, 1), 100) : 12;
     const filters = [`workspace_id == ${literal(workspaceId)}`, `kind == ${literal(query.kind)}`];
     if (query.projectId) filters.push(`project_id == ${literal(query.projectId)}`);
+    if (query.assetIds?.length) filters.push(`asset_id in [${query.assetIds.map(literal).join(', ')}]`);
     const result = await client.search({
       collection_name: this.options.collection, data: [query.vector], limit,
       output_fields: [...OUTPUT_FIELDS], metric_type: 'COSINE',
@@ -112,7 +116,8 @@ export class MilvusAssetVectorStoreV2 implements VectorStore {
         ? row.entity as Record<string, unknown> : row;
       // Defense in depth: never trust a backend result that violates the scalar filter.
       if (entity.workspace_id !== workspaceId || entity.kind !== query.kind
-        || (query.projectId && entity.project_id !== query.projectId)) continue;
+        || (query.projectId && entity.project_id !== query.projectId)
+        || (query.assetIds?.length && !query.assetIds.includes(validScalarOrEmpty(entity.asset_id)))) continue;
       const assetId = validScalarOrEmpty(entity.asset_id);
       const chunkId = validScalarOrEmpty(entity.chunk_id);
       const sourceVersion = validScalarOrEmpty(entity.source_version);
@@ -210,7 +215,9 @@ function validateRecord(raw: VectorProjectionRecord): VectorProjectionRecord {
 }
 function validateQuery(raw: VectorSearchQuery): VectorSearchQuery {
   const query = { ...raw, projectId: raw.projectId ? validScalar(raw.projectId) : undefined,
-    kind: validKind(raw.kind) };
+    kind: validKind(raw.kind),
+    assetIds: raw.assetIds === undefined ? undefined
+      : [...new Set(raw.assetIds.map(validScalar))].slice(0, 200) };
   validateVector(query.vector);
   return query;
 }

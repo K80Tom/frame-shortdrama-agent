@@ -40,3 +40,6 @@ export const LINEAGE_MIGRATIONS = ["048"] as const;
 
 /** Unified append-only evaluation results, evidence, and layered metrics (#134). */
 export const EVALUATION_RESULTS_MIGRATIONS = ["049"] as const;
+
+/** Versioned, immutable multi-view asset packs with tenant RLS (#126). */
+export const ASSET_PACK_MIGRATIONS = ["050"] as const;
