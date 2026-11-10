@@ -35,3 +35,4 @@ export * from './agent/contracts';
 export * from './agent/runtime';
 export * from './agent/skills';
 export * from './agent/mcp';
+export * from './evolution-gate';

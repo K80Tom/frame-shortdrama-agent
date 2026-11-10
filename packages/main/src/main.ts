@@ -7,7 +7,9 @@ import { resolve } from 'node:path';
 import { configForRole, ModelConnections } from './models/connections';
 import { PostgresDatabase } from './db/client';
 import { readDatabaseConfig } from './db/config';
-import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS, LINEAGE_MIGRATIONS } from './db/readiness';
+import { BREAKDOWN_PERSISTENCE_MIGRATIONS, DATA_OUTBOX_MIGRATIONS, EVALUATION_CATALOG_MIGRATIONS, EXTRACT_FACTS_LEDGER_MIGRATIONS, AGENT_PERSISTENCE_MIGRATIONS, EVOLUTION_GATE_MIGRATIONS, LINEAGE_MIGRATIONS } from './db/readiness';
+import { EvolutionGateService } from './evolution/gate-service';
+import { PostgresEvolutionGateRepository } from './evolution/gate-postgres-repository';
 import { PostgresBreakdownRepository } from './breakdown/repository';
 import { BreakdownService, UnavailableBreakdownService } from './breakdown/service';
 import { ExtractFactsStageRunner } from './breakdown/execution';
@@ -210,6 +212,7 @@ async function main() {
   let toolRegistryView: ToolRegistryViewService | undefined;
   const mcpManagement = new McpManagementService();
   let evolutionService: AssetEvolutionService | undefined;
+  let evolutionGateService: EvolutionGateService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
   let methodPacksService: MethodPackService | undefined;
@@ -351,6 +354,9 @@ async function main() {
         const productionRepository = new PostgresProductionRepository(database);
         if (await database.hasMigrations(['019', '045'])) {
           evolutionService = new AssetEvolutionService(productionRepository, new PostgresEvolutionRepository(database));
+        }
+        if (await database.hasMigrations(EVOLUTION_GATE_MIGRATIONS)) {
+          evolutionGateService = new EvolutionGateService(new PostgresEvolutionGateRepository(database));
         }
         productionService = new ProductionService(productionRepository, {
           methodPacks: promptPacksService && ((project) => promptPacksService!.freeze(project)),
@@ -775,6 +781,7 @@ async function main() {
     toolRegistryView,
     mcpManagement,
     evolutionService,
+    evolutionGateService,
     evaluationService,
     promptPacksService,
     methodPacksService,

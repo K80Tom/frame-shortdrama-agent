@@ -57,6 +57,8 @@ import { CanvasError } from '@lyra/shared';
 import type { CanvasService } from './canvas/service';
 import { ASSET_EVOLUTION_SERVICE, EvolutionController } from './evolution/controller';
 import type { AssetEvolutionService } from './evolution/service';
+import { EVOLUTION_GATE_SERVICE, EvolutionGateController } from './evolution/gate-controller';
+import type { EvolutionGateService } from './evolution/gate-service';
 import { EVALUATION_SERVICE, EvaluationController } from './evaluation/controller';
 import { EvaluationError } from '@lyra/shared';
 import type { EvaluationService } from './evaluation/service';
@@ -137,6 +139,8 @@ export interface AppDependencies {
   /** `/api/mcp` 配置管理；只保存 Secret 引用，不保存明文密钥。 */
   mcpManagement?: McpManagementService;
   evolutionService?: AssetEvolutionService;
+  /** 052 迁移就绪后注入的候选门禁闭环服务（#135）。 */
+  evolutionGateService?: EvolutionGateService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
   /** 050 迁移就绪后的方法包目录、准入、项目配置与运行冻结服务。 */
@@ -511,6 +515,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController, ToolRegistryController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
+    ...(dependencies.evolutionGateService ? [EvolutionGateController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : []),
     ...(dependencies.methodPacksService ? [MethodPacksController] : []),
@@ -542,6 +547,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: TOOL_REGISTRY_VIEW, useValue: dependencies.toolRegistryView ?? null },
     { provide: MCP_MANAGEMENT, useValue: dependencies.mcpManagement ?? null },
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
+    { provide: EVOLUTION_GATE_SERVICE, useValue: dependencies.evolutionGateService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: METHOD_PACK_SERVICE, useValue: dependencies.methodPacksService ?? null },
