@@ -11,6 +11,7 @@ export * from './canvas';
 export * from './prompt-packs';
 export * from './method-packs';
 export * from './asset-retrieval';
+export * from './asset-retrieval-governance';
 export * from './evolution';
 export * from './assets';
 export * from './evaluation';

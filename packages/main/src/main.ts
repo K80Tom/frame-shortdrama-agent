@@ -58,6 +58,12 @@ import { PostgresEvolutionRepository } from './evolution/postgres-repository';
 import { AssetEvolutionService } from './evolution/service';
 import { PostgresEvaluationRepository } from './evaluation/postgres-repository';
 import { EvaluationService } from './evaluation/service';
+import {
+  AssetRetrievalGovernanceService,
+  ASSET_RETRIEVAL_GOVERNANCE_MIGRATIONS,
+} from './asset-retrieval-governance/service';
+import { PostgresAssetRetrievalGovernanceRepository } from './asset-retrieval-governance/repository';
+import { EvaluationServiceAssetRetrievalRegistrar } from './asset-retrieval-governance/evaluation-registrar';
 import { PostgresPromptPackImportRepository, PostgresPromptPackStateRepository } from './prompt-packs/repository';
 import { PromptPackService } from './prompt-packs/service';
 import { MethodPackService } from './method-packs/service';
@@ -214,6 +220,7 @@ async function main() {
   let evolutionService: AssetEvolutionService | undefined;
   let evolutionGateService: EvolutionGateService | undefined;
   let evaluationService: EvaluationService | undefined;
+  let assetRetrievalGovernanceService: AssetRetrievalGovernanceService | undefined;
   let promptPacksService: PromptPackService | undefined;
   let methodPacksService: MethodPackService | undefined;
   let authService: AuthService | undefined;
@@ -357,6 +364,16 @@ async function main() {
         }
         if (await database.hasMigrations(EVOLUTION_GATE_MIGRATIONS)) {
           evolutionGateService = new EvolutionGateService(new PostgresEvolutionGateRepository(database));
+        }
+        if (await database.hasMigrations(ASSET_RETRIEVAL_GOVERNANCE_MIGRATIONS)) {
+          assetRetrievalGovernanceService = new AssetRetrievalGovernanceService(
+            new PostgresAssetRetrievalGovernanceRepository(database),
+            {
+              gate: evolutionGateService,
+              evaluationRegistrar: evaluationService
+                ? new EvaluationServiceAssetRetrievalRegistrar(evaluationService) : undefined,
+            },
+          );
         }
         productionService = new ProductionService(productionRepository, {
           methodPacks: promptPacksService && ((project) => promptPacksService!.freeze(project)),
@@ -783,6 +800,7 @@ async function main() {
     evolutionService,
     evolutionGateService,
     evaluationService,
+    assetRetrievalGovernanceService,
     promptPacksService,
     methodPacksService,
     authService,
