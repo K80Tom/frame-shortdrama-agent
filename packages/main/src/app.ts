@@ -63,6 +63,8 @@ import type { EvaluationService } from './evaluation/service';
 import { PROMPT_PACK_SERVICE, PromptPacksController } from './prompt-packs/controller';
 import { methodReference } from './prompt-packs/runtime';
 import { PromptPackError, type PromptPackService } from './prompt-packs/service';
+import { METHOD_PACK_SERVICE, MethodPacksController } from './method-packs/controller';
+import type { MethodPackService } from './method-packs/service';
 import { SYSTEM_STATUS, SystemController } from './system/controller';
 import { SystemStatusService } from './system/status';
 import { OutboxTaskController, OUTBOX_TASK_SERVICE } from './production/outbox/controller';
@@ -137,6 +139,8 @@ export interface AppDependencies {
   evolutionService?: AssetEvolutionService;
   evaluationService?: EvaluationService;
   promptPacksService?: PromptPackService;
+  /** 050 迁移就绪后的方法包目录、准入、项目配置与运行冻结服务。 */
+  methodPacksService?: MethodPackService;
   /** 基础设施异步 Outbox 服务；未迁移 037/038 或纯模型测试时省略。 */
   outboxTaskService?: OutboxTaskService;
   authService?: AuthService;
@@ -509,6 +513,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
     ...(dependencies.promptPacksService ? [PromptPacksController] : []),
+    ...(dependencies.methodPacksService ? [MethodPacksController] : []),
     ...(dependencies.outboxTaskService ? [OutboxTaskController] : [])], providers: [ModelsService,
     { provide: PLATFORM_PREFLIGHT, useValue: dependencies.platformPreflight ?? new PlatformPreflightService({}) },
     { provide: CONFIG, useValue: config }, { provide: TRANSPORT, useValue: transport },
@@ -539,6 +544,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: ASSET_EVOLUTION_SERVICE, useValue: dependencies.evolutionService ?? null },
     { provide: EVALUATION_SERVICE, useValue: dependencies.evaluationService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
+    { provide: METHOD_PACK_SERVICE, useValue: dependencies.methodPacksService ?? null },
     { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
@@ -551,6 +557,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       || request.url.startsWith('/api/evaluation')
       || request.url.startsWith('/api/assistant')
       || request.url.startsWith('/api/prompt-packs')
+      || request.url.includes('/method-packs') || request.url.includes('/method-profiles')
       || request.url.includes('/desktop-asset')
       || request.url.includes('/asset-generation')) reply.header('Cache-Control', 'no-store');
     const origin = request.headers.origin;

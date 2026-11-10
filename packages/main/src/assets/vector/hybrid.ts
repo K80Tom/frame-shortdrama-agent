@@ -3,6 +3,9 @@ import type { AssetRecord } from '@lyra/shared';
 import { DEFAULT_ASSET_RETRIEVAL_POLICY, type AssetRetrievalPolicy } from '@lyra/shared';
 import {
   ASSET_RETRIEVAL_HYBRID_RULE_VERSION,
+  assetConstraintEvaluation,
+  assetCandidateExplanation,
+  assetIsHardEligible,
   finalizeAssetRetrieval,
   retrieveAssetForGeneration,
   type AssetRetrievalCandidate,
@@ -10,6 +13,7 @@ import {
   type AssetRetrievalQuery,
   type AssetRetrievalResult,
   type AssetRetriever,
+  type AssetRetrievalSubject,
 } from '../retrieval';
 import type { AssetEmbeddingClient } from './embedding';
 import { isRebuildableVectorDependencyFailure } from './errors';
@@ -35,23 +39,28 @@ export class HybridAssetRetriever implements AssetRetriever {
     };
   }
 
-  async retrieve(query: AssetRetrievalQuery, assets: AssetRecord[],
+  async retrieve(query: AssetRetrievalQuery, assets: AssetRetrievalSubject[],
     policy: AssetRetrievalPolicy = DEFAULT_ASSET_RETRIEVAL_POLICY): Promise<AssetRetrievalResult> {
     const lexical = retrieveAssetForGeneration(query, assets, policy);
     try {
       const vector = await this.dependencies.embedding.embedText(assetQueryVectorText(query));
-      const hits = await this.dependencies.store.search(vector, query.kind, 12);
+      const budget = Math.min(24, Math.max(1, query.candidateBudget ?? 12));
+      const hits = await this.dependencies.store.search(vector, query.kind, budget, {
+        assetIds: [...new Set(assets.filter(asset => assetIsHardEligible(query, asset)).map(asset => asset.id))],
+      });
       const catalog = new Map(assets.map(asset => [asset.id, asset]));
       const combined = new Map<string, AssetRetrievalCandidate>(lexical.candidates.map(candidate => [candidate.asset.id, {
         ...candidate, lexicalScore: candidate.score,
       }]));
       let hydrated = 0;
+      let rejected = 0;
       for (const hit of hits) {
-        // Milvus is rebuildable. Stale IDs and cross-kind hits are never assets.
+        // Milvus is rebuildable. Stale IDs, cross-kind hits, unauthorized assets
+        // and failed PostgreSQL digest checks are never candidates.
         const asset = catalog.get(hit.assetId);
-        if (!asset || asset.kind !== query.kind || !Number.isFinite(hit.score)) continue;
+        if (!asset || !assetIsHardEligible(query, asset) || !Number.isFinite(hit.score)) { rejected++; continue; }
         if (hit.sourceVersion && hit.sourceVersion !== createHash('sha256')
-          .update(buildAssetVectorText(asset), 'utf8').digest('hex')) continue;
+          .update(buildAssetVectorText(asset), 'utf8').digest('hex')) { rejected++; continue; }
         hydrated++;
         const semanticScore = Math.max(0, Math.min(1, hit.score));
         const current = combined.get(asset.id);
@@ -60,26 +69,43 @@ export class HybridAssetRetriever implements AssetRetriever {
           + lexicalScore * (1 - policy.semanticWeight);
         const matchedFields = new Set(current?.matchedFields ?? []);
         matchedFields.add('semantic');
-        combined.set(asset.id, {
+        const constraint = assetConstraintEvaluation(query, asset);
+        const hasConstraints = Boolean(query.requiredView || query.requiredState || query.requiredTraits?.length);
+        const qualityScore = Math.max(0, Math.min(1, asset.qualityScore ?? 1));
+        const combinedScore = hasConstraints
+          ? Math.round(Math.min(1, hybridScore * 0.72 + constraint.score * 0.18 + qualityScore * 0.10) * 10_000) / 10_000
+          : undefined;
+        const semanticCandidate: AssetRetrievalCandidate = {
           asset,
           // A strong lexical hit must not be penalized merely because a vector
           // projection is stale. Semantic hits still dominate otherwise.
           score: Math.round(Math.min(1, Math.max(lexicalScore, hybridScore)) * 10_000) / 10_000,
           matchedFields: [...matchedFields], matchedTerms: current?.matchedTerms ?? [],
           lexicalScore, semanticScore,
-        });
+          viewScore: query.requiredView ? (asset.views?.includes(query.requiredView) ? 1 : 0) : undefined,
+          constraintScore: hasConstraints ? constraint.score : undefined,
+          qualityScore: hasConstraints ? qualityScore : undefined,
+          combinedScore,
+          matchedTraits: constraint.matchedTraits,
+          missingRequirements: constraint.missing,
+          assetPackVersionId: asset.assetPackVersionId,
+        };
+        semanticCandidate.explanation = assetCandidateExplanation(semanticCandidate);
+        combined.set(asset.id, semanticCandidate);
       }
       return finalizeAssetRetrieval([...combined.values()], {
         ruleVersion: ASSET_RETRIEVAL_HYBRID_RULE_VERSION, mode: 'hybrid_semantic_lexical',
         semantic: { status: 'available', attempted: true, model: this.dependencies.model,
-          candidateCount: hydrated, reason: 'available' },
-      }, policy);
+          candidateCount: hydrated, reason: hydrated || !rejected ? 'available' : 'verification_failed' },
+        retrievalMode: 'hybrid', degradationReason: null, requirementGaps: lexical.requirementGaps,
+      }, policy, Math.min(5, Math.max(1, query.topK ?? 5)));
     } catch (error) {
       if (!isRebuildableVectorDependencyFailure(error)) throw error;
       return {
         ...lexical, ruleVersion: ASSET_RETRIEVAL_HYBRID_RULE_VERSION, mode: 'hybrid_semantic_lexical',
         semantic: { status: 'degraded', attempted: true, model: this.dependencies.model,
           candidateCount: 0, reason: 'projection_unavailable' },
+        retrievalMode: 'degraded-lexical', degradationReason: 'milvus-unreachable',
       };
     }
   }

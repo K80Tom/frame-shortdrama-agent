@@ -41,7 +41,7 @@ import { ModelClient } from './models/client';
 import { PostgresAssistantRepository } from './assistant/postgres-repository';
 import {
   AssistantOrchestrator, type AssistantMessage, AssistantService, createAssistantToolRegistry,
-  type AssistantToolPorts, attachProductionTools,
+  type AssistantToolPorts, attachProductionTools, loadPromptPacks, promptLibraryRoot,
 } from '@lyra/agent';
 import { ProductionToolService, ToolRegistryViewService } from './tool-registry/service';
 import { McpManagementService } from './mcp-management/service';
@@ -58,6 +58,8 @@ import { PostgresEvaluationRepository } from './evaluation/postgres-repository';
 import { EvaluationService } from './evaluation/service';
 import { PostgresPromptPackImportRepository, PostgresPromptPackStateRepository } from './prompt-packs/repository';
 import { PromptPackService } from './prompt-packs/service';
+import { MethodPackService } from './method-packs/service';
+import { PostgresMethodPackRepository } from './method-packs/postgres-repository';
 import { SystemStatusService, staticProbe, type ServiceProbe } from './system/status';
 import { AuthService } from './auth/service';
 import { PostgresAuthRepository } from './auth/repository';
@@ -85,6 +87,7 @@ import { LineageProjector } from './lineage/projector';
 import { PostgresLineageStore } from './lineage/store';
 import { PostgresSourceLineageReader } from './lineage/postgres-source-reader';
 import { tenantExecutionScope } from './tenancy/scope';
+import { LEGACY_WORKSPACE_ID } from './tenancy/context';
 import { INFRA_OUTBOX_MIGRATIONS, MODEL_GENERATION_MIGRATIONS } from './db/readiness';
 import {
   RedisLeaseLock, WorkerInstanceLeaseManager, WorkerRuntime, createRedisLeaseClientFromEnv,
@@ -209,6 +212,7 @@ async function main() {
   let evolutionService: AssetEvolutionService | undefined;
   let evaluationService: EvaluationService | undefined;
   let promptPacksService: PromptPackService | undefined;
+  let methodPacksService: MethodPackService | undefined;
   let authService: AuthService | undefined;
   let stopRuntimeHeartbeat: (() => Promise<void>) | undefined;
   let persistentJobWorker: PersistentJobWorker | undefined;
@@ -288,6 +292,19 @@ async function main() {
           new PostgresPromptPackStateRepository(database), new PostgresPromptPackImportRepository(database),
         );
       }
+      if (await database.hasMigrations(['050'])) {
+        const methodRepository = new PostgresMethodPackRepository(database);
+        methodPacksService = new MethodPackService(methodRepository, {
+          builtinRoot: promptLibraryRoot(),
+          loadBuiltinPacks: () => loadPromptPacks(promptLibraryRoot()),
+        });
+        // 公共内置目录只需首次建库同步；后续正文变化由显式运维同步追加版本。
+        const hasBuiltinCatalog = await database.runAsSystem('method_pack.builtin_check',
+          () => methodRepository.hasBuiltinCatalog());
+        if (!hasBuiltinCatalog) {
+          await database.runAsSystem('method_pack.builtin_sync', () => methodPacksService!.syncBuiltinCatalog());
+        }
+      }
       if (await database.hasMigrations(['009'])) {
         assetService = new AssetService(new PostgresAssetRepository(database), await database.hasMigrations(['010']));
       }
@@ -337,6 +354,11 @@ async function main() {
         }
         productionService = new ProductionService(productionRepository, {
           methodPacks: promptPacksService && ((project) => promptPacksService!.freeze(project)),
+          methodProfile: methodPacksService ? async ({ projectId, revisionId, digest }) => {
+            const scope = tenantExecutionScope.current();
+            const workspaceId = scope?.kind === 'tenant' ? scope.tenant.workspaceId : LEGACY_WORKSPACE_ID;
+            return methodPacksService!.freezeForRun(workspaceId, projectId, revisionId, digest);
+          } : undefined,
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
           sourceCatalog: breakdownService,
           runInTenantScope: tenantResolver ? async (runId, work) => {
@@ -755,6 +777,7 @@ async function main() {
     evolutionService,
     evaluationService,
     promptPacksService,
+    methodPacksService,
     authService,
     rateLimiter: conversationContext.rateLimiter,
     registrationRateLimiter: conversationContext.mode === 'redis'

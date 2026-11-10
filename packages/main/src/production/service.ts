@@ -1,7 +1,7 @@
 import {
   ProductionError, canonicalDigest, parseCreateProductionRun, parseProductionAction, parseProductionReview,
   parseProductionRunId, productionId, sameProductionRequest, type BudgetEntry, type CandidateSet,
-  type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
+  type FrozenAssetRetrievalPolicy, type FrozenMethodPack, type FrozenMethodProfile,
   type ProductionArtifact, type ProductionIssue, type ProductionReviewInput, type ProductionStage,
   type ProductionTask, type StoredProductionRun, type TaskAttempt,
   type FrozenProductionInput,
@@ -34,6 +34,8 @@ export interface ProductionServiceOptions {
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
+  /** 新运行一次性解析并冻结已采用的项目方法配置；不传则保持旧 V1 行为。 */
+  methodProfile?: (input: { projectId: string; revisionId?: string; digest?: string }) => Promise<FrozenMethodProfile | null>;
   /** Worker scheduler resolves the persisted run owner before touching tenant data or media. */
   runInTenantScope?: <T>(runId: string, work: () => Promise<T>) => Promise<T>;
 }
@@ -66,6 +68,7 @@ export class ProductionService {
   private readonly sourceCatalog?: ProductionSourceCatalog;
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
+  private readonly methodProfile?: ProductionServiceOptions['methodProfile'];
   private readonly frozenInputLoader?: ProductionServiceOptions['frozenInputLoader'];
   private readonly authorizeFrozenPaidExecution?: ProductionServiceOptions['authorizeFrozenPaidExecution'];
   private readonly runInTenantScope?: ProductionServiceOptions['runInTenantScope'];
@@ -79,6 +82,7 @@ export class ProductionService {
     this.sourceCatalog = options.sourceCatalog;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
     this.methodPacks = options.methodPacks;
+    this.methodProfile = options.methodProfile;
     this.frozenInputLoader=options.frozenInputLoader;
     this.authorizeFrozenPaidExecution=options.authorizeFrozenPaidExecution;
     this.runInTenantScope = options.runInTenantScope;
@@ -100,7 +104,29 @@ export class ProductionService {
     await this.sourceCatalog?.getScriptVersion(input.projectId, input.scriptVersionId);
     const policy = this.assetRetrievalPolicy ? await this.assetRetrievalPolicy() : undefined;
     const draft = compileProductionRun(input, this.timestamp(), undefined, policy);
-    if (this.methodPacks) draft.methodPacks = await this.methodPacks(project);
+    let frozenProfile: FrozenMethodProfile | null = null;
+    if (this.methodProfile) {
+      frozenProfile = await this.methodProfile({ projectId: input.projectId,
+        revisionId: input.methodProfileRevisionId, digest: input.methodProfileDigest });
+    } else if (input.methodProfileRevisionId) {
+      conflict('METHOD_PACK_SERVICE_UNAVAILABLE', '方法配置治理尚未就绪，不能创建带方法配置的冻结运行。');
+    }
+    if (frozenProfile) {
+      draft.methodProfile = frozenProfile;
+      draft.outbox.push({
+        id: productionId('pevent'), runId: draft.id, sequence: draft.outbox.length + 1,
+        type: 'production.method_manifest_frozen.v1',
+        payload: {
+          profileRevisionId: frozenProfile.profileRevisionId,
+          profileDigest: frozenProfile.profileDigest,
+          manifestDigest: frozenProfile.manifestDigest,
+          compilerVersion: frozenProfile.compilerVersion,
+          estimatedTokens: frozenProfile.manifest.estimatedTokens,
+          tokenBudget: frozenProfile.manifest.tokenBudget,
+        },
+        createdAt: draft.createdAt,
+      });
+    } else if (this.methodPacks) draft.methodPacks = await this.methodPacks(project);
     const created = await this.repository.create(draft);
     if (!sameProductionRequest(created, input)) conflict('PRODUCTION_REQUEST_REUSED', '该请求标识已用于不同的生产输入。');
     return publicProductionRun(created);
@@ -373,6 +399,12 @@ export class ProductionService {
       return this.blockPrepare(run, task);
     }
     if (frozenInput) prepared={...prepared,inputDigest:canonicalDigest({snapshotDigest:frozenInput.snapshot.snapshotDigest,executorInputDigest:prepared.inputDigest})};
+    if (run.methodProfile && prepared.inputDigest) {
+      prepared = { ...prepared, inputDigest: canonicalDigest({
+        executorInputDigest: prepared.inputDigest,
+        methodManifestDigest: run.methodProfile.manifestDigest,
+      }) };
+    }
     if (prepared.prerequisites?.length) {
       if (prepared.requiresPaid || prepared.estimateCostMicros !== 0) return this.blockPrepare(run, task);
       const at = this.timestamp();
