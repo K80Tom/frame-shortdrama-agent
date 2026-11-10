@@ -1,5 +1,6 @@
 import type { BreakdownServicePort } from '../breakdown/service';
-import { methodReference, MethodReferenceSpaceError } from '../prompt-packs/runtime';
+import { MethodReferenceSpaceError } from '../prompt-packs/runtime';
+import { runMethodReference } from '../method-packs/runtime';
 import type { ExtractFactsStageRunner } from '../breakdown/execution';
 import { BreakdownError, PaidModelExecutionError } from '../breakdown/errors';
 import { describePlanCheckFailure, type PlanCheckRecord } from '../breakdown/quality';
@@ -69,7 +70,7 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
     const alreadyAdopted = Boolean(active && active.scriptVersionId === run.scriptVersionId);
     return prepared('breakdown', { projectId: run.projectId, scriptVersionId: run.scriptVersionId,
       visualStyle: run.visualStyle, ratio: run.ratio, targetDurationSec: run.targetDurationSec,
-      methodReference: methodReference(run.methodPacks, 'breakdown') || undefined },
+      methodReference: runMethodReference(run, 'breakdown') || undefined },
     this.options.estimateCostMicros, !alreadyAdopted, 'configured-text-model');
   }
 
@@ -102,7 +103,7 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
       let draft = await this.breakdown.getRun(operation.providerTaskId);
       let plan: PlanRevisionRecord;
       if (draft.status === 'draft' && draft.task.state === 'pending') {
-        plan = (await this.runner.run(draft.id, methodReference(context.run.methodPacks, 'breakdown'))).plan;
+        plan = (await this.runner.run(draft.id, runMethodReference(context.run, 'breakdown'))).plan;
         draft = await this.breakdown.getRun(draft.id);
       } else if (draft.status === 'waiting' && draft.task.state === 'waitingHuman') {
         const plans = await this.breakdown.listPlanRevisions(draft.id);
@@ -204,7 +205,7 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
       alreadyAdopted = board.scriptVersionId === run.scriptVersionId && board.sourcePlanRevisionId === project.activePlanRevisionId;
     }
     return prepared('storyboard', { projectId: run.projectId, scriptVersionId: run.scriptVersionId,
-      activePlanRevisionId: project.activePlanRevisionId, methodReference: methodReference(run.methodPacks, 'storyboard') || undefined },
+      activePlanRevisionId: project.activePlanRevisionId, methodReference: runMethodReference(run, 'storyboard') || undefined },
       this.options.estimateCostMicros, !alreadyAdopted, 'configured-general-model');
   }
   async execute(context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
@@ -226,7 +227,7 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
           return this.adopted(run, active, 0);
         }
       }
-      const candidate = await this.storyboards.generate(run.projectId, undefined, methodReference(run.methodPacks, 'storyboard'));
+      const candidate = await this.storyboards.generate(run.projectId, undefined, runMethodReference(run, 'storyboard'));
       const actualCostMicros = context.operationKey ? this.options.estimateCostMicros : 0;
       if (run.automationMode === 'auto') {
         try { await this.storyboards.adopt(run.projectId, candidate.id, project.activeStoryboardRevisionId, 'agent'); }
@@ -393,7 +394,7 @@ export class VideoProductionExecutor implements ProductionExecutor {
       '严格按照图片序号对应的已确认实体，保持人物、场景、服装和道具一致，不得互换身份。',
       `候选创作方向 ${coordinates.candidateIndex + 1}：${candidateDirections[coordinates.candidateIndex % candidateDirections.length]}`,
       ...director.promptLines, ...repair.promptLines].join('\n');
-    const prompt = basePrompt + methodReference(run.methodPacks, 'video', Math.min(4000, 8000 - basePrompt.length));
+    const prompt = basePrompt + runMethodReference(run, 'video', Math.min(4000, 8000 - basePrompt.length));
     return { prompt, ratio: run.ratio, duration: Math.max(4, Math.min(30, Math.ceil(shot.design.durationMs / 1000))),
       resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const,
       // Video-provider audio is a temporary scratch track, never the formal voice
@@ -543,7 +544,9 @@ export class VideoProductionExecutor implements ProductionExecutor {
       referenceAssetIds: [...references.assetIds], referencePromptLines: [...references.promptLines],
       directorSceneArtifactId: director.artifactId, directorPromptLines: [...director.promptLines],
       repairReportArtifactId: repair.artifactId, repairRound: repair.repairRound, repairPromptLines: [...repair.promptLines],
-      ...(run.methodPacks?.length ? { methodPacks: run.methodPacks.filter(pack => pack.nodes.includes('video')).map(pack => pack.digest) } : {}),
+      ...(run.methodProfile ? { methodManifestDigest: run.methodProfile.manifestDigest,
+        methodProfileRevisionId: run.methodProfile.profileRevisionId }
+        : run.methodPacks?.length ? { methodPacks: run.methodPacks.filter(pack => pack.nodes.includes('video')).map(pack => pack.digest) } : {}),
       candidate: this.candidateCoordinates(task), connectionRevision };
   }
 

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrozenAssetRetrievalPolicy } from './asset-retrieval';
 import type { FrozenMethodPack } from './prompt-packs';
+import type { FrozenMethodProfile } from './method-packs';
 import type { ProductionInputBinding } from './production-input-snapshot';
 
 export const PRODUCTION_WORKFLOW_VERSION = 'ohao-production/1';
@@ -42,6 +43,9 @@ export interface CreateProductionRun {
   currency: string;
   allowPaid: true;
   clientRequestId: string;
+  /** 正式 V2 方法配置选择；估算确认卡与提交必须携带同一 revision/digest。 */
+  methodProfileRevisionId?: string;
+  methodProfileDigest?: string;
 }
 
 export interface ProductionTask {
@@ -218,6 +222,8 @@ export interface StoredProductionRun extends CreateProductionRun {
   inputSnapshot?: ProductionInputBinding;
   /** Absent on legacy runs. Resume and retry use only the original snapshot. */
   methodPacks?: FrozenMethodPack[];
+  /** V2 项目方法配置冻结；与 methodPacks 互斥，历史运行可继续读 V1。 */
+  methodProfile?: FrozenMethodProfile;
   id: string;
   workflowVersion: typeof PRODUCTION_WORKFLOW_VERSION;
   /** Missing only in runs persisted before policy Registry P2; they retain the built-in baseline. */
@@ -245,6 +251,7 @@ export const CREATE_KEYS: Array<keyof CreateProductionRun> = ['projectId', 'scri
   'visualStyle', 'qualityPreset', 'automationMode', 'candidatePolicy', 'candidateLimit', 'directorPolicy', 'budgetMicros', 'currency',
   'allowPaid', 'clientRequestId'];
 const safeId = /^[A-Za-z][A-Za-z0-9_-]{2,127}$/u;
+const RUN_OPTIONAL_KEYS = ['methodProfileRevisionId', 'methodProfileDigest'] as const;
 
 function invalid(message = '创建参数不完整或超出限制。'): never {
   throw new ProductionError(400, 'PRODUCTION_REQUEST_INVALID', message);
@@ -258,10 +265,11 @@ function safeText(value: unknown, max: number, required = true): string {
 }
 
 export function parseCreateProductionRun(value: unknown): CreateProductionRun {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || Object.keys(value).length !== CREATE_KEYS.length
-    || Object.keys(value).some(key => !CREATE_KEYS.includes(key as keyof CreateProductionRun))) invalid();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
   const input = value as Record<string, unknown>;
+  const allowed = new Set<string>([...CREATE_KEYS, ...RUN_OPTIONAL_KEYS]);
+  if (Object.keys(input).some(key => !allowed.has(key))
+    || CREATE_KEYS.some(key => !Object.hasOwn(input, key))) invalid();
   const projectId = safeText(input.projectId, 128); const scriptVersionId = safeText(input.scriptVersionId, 128);
   const clientRequestId = safeText(input.clientRequestId, 100);
   if (!safeId.test(projectId) || !safeId.test(scriptVersionId) || !/^[A-Za-z0-9_-]{1,100}$/u.test(clientRequestId)
@@ -277,6 +285,16 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
     || !Number.isSafeInteger(input.budgetMicros) || Number(input.budgetMicros) < 0 || Number(input.budgetMicros) > 1_000_000_000_000
     || typeof input.currency !== 'string' || !/^[A-Z]{3}$/u.test(input.currency)
     || input.allowPaid !== true) invalid();
+  const hasRevision = Object.hasOwn(input, 'methodProfileRevisionId');
+  const hasDigest = Object.hasOwn(input, 'methodProfileDigest');
+  if (hasRevision !== hasDigest) invalid('方法配置 revision 与 digest 必须成对传给运行。');
+  let methodSelection: Pick<CreateProductionRun, 'methodProfileRevisionId' | 'methodProfileDigest'> = {};
+  if (hasRevision) {
+    const revisionId = safeText(input.methodProfileRevisionId, 128);
+    const digest = safeText(input.methodProfileDigest, 64);
+    if (!safeId.test(revisionId) || !/^[a-f0-9]{64}$/u.test(digest)) invalid('方法配置冻结引用不合法。');
+    methodSelection = { methodProfileRevisionId: revisionId, methodProfileDigest: digest };
+  }
   return {
     projectId, scriptVersionId, ratio: input.ratio as CreateProductionRun['ratio'],
     targetDurationSec: Number(input.targetDurationSec), visualStyle: safeText(input.visualStyle, 1000),
@@ -284,6 +302,7 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
     candidatePolicy: input.candidatePolicy as CandidatePolicy,
     candidateLimit: Number(input.candidateLimit), directorPolicy: input.directorPolicy as DirectorPolicy,
     budgetMicros: Number(input.budgetMicros), currency: input.currency, allowPaid: true, clientRequestId,
+    ...methodSelection,
   };
 }
 
@@ -355,5 +374,7 @@ export function canonicalDigest(value: unknown): string {
 }
 
 export function sameProductionRequest(run: StoredProductionRun, input: CreateProductionRun): boolean {
-  return CREATE_KEYS.every(key => run[key] === input[key]);
+  return CREATE_KEYS.every(key => run[key] === input[key])
+    && run.methodProfileRevisionId === input.methodProfileRevisionId
+    && run.methodProfileDigest === input.methodProfileDigest;
 }

@@ -35,11 +35,11 @@ function pack(overrides = {}) {
 }
 
 test('PostgreSQL asset pack versions are immutable, tenant-scoped and idempotent', {
-  skip: connectionString ? false : 'Set ASSET_TEST_DATABASE_URL (migration 050 applied) to run this test.',
+  skip: connectionString ? false : 'Set ASSET_TEST_DATABASE_URL (migration 051 applied) to run this test.',
 }, async () => {
   const database = new PostgresDatabase(readDatabaseConfig({ DATABASE_URL: connectionString }));
   try {
-    assert.equal(await database.hasMigrations(['050']), true, 'Apply migration 050 explicitly first.');
+    assert.equal(await database.hasMigrations(['051']), true, 'Apply migration 051 explicitly first.');
     await database.query(`INSERT INTO users (id,subject,display_name,kind,status,created_at,updated_at)
       VALUES ($1,$2,$3,'human','active',now(),now()) ON CONFLICT (id) DO NOTHING`,
       [TEST_USER, `asset-pack-test-${TEST_USER}`, '资产包测试用户']);

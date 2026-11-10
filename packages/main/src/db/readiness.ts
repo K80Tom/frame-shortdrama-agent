@@ -42,4 +42,4 @@ export const LINEAGE_MIGRATIONS = ["048"] as const;
 export const EVALUATION_RESULTS_MIGRATIONS = ["049"] as const;
 
 /** Versioned, immutable multi-view asset packs with tenant RLS (#126). */
-export const ASSET_PACK_MIGRATIONS = ["050"] as const;
+export const ASSET_PACK_MIGRATIONS = ["051"] as const;

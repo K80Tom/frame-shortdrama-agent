@@ -1,4 +1,5 @@
 import { productionStageLabels } from './blueprint';
+import { redactMethodManifest } from '../method-packs/compiler';
 import { productionStageOrder, type ProductionStage, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
 
 const done = (task: ProductionTask) => task.status === 'succeeded' || task.status === 'skipped';
@@ -37,11 +38,16 @@ export function publicProductionRun(input: StoredProductionRun) {
     return { key, label: productionStageLabels[key], state: stageState(tasks),
       completed: tasks.filter(done).length, total: tasks.length, needsAttention: tasks.filter(attention).length };
   });
-  const { methodPacks, ...publicRun } = run;
+  const { methodPacks, methodProfile, ...publicRun } = run;
   return { ...publicRun,
     ...(methodPacks ? { methodPacks: methodPacks.map(({ id, digest, nodes, versionId }) => ({
       id, digest, nodes, ...(versionId ? { versionId } : {}),
     })) } : {}),
+    ...(methodProfile ? { methodProfile: {
+      profileRevisionId: methodProfile.profileRevisionId, profileDigest: methodProfile.profileDigest,
+      compilerVersion: methodProfile.compilerVersion, manifestDigest: methodProfile.manifestDigest,
+      frozenAt: methodProfile.frozenAt, manifest: redactMethodManifest(methodProfile.manifest),
+    } } : {}),
     summary: {
       tasks: { completed: completedTasks, total: relevantTasks.length,
         running: relevantTasks.filter(active).length, waitingHuman: relevantTasks.filter(task => task.status === 'waitingHuman').length,

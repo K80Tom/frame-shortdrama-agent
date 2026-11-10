@@ -9,6 +9,7 @@ export * from './platform-preflight';
 export * from './production';
 export * from './canvas';
 export * from './prompt-packs';
+export * from './method-packs';
 export * from './asset-retrieval';
 export * from './evolution';
 export * from './assets';

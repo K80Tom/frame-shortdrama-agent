@@ -168,7 +168,7 @@ function databaseError(error: unknown): never {
     if (error.code === '23514') throw new AssetError(409, 'ASSET_PACK_IMMUTABLE', '资产包版本不可变或违反授权/审核约束。');
     if (error.code === '23503') throw new AssetError(409, 'ASSET_PACK_REFERENCE_INVALID', '资产包引用的租户、用户或父版本不存在。');
   }
-  throw new AssetError(503, 'ASSET_PACK_PERSISTENCE_UNAVAILABLE', '资产包暂时无法读取或保存，请检查 030、050 迁移。');
+  throw new AssetError(503, 'ASSET_PACK_PERSISTENCE_UNAVAILABLE', '资产包暂时无法读取或保存，请检查 030、051 迁移。');
 }
 
 export class PostgresAssetPackRepository implements AssetPackRepository {
