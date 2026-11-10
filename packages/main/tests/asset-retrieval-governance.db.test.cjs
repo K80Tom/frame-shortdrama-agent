@@ -1,3 +1,4 @@
+const { assetRetrievalAuthorizationTransaction } = require('../dist/asset-retrieval-governance/authorization-transaction');
 const { assetPackContentDigest, parseAssetPackVersion, ASSET_PACK_SCHEMA_VERSION } = require('@lyra/shared');
 const { PostgresAssetPackRepository } = require('../dist/assets/asset-pack-repository');
 const { assetRetrievalAuthorization } = require('../dist/asset-retrieval-governance/authorization');
@@ -36,7 +37,7 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
     ON ALL TABLES IN SCHEMA public TO "${appRole.replaceAll('"', '""')}"`);
   const repository = new PostgresAssetRetrievalGovernanceRepository(database);
   const packs = new PostgresAssetPackRepository(database);
-  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: assetRetrievalAuthorization(packs, () => new Date(at)) });
+  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: assetRetrievalAuthorization(packs, () => new Date(at)), authorizationTransaction: assetRetrievalAuthorizationTransaction(database, () => new Date(at)) });
   const contexts = [0, 1].map(() => {
     const suffix = token();
     return { userId: 'usr_' + suffix, workspaceId: 'ws_' + suffix,
@@ -135,7 +136,23 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
   await scoped(a, async () => {
     const own=ids.get(a.workspaceId);
     const revoked={...own.version,id:'apv_'+token(),version:2,parentVersionId:own.version.id,status:'revoked',authorizationStatus:'revoked'};
-    revoked.contentDigest=assetPackContentDigest(revoked);await packs.create(parseAssetPackVersion(revoked));
+    revoked.contentDigest=assetPackContentDigest(revoked);
+    let release, reached;
+    const hold=new Promise(resolve=>{release=resolve;});const ready=new Promise(resolve=>{reached=resolve;});
+    const freezing=assetRetrievalAuthorizationTransaction(database,()=>new Date(at))(async txService=>{
+      await txService.createDatasetRevision(a.workspaceId,{purpose:'evaluation',observationIds:[own.observation.observationId],createdBy:a.userId});
+      reached();await hold;
+    });
+    await Promise.race([ready,freezing.then(()=>{throw new Error('freeze did not reach barrier');})]);
+    const revoking=packs.create(parseAssetPackVersion(revoked));
+    try {
+      let blocked=false;const deadline=Date.now()+5000;
+      while(Date.now()<deadline){
+        const waiting=await admin.query("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%INSERT INTO asset_pack_versions%'");
+        if(waiting.rowCount){blocked=true;break;}await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.equal(blocked,true,'actual revocation INSERT waits until authoritative freeze transaction commits');
+    } finally {release();await Promise.all([freezing,revoking]);}
     // The historical immutable row is still allowed; the new authoritative restriction must nevertheless block consumption.
     assert.equal((await packs.get(a.workspaceId,own.version.id)).authorizationStatus,'allowed');
     await assert.rejects(service.datasetSamples(a.workspaceId,own.dataset.datasetRevisionId),e=>e.code==='ASSET_RETRIEVAL_AUTHORIZATION_UNVERIFIED');

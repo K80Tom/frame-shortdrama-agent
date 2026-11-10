@@ -150,6 +150,7 @@ export interface CreateAssetRetrievalPolicyPayloadInput {
 
 export interface AssetRetrievalGovernanceServiceOptions {
   now?: () => Date;
+  authorizationTransaction?: <T>(work: (scoped: AssetRetrievalGovernanceService) => Promise<T>) => Promise<T>;
   /** Main-owned authority; absent or failing proof must never produce clean positive labels. */
   verifyAuthorization?: (workspaceId: string, observation: AssetRetrievalObservation,
     decision: { selectedAssetId: string | null; selectedAssetVersionId: string | null }) => Promise<boolean>;
@@ -225,6 +226,7 @@ export class AssetRetrievalGovernanceService {
   }
 
   async recordDecision(workspaceId: string, body: unknown): Promise<AssetRetrievalDecision> {
+    if (this.options.authorizationTransaction) return this.options.authorizationTransaction(scoped => scoped.recordDecision(workspaceId, body));
     const input = parseRecordAssetRetrievalDecisionInput(body);
     const observation = await this.repository.getObservation(workspaceId, input.observationId);
     if (!observation) bad(404, 'ASSET_RETRIEVAL_OBSERVATION_NOT_FOUND', '检索观测不存在，不能记录决策。');
@@ -278,6 +280,7 @@ export class AssetRetrievalGovernanceService {
 
   async createDatasetRevision(workspaceId: string,
     body: unknown): Promise<AssetRetrievalDatasetRevision> {
+    if (this.options.authorizationTransaction) return this.options.authorizationTransaction(scoped => scoped.createDatasetRevision(workspaceId, body));
     const input = parseCreateAssetRetrievalDatasetRevisionInput(body);
     const ids = [...new Set(input.observationIds)].sort();
     const observations: AssetRetrievalObservation[] = [];
