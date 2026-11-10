@@ -1,3 +1,4 @@
+import { assertAgentClaim } from '@lyra/agent';
 import { randomBytes } from 'node:crypto';
 import type { PostgresDatabase } from '../db/client';
 import {
@@ -191,7 +192,7 @@ function eventTypeOf(event: AgentEvent): string | null {
 }
 
 export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
-  constructor(private readonly database: PostgresDatabase) {}
+  constructor(private readonly database: Pick<PostgresDatabase, 'query' | 'transaction'>) {}
 
   async createRun(record: AgentRunRecord): Promise<void> {
     try {
@@ -234,6 +235,25 @@ export class PostgresAgentRuntimeStore implements AgentRuntimeStore {
       next.leaseOwner ? next.updatedAt : null, next.updatedAt, next.workspaceId,
     ]);
     return result.rowCount === 1;
+  }
+
+  async claimRun(expectedVersion: number, next: AgentRunRecord, attempt: AgentRunAttempt): Promise<boolean> {
+    assertAgentClaim(expectedVersion, next, attempt);
+    return this.database.transaction(async client => {
+      const row = (await client.query<{version: number;state: string;attempt_count: number}>(
+        'SELECT version,state,attempt_count FROM agent_runs WHERE workspace_id=$1 AND run_id=$2 FOR UPDATE',
+        [next.workspaceId, next.runId])).rows[0];
+      if (!row || row.version !== expectedVersion || row.state !== 'queued') return false;
+      if (row.attempt_count + 1 !== next.attemptCount) throw new AgentContractError(409, 'AGENT_ATTEMPT_CONFLICT', 'Attempt 序号冲突。');
+      const scoped: Pick<PostgresDatabase, 'query' | 'transaction'> = {
+        query: (sql, values = []) => client.query(sql, [...values]), transaction: work => work(client),
+      };
+      const store = new PostgresAgentRuntimeStore(scoped);
+      if (!await store.updateRun(expectedVersion, next)) return false;
+      await store.createAttempt(attempt);
+      await store.appendEvent(next.runId, { type: 'run_state', state: 'running', version: next.version, summary: next.reasonSummary });
+      return true;
+    });
   }
 
   async createAttempt(attempt: AgentRunAttempt): Promise<void> {
