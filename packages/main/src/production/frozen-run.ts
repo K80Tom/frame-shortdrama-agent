@@ -1,6 +1,7 @@
 import {
   assetRetrievalPolicyDigest, parseCreateProductionRun, parseCreateSnapshotProductionRun,
-  ProductionError, type CreateSnapshotProductionRun, type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
+  productionId, ProductionError, type CreateSnapshotProductionRun, type FrozenAssetRetrievalPolicy, type FrozenMethodPack,
+  type FrozenMethodProfile,
   type FrozenProductionInput, type StoredProductionRun,
 } from '@lyra/shared';
 import { parseTenantContext, type TenantContext } from '../tenancy/context';
@@ -15,6 +16,7 @@ export interface FrozenProductionRunInputs {
   input: FrozenProductionInput;
   assetRetrievalPolicy: FrozenAssetRetrievalPolicy;
   methodPacks: FrozenMethodPack[];
+  methodProfile?: FrozenMethodProfile | null;
 }
 function invalid(code: string): never { throw new ProductionError(409,code,'冻结输入不满足运行创建要求。'); }
 
@@ -44,8 +46,20 @@ export function compileFrozenProductionRun(tenantValue: unknown, requestValue: u
   const input=parseCreateProductionRun({ ...snapshot.executionPolicy, projectId:snapshot.projectId,scriptVersionId:snapshot.script.versionId,
     automationMode:snapshot.automationMode,candidatePolicy:snapshot.candidatePolicy.mode,candidateLimit:snapshot.candidatePolicy.limit,
     budgetMicros:snapshot.budgetPolicy.limitMicros,currency:snapshot.budgetPolicy.currency,allowPaid:true,clientRequestId:request.clientRequestId });
+  const methodProfile=resolved.methodProfile ? structuredClone(resolved.methodProfile) : null;
+  if (methodProfile && (methodProfile.workspaceId!==tenant.workspaceId || methodProfile.projectId!==snapshot.projectId
+    || methodProfile.manifest.workspaceId!==tenant.workspaceId || methodProfile.manifest.projectId!==snapshot.projectId
+    || methodProfile.manifestDigest!==methodProfile.manifest.manifestDigest)) invalid('DIGEST_MISMATCH');
   const run=compileProductionRun(input,at,undefined,policy);
-  run.methodPacks=methods;
+  if (methodProfile) {
+    run.methodProfile=methodProfile;
+    run.outbox.push({id:productionId('pevent'),runId:run.id,sequence:run.outbox.length+1,
+      type:'production.method_manifest_frozen.v1',
+      payload:{profileRevisionId:methodProfile.profileRevisionId,profileDigest:methodProfile.profileDigest,
+        manifestDigest:methodProfile.manifestDigest,compilerVersion:methodProfile.compilerVersion,
+        estimatedTokens:methodProfile.manifest.estimatedTokens,tokenBudget:methodProfile.manifest.tokenBudget},
+      createdAt:at});
+  } else run.methodPacks=methods;
   run.inputSnapshot={schemaVersion:'lyra-production-binding/1',workspaceId:tenant.workspaceId,episodeId:snapshot.episodeId,
     snapshotId:snapshot.id,snapshotDigest:snapshot.snapshotDigest};
   // V2 already freezes global asset references. Never run the V1 mutable catalog/re-generation coordinator.

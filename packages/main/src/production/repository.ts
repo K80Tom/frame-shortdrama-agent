@@ -36,6 +36,15 @@ function validateStored(value: unknown): StoredProductionRun {
         && ref.id===binding.snapshotId && ref.revisionId===binding.snapshotId && ref.digest===binding.snapshotDigest))) return unavailable();
     } catch { return unavailable(); }
   }
+  if (run.methodProfile) {
+    const profile = run.methodProfile;
+    if (!/^mpr_[a-f0-9]{32}$/u.test(profile.profileRevisionId) || !/^[a-f0-9]{64}$/u.test(profile.profileDigest)
+      || !/^[a-f0-9]{64}$/u.test(profile.manifestDigest) || !profile.manifest
+      || profile.manifest.manifestDigest !== profile.manifestDigest
+      || profile.manifest.profileRevisionId !== profile.profileRevisionId
+      || profile.manifest.profileDigest !== profile.profileDigest
+      || !Array.isArray(profile.manifest.nodes)) return unavailable();
+  }
   return clone(run);
 }
 function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean {
@@ -46,6 +55,7 @@ function immutableEqual(a: StoredProductionRun, b: StoredProductionRun): boolean
   const frozen = CREATE_KEYS.filter(key => key !== 'budgetMicros');
   return a.id === b.id && a.createdAt === b.createdAt && a.workflowVersion === b.workflowVersion
     && isDeepStrictEqual(a.methodPacks, b.methodPacks)
+    && isDeepStrictEqual(a.methodProfile, b.methodProfile)
     && isDeepStrictEqual(a.inputSnapshot, b.inputSnapshot)
     && (!a.inputSnapshot || a.budgetMicros===b.budgetMicros && isDeepStrictEqual(a.assetRetrievalPolicy,b.assetRetrievalPolicy))
     && a.assetRetrievalPolicy?.policyDigest === b.assetRetrievalPolicy?.policyDigest
