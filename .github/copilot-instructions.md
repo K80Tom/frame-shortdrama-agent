@@ -23,6 +23,7 @@
 - Preserve the distinction between source facts, user requirements, AI design suggestions, technical validation, and human acceptance.
 - Frontend changes must follow current Lyra components and design tokens, responsive layouts, accessible labels, and honest loading/error/empty states.
 - Update directly related documentation, examples, schemas, and tests whenever behavior or contracts change.
+- Follow the 4-beat AI delivery pipeline (Contracts in `packages/shared` first -> failing red tests -> implementation self-healing -> human review); refer to `docs/ai-assisted-engineering-workflow.md`.
 
 ## Verification
 
