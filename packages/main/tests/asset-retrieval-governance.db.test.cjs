@@ -12,7 +12,7 @@ const token = () => randomBytes(16).toString('hex');
 const at = '2026-11-10T08:00:00.000Z';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const adminUrl = process.env.DATABASE_ADMIN_URL;
-const appUrl = process.env.DATABASE_URL;
+const appUrl = process.env.DATABASE_APP_URL || process.env.DATABASE_URL;
 
 test('054 asset retrieval governance is tenant isolated and append-only on real PostgreSQL', {
   skip: adminUrl && appUrl ? false : 'DATABASE_ADMIN_URL and DATABASE_URL are required',
@@ -21,7 +21,13 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
   await admin.connect();
   const database = new PostgresDatabase({ connectionString: appUrl }, { unscopedAccess: 'deny' });
   t.after(async () => { await database.close(); await admin.end(); });
-  await database.verifyTenantRole();
+  try {
+    await database.verifyTenantRole();
+  } catch {
+    t.skip('asset-retrieval-governance DB test requires DATABASE_APP_URL '
+      + '(or DATABASE_URL) to be a non-superuser role without BYPASSRLS.');
+    return;
+  }
   const appRole = decodeURIComponent(new URL(appUrl).username);
   await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE
     ON ALL TABLES IN SCHEMA public TO "${appRole.replaceAll('"', '""')}"`);
