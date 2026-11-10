@@ -209,6 +209,34 @@ docker compose down                   # 停止容器，保留卷
 
 排障时不要输出 Cookie、Authorization、API Key、签名 URL 或 provider 原始响应。需要更改密钥时先确认轮换窗口和回滚方案，不要只重启一个容器造成 API/Worker 配置不一致。
 
+## 9. 发布与审计（离线受控流程）
+
+GitHub Actions 在本仓库只做只读 CI 门禁：`.github/workflows/` 不得声明任何 `write` 权限，也不得调用 GitHub CLI 写操作、创建 Release、推送镜像或向仓库 `git push`。`Branch Guard` 会执行 `deploy/check-workflows-readonly.mjs` 静态扫描，发现违规直接失败。Actions 运行时不会获得 `contents: write` / `packages: write` 令牌。
+
+镜像发布（GHCR）与 GitHub Release 由维护者在本地受控环境执行，不交给 Actions：
+
+1. 同步并确认发布提交（发布只允许从最新 `main` 产出）：
+   ```sh
+   git fetch origin main --no-tags
+   git checkout main
+   git pull --ff-only
+   ```
+2. 生成并校验 Docker 一键包。脚本会核对 `vX.Y.Z` 格式、根 `package.json` 版本、`HEAD` 是否等于 `origin/main`、已有标签是否指向同一提交、工作树是否干净：
+   ```sh
+   deploy/build-release-bundle.sh v0.2.0
+   ```
+   产物：仓库根目录的 `lyra-docker-v0.2.0.tar.gz` 与 `lyra-docker-v0.2.0.tar.gz.sha256`。
+3. 审计产物后再发布：
+   ```sh
+   sha256sum -c lyra-docker-v0.2.0.tar.gz.sha256   # macOS 可用 shasum -a 256 -c
+   tar -tzf lyra-docker-v0.2.0.tar.gz
+   docker compose -f deploy/compose.yaml config --quiet
+   ```
+4. 镜像构建与推送由受控专用 GitHub App 或维护者本人在隔离环境执行（如 `docker buildx build --platform linux/amd64,linux/arm64 --push ...`）。凭证只注入该受控步骤，最小权限、短时有效，不写入仓库、不进入 Actions。
+5. Release 由维护者使用受控账号手动创建，附上 tar 包与 checksum；发布说明引用包内 `README.md` 的上线边界，不把 CI 绿灯当成发布验收。
+
+任何需要写令牌的步骤都不得写回仓库工作流。若后续确需自动化，必须另立治理 Issue，改用独立、可审计、最小权限且与只读 CI 隔离的受控系统。
+
 ## 当前实现边界
 
 当前分支已建立 Stage 1 拓扑、端口、数据迁移、会话登录界面、健康状态和测试基座，但以下项目仍需在后续 contract 迁移或目标环境中完成：
