@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { methodReference, MethodReferenceSpaceError } from '../../prompt-packs/runtime';
+import { MethodReferenceSpaceError } from '../../prompt-packs/runtime';
+import { runMethodReference } from '../../method-packs/runtime';
 import type { AssetKind, AssetRecord } from '@lyra/shared';
 import {
   retrieveAssetForGeneration,
@@ -186,7 +187,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       executor: EXECUTOR_VERSION,
       inputDigest: canonicalDigest({ rule: PROMPT_VERSION, run: frozenRunInput(context.run),
         planId: loaded.state === 'ready' ? loaded.plan.id : null, entity: ref,
-        methodReference: ref?.kind === 'character' ? methodReference(context.run.methodPacks, 'character-image') || undefined : undefined,
+        methodReference: ref?.kind === 'character' ? runMethodReference(context.run, 'character-image') || undefined : undefined,
         match: match ? { assetId: match.asset?.id ?? null, matchedBy: match.matchedBy,
           ambiguous: match.ambiguous, alternatives: match.alternatives } : null,
         retrieval: retrievalManifest, imageConnection: connectionManifest(connection) }),
@@ -310,7 +311,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
     const basePrompt = assetPrompt(ref, context.run.visualStyle);
     let prompt = basePrompt;
     if (ref.kind === 'character') {
-      try { prompt += methodReference(context.run.methodPacks, 'character-image', Math.min(8000, 32_000 - basePrompt.length)); }
+      try { prompt += runMethodReference(context.run, 'character-image', Math.min(8000, 32_000 - basePrompt.length)); }
       catch (error) {
         if (error instanceof MethodReferenceSpaceError) return blocked('PROMPT_PACK_INPUT_LIMIT', error.message,
           ['缩短资产描述或减少方法包后创建新运行'], embeddingCost);
