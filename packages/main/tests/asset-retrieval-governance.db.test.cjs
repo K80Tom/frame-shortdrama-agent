@@ -1,3 +1,6 @@
+const { EvaluationService } = require('../dist/evaluation/service');
+const { PostgresEvaluationRepository } = require('../dist/evaluation/postgres-repository');
+const { EvaluationServiceAssetRetrievalRegistrar } = require('../dist/asset-retrieval-governance/evaluation-registrar');
 const { assetRetrievalAuthorizationTransaction } = require('../dist/asset-retrieval-governance/authorization-transaction');
 const { assetPackContentDigest, parseAssetPackVersion, ASSET_PACK_SCHEMA_VERSION } = require('@lyra/shared');
 const { PostgresAssetPackRepository } = require('../dist/assets/asset-pack-repository');
@@ -37,7 +40,7 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
     ON ALL TABLES IN SCHEMA public TO "${appRole.replaceAll('"', '""')}"`);
   const repository = new PostgresAssetRetrievalGovernanceRepository(database);
   const packs = new PostgresAssetPackRepository(database);
-  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: assetRetrievalAuthorization(packs, () => new Date(at)), authorizationTransaction: assetRetrievalAuthorizationTransaction(database, () => new Date(at)) });
+  const service = new AssetRetrievalGovernanceService(repository, { now: () => new Date(at), verifyAuthorization: assetRetrievalAuthorization(packs, () => new Date(at)), authorizationTransaction: assetRetrievalAuthorizationTransaction(database, () => new Date(at)), evaluationRegistrar: new EvaluationServiceAssetRetrievalRegistrar(new EvaluationService(new PostgresEvaluationRepository(database))) });
   const contexts = [0, 1].map(() => {
     const suffix = token();
     return { userId: 'usr_' + suffix, workspaceId: 'ws_' + suffix,
@@ -135,6 +138,8 @@ test('054 asset retrieval governance is tenant isolated and append-only on real 
 
   await scoped(a, async () => {
     const own=ids.get(a.workspaceId);
+    const registered=await service.registerEvaluationDataset(a.workspaceId,own.dataset.datasetRevisionId,{authorization:{status:'granted',basis:'internal approval',scope:'asset retrieval evaluation',grantedBy:a.userId,grantedAt:'2026-11-01',expiresAt:'2027-11-01',restrictions:[]}});
+    assert.equal(registered.evaluation.caseCount,1);
     const revoked={...own.version,id:'apv_'+token(),version:2,parentVersionId:own.version.id,status:'revoked',authorizationStatus:'revoked'};
     revoked.contentDigest=assetPackContentDigest(revoked);
     let release, reached;

@@ -1,3 +1,6 @@
+import { EvaluationService } from '../evaluation/service';
+import { PostgresEvaluationRepository } from '../evaluation/postgres-repository';
+import { EvaluationServiceAssetRetrievalRegistrar } from './evaluation-registrar';
 import type { PostgresDatabase } from '../db/client';
 import { PostgresAssetPackRepository } from '../assets/asset-pack-repository';
 import { PostgresAssetRetrievalGovernanceRepository } from './repository';
@@ -14,7 +17,8 @@ export function assetRetrievalAuthorizationTransaction(database: PostgresDatabas
       transaction: fn => fn(client),
     };
     const service = new AssetRetrievalGovernanceService(new PostgresAssetRetrievalGovernanceRepository(scoped), {
-      now, verifyAuthorization: assetRetrievalAuthorization(new PostgresAssetPackRepository(scoped), now),
+      now, evaluationRegistrar: new EvaluationServiceAssetRetrievalRegistrar(new EvaluationService(new PostgresEvaluationRepository(scoped), { now })),
+      verifyAuthorization: assetRetrievalAuthorization(new PostgresAssetPackRepository(scoped), now),
     });
     return work(service);
   });

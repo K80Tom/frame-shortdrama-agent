@@ -603,6 +603,7 @@ export class AssetRetrievalGovernanceService {
     if (!this.options.evaluationRegistrar) {
       bad(503, 'ASSET_RETRIEVAL_EVALUATION_UNAVAILABLE', '#134 EvaluationService 未注入，不能注册评测数据集。');
     }
+    if (this.options.authorizationTransaction) return this.options.authorizationTransaction(scoped => scoped.registerEvaluationDataset(workspaceId, datasetRevisionId, body));
     const revision = await this.getDatasetRevision(workspaceId, datasetRevisionId);
     const raw = this.bodyObject(body);
     const authorization = raw.authorization as EvaluationAuthorization | undefined;

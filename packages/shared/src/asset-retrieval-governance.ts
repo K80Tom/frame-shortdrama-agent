@@ -1077,8 +1077,8 @@ export function buildAssetRetrievalEvaluationCases(
       summary: candidate.explanation,
       metadata: {
         rank: candidate.rank,
-        finalScore: candidate.finalScore,
-        authorizationQuality: candidate.authorizationQuality,
+        final_score: candidate.finalScore,
+        authorization_quality: candidate.authorizationQuality,
       },
     }));
     const fixedHits = candidates.map(candidate => ({
