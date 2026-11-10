@@ -40,6 +40,8 @@ export interface ToolInvocationStore {
   listByRun(runId: string): Promise<ToolInvocationRecord[]>;
   appendAttempt(attempt: ToolAttemptRecord): Promise<void>;
   completeAttempt(attemptId: string, patch: Pick<ToolAttemptRecord, 'state' | 'endedAt' | 'reasonCode' | 'summary'>): Promise<void>;
+  /** 崩溃恢复：把仍停留在 running 的 Attempt 标记为 interrupted，保留审计链。 */
+  interruptRunningAttempts(invocationId: string, reasonCode: string, endedAt: string): Promise<void>;
 }
 
 export interface BudgetReservation {
@@ -56,6 +58,8 @@ export interface BudgetLedger {
   release(input: { reservationId: string; reason: string }): Promise<void>;
   /** 按 Invocation 释放：取消/终态清理用，必须幂等且不能重复退款。 */
   releaseForInvocation(input: { workspaceId: string; invocationId: string; reason: string }): Promise<void>;
+  /** 恢复已成功但进程崩溃前未结算的预留；不存在或已终态时幂等返回。 */
+  settleForInvocation(input: { workspaceId: string; invocationId: string; actualMicros: number }): Promise<void>;
 }
 
 /** 审批事实端口；生产环境由 main 注入 PostgresAgentRuntimeStore。 */
@@ -442,8 +446,11 @@ export class ToolKernel {
 
     let lastCode = 'AGENT_TOOL_FAILED';
     let lastSummary = '工具执行失败。';
+    // 被 Worker 中断的旧 Attempt 不能吞掉最后一次恢复机会：即使重试预算
+    // maxAttempts 已耗尽，也允许当前恢复 Attempt 再执行一次。
+    const effectiveMaxAttempts = Math.max(definition.retry.maxAttempts, attemptNumber);
     try {
-      for (let attempt = attemptNumber; attempt <= definition.retry.maxAttempts; attempt += 1) {
+      for (let attempt = attemptNumber; attempt <= effectiveMaxAttempts; attempt += 1) {
       let raw: unknown;
       try {
         const adapter = this.registry.adapterFor(current.tool);
@@ -516,6 +523,109 @@ export class ToolKernel {
       await releaseOpen('AGENT_TOOL_EXECUTION_ABORTED').catch(() => undefined);
       throw failure;
     }
+  }
+
+  /** 恢复时按 ID 回读已持久化的 Invocation；绝不信任 Checkpoint 里的副本。 */
+  async getInvocation(invocationId: string): Promise<ToolInvocationRecord | undefined> {
+    return this.store.get(invocationId);
+  }
+
+  /** 恢复时回读审批事实；未注入审批端口时返回 null，不伪装成已批准。 */
+  async getApproval(approvalId: string): Promise<AgentApprovalRequest | null> {
+    return this.options.approvals ? this.options.approvals.getApproval(approvalId) : null;
+  }
+
+  /**
+   * Worker 重启后的 Tool 恢复入口。
+   *
+   * - succeeded：直接复用已确认结果，并在需要时补结算崩溃前遗留的预算预留；
+   * - running：说明执行器在提交结果前崩溃。只读/内部写入且幂等键非 none 的调用
+   *   重新排队并执行（幂等键保证业务副作用最多一次）；外部/付费或 idempotency=none
+   *   的调用进入 reconciling，必须对账，绝不自动重试；
+   * - failed/cancelled/reconciling：幂等返回既有结果，同时清理预留。
+   */
+  async recover(
+    invocation: ToolInvocationRecord,
+    context: ToolExecutionContext,
+    options: ToolExecuteOptions = {},
+  ): Promise<ToolExecutionOutcome> {
+    if (invocation.workspaceId !== context.workspaceId) {
+      throw new AgentContractError(403, 'AGENT_TOOL_WORKSPACE_MISMATCH', '工具 Invocation 与当前 Workspace 不一致。');
+    }
+    const definition = this.registry.resolve(invocation.tool);
+    const loaded = await this.store.get(invocation.invocationId);
+    if (!loaded) throw new AgentContractError(404, 'AGENT_TOOL_INVOCATION_NOT_FOUND', '工具 Invocation 不存在。');
+    if (loaded.workspaceId !== context.workspaceId) {
+      throw new AgentContractError(403, 'AGENT_TOOL_WORKSPACE_MISMATCH', '工具 Invocation 与当前 Workspace 不一致。');
+    }
+    if (loaded.version !== invocation.version) {
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_STALE', 'Invocation 已被其他执行器推进，拒绝覆盖。');
+    }
+    if (loaded.tool.toolId !== invocation.tool.toolId
+      || loaded.tool.manifestDigest !== invocation.tool.manifestDigest) {
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_STALE', '恢复请求与持久化 Invocation 的工具身份不一致。');
+    }
+
+    if (loaded.state === 'succeeded' && loaded.result) {
+      // 结果已确认，不得再次执行；补结算只对仍处于 reserved 的预留生效。
+      await this.budget.settleForInvocation({
+        workspaceId: loaded.workspaceId, invocationId: loaded.invocationId, actualMicros: loaded.result.cost.settledMicros,
+      }).catch(() => undefined);
+      return { invocation: loaded, result: loaded.result };
+    }
+
+    if (loaded.state === 'failed' || loaded.state === 'cancelled' || loaded.state === 'inconclusive'
+      || loaded.state === 'reconciling') {
+      await this.budget.releaseForInvocation({
+        workspaceId: loaded.workspaceId, invocationId: loaded.invocationId, reason: 'AGENT_TOOL_RECOVERY_TERMINAL',
+      }).catch(() => undefined);
+      if (loaded.result) return { invocation: loaded, result: loaded.result };
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_TERMINAL', '该 Invocation 已结束但没有可复用的结果。');
+    }
+
+    if (loaded.state === 'waiting_external') {
+      // 外部系统已经接手；绝不能重新提交。结果未知时保持预留并进入对账。
+      if (loaded.result) return { invocation: loaded, result: loaded.result };
+      const endedAt = this.now().toISOString();
+      const result = failureResult(
+        definition, loaded, `rec_${randomUUID().replace(/-/g, '')}`, 'inconclusive',
+        'AGENT_TOOL_RECONCILIATION_REQUIRED',
+        '外部结果尚未确认，必须对账，不能自动重试。', loaded.createdAt, endedAt,
+      );
+      const next = await this.commit(loaded, { state: 'reconciling', result });
+      return { invocation: next, result };
+    }
+
+    if (loaded.state === 'queued' || loaded.state === 'approved') {
+      return this.execute(loaded, context, options);
+    }
+
+    if (loaded.state !== 'running') {
+      throw new AgentContractError(409, 'AGENT_TOOL_INVOCATION_NOT_EXECUTABLE',
+        `Invocation 当前状态 ${loaded.state} 不能恢复执行。`);
+    }
+
+    const endedAt = this.now().toISOString();
+    await this.store.interruptRunningAttempts(loaded.invocationId, 'AGENT_TOOL_WORKER_INTERRUPTED', endedAt);
+    const external = definition.sideEffect === 'external_write' || definition.sideEffect === 'paid_external';
+    const idempotent = definition.idempotency.strategy !== 'none';
+    if (external || !idempotent) {
+      // 外部结果未知：不能把“可能已经扣费/已写外部系统”的调用当普通重试。
+      await this.budget.releaseForInvocation({
+        workspaceId: loaded.workspaceId, invocationId: loaded.invocationId, reason: 'AGENT_TOOL_RECONCILIATION_REQUIRED',
+      });
+      const result = failureResult(
+        definition, loaded, `rec_${randomUUID().replace(/-/g, '')}`, 'inconclusive',
+        'AGENT_TOOL_RECONCILIATION_REQUIRED',
+        'Worker 中断前外部结果未确认，必须对账，不能自动重试。', loaded.createdAt, endedAt,
+      );
+      const next = await this.commit(loaded, { state: 'reconciling', result });
+      return { invocation: next, result };
+    }
+
+    // 内部/只读且具备幂等键：重新排队，执行器用同一 idempotency key 保证最多一次业务影响。
+    const requeued = await this.commit(loaded, { state: 'queued' });
+    return this.execute(requeued, context, options);
   }
 
   async cancel(invocation: ToolInvocationRecord, reason: string): Promise<ToolInvocationRecord> {
@@ -616,6 +726,13 @@ export class InMemoryToolInvocationStore implements ToolInvocationStore {
     if (attempt) this.attempts.set(attemptId, { ...attempt, ...patch });
   }
 
+  async interruptRunningAttempts(invocationId: string, reasonCode: string, endedAt: string): Promise<void> {
+    for (const [attemptId, attempt] of this.attempts) {
+      if (attempt.invocationId !== invocationId || attempt.state !== 'running') continue;
+      this.attempts.set(attemptId, { ...attempt, state: 'failed', endedAt, reasonCode });
+    }
+  }
+
   attemptsOf(invocationId: string): ToolAttemptRecord[] {
     return [...this.attempts.values()].filter(attempt => attempt.invocationId === invocationId);
   }
@@ -691,6 +808,12 @@ export class InMemoryBudgetLedger implements BudgetLedger {
     const reservation = this.reservationFor(input.workspaceId, input.invocationId);
     if (!reservation || reservation.state !== 'reserved') return;
     await this.release({ reservationId: reservation.reservationId, reason: input.reason });
+  }
+
+  async settleForInvocation(input: { workspaceId: string; invocationId: string; actualMicros: number }): Promise<void> {
+    const reservation = this.reservationFor(input.workspaceId, input.invocationId);
+    if (!reservation || reservation.state !== 'reserved') return;
+    await this.settle({ reservationId: reservation.reservationId, actualMicros: input.actualMicros });
   }
 
   balanceOf(workspaceId: string): number { return this.balances.get(workspaceId) ?? 0; }

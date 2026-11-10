@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import {
   AgentContractError, assertAgentTransition, digestOf, isTerminalAgentState,
-  type AgentApprovalRequest, type AgentApprovalState, type AgentEvent, type AgentRunRecord, type AgentRunState,
+  type AgentApprovalRequest, type AgentApprovalState, type AgentCheckpointPhase, type AgentEvent,
+  type AgentRunAttempt, type AgentRunCheckpoint, type AgentRunRecord, type AgentRunState,
   type AgentStep, type FrozenAgentSnapshot,
 } from '@lyra/shared';
 import type { AgentContextSnapshot, AgentEventRecord, AgentRuntimeStore } from './run-store';
@@ -105,6 +106,18 @@ export class AgentRuntime {
         summary: next.reasonSummary,
       });
     }
+    if (run.currentAttemptId && (isTerminalAgentState(to) || to === 'interrupted' || to === 'queued')) {
+      // 离开 running 回到 queued 表示旧 Worker 不再推进；旧 Attempt 必须结束，
+      // 下一次 claim 只能创建新 Attempt，不能留下两个 running。
+      await this.store.completeAttempt(run.currentAttemptId, {
+        state: to === 'succeeded' ? 'succeeded'
+          : to === 'failed' ? 'failed'
+            : to === 'cancelled' ? 'cancelled'
+              : to === 'inconclusive' ? 'lost' : 'interrupted',
+        endedAt: timestamp,
+        errorCode: options.errorCode,
+      });
+    }
     return clone(next);
   }
 
@@ -126,18 +139,29 @@ export class AgentRuntime {
     }
     assertAgentTransition(run.state, 'running');
     const ttl = options.ttlMs > 0 ? options.ttlMs : this.defaultLeaseTtlMs;
+    const attemptNumber = run.attemptCount + 1;
+    const attempt: AgentRunAttempt = {
+      attemptId: `runa_${randomBytes(16).toString('hex')}`,
+      runId,
+      attemptNumber,
+      state: 'running',
+      leaseOwner: options.leaseOwner,
+      startedAt: timestamp,
+    };
     const next: AgentRunRecord = {
       ...run,
       state: 'running',
       version: run.version + 1,
       updatedAt: timestamp,
-      attemptCount: run.attemptCount + 1,
+      attemptCount: attemptNumber,
+      currentAttemptId: attempt.attemptId,
       leaseOwner: options.leaseOwner,
       leaseExpiresAt: new Date(new Date(timestamp).getTime() + ttl).toISOString(),
       reasonSummary: '执行器已接管 Run。',
     };
     const applied = await this.store.updateRun(run.version, next);
     if (!applied) throw new AgentContractError(409, 'AGENT_RUN_STALE', '领取租约时 Run 已被其他执行器推进。');
+    await this.store.createAttempt(attempt);
     await this.store.appendEvent(runId, { type: 'run_state', state: 'running', version: next.version, summary: next.reasonSummary });
     return clone(next);
   }
@@ -264,6 +288,79 @@ export class AgentRuntime {
 
   async latestContextSnapshot(runId: string): Promise<AgentContextSnapshot | null> {
     return this.store.latestContextSnapshot(runId);
+  }
+
+  /**
+   * 写入 Tool 执行断点。必须在每个 Tool 调用前后各写一次：
+   * before_tool 记录 pending Invocation，after_tool 记录已确认结果。
+   */
+  async recordCheckpoint(runId: string, input: {
+    phase: AgentCheckpointPhase;
+    payload: Record<string, unknown>;
+    stepId?: string | null;
+    pendingInvocationId?: string | null;
+    cursor?: string | null;
+    summary?: string;
+  }): Promise<AgentRunCheckpoint> {
+    const run = await this.getRun(runId);
+    let serialized: string;
+    try { serialized = JSON.stringify(input.payload); }
+    catch { throw new AgentContractError(400, 'AGENT_CHECKPOINT_NOT_SERIALIZABLE', 'Checkpoint 无法序列化。'); }
+    if (serialized.length > 256 * 1024) {
+      throw new AgentContractError(413, 'AGENT_CHECKPOINT_TOO_LARGE', 'Checkpoint 超过 256KB。');
+    }
+    if (input.cursor && input.cursor.length > 200) {
+      throw new AgentContractError(400, 'AGENT_CHECKPOINT_INVALID', 'Checkpoint cursor 不能超过 200 字符。');
+    }
+    const latest = await this.store.latestCheckpoint(runId);
+    const sequence = (latest?.sequence ?? 0) + 1;
+    const checkpoint: AgentRunCheckpoint = {
+      checkpointId: `chk_${randomBytes(16).toString('hex')}`,
+      runId,
+      attemptId: run.currentAttemptId ?? null,
+      stepId: input.stepId ?? null,
+      sequence,
+      phase: input.phase,
+      payloadDigest: digestOf(input.payload),
+      payload: structuredClone(input.payload),
+      pendingInvocationId: input.pendingInvocationId ?? null,
+      cursor: input.cursor ?? null,
+      createdAt: this.now().toISOString(),
+    };
+    await this.store.appendCheckpoint(checkpoint);
+    const summary = (input.summary
+      ?? (checkpoint.pendingInvocationId
+        ? `工具执行断点 ${checkpoint.pendingInvocationId}`
+        : `执行断点 ${checkpoint.phase}`)).slice(0, 500);
+    await this.store.appendEvent(runId, {
+      type: 'checkpoint', checkpointId: checkpoint.checkpointId, phase: checkpoint.phase,
+      sequence: checkpoint.sequence, stepId: checkpoint.stepId,
+      pendingInvocationId: checkpoint.pendingInvocationId, summary,
+    });
+    return clone(checkpoint);
+  }
+
+  async latestCheckpoint(runId: string): Promise<AgentRunCheckpoint | null> {
+    await this.getRun(runId);
+    return this.store.latestCheckpoint(runId);
+  }
+
+  /** 兼容外部按 Issue 术语调用的别名；语义与 recordCheckpoint 完全一致。 */
+  async checkpoint(
+    runId: string,
+    input: Parameters<AgentRuntime['recordCheckpoint']>[1],
+  ): Promise<AgentRunCheckpoint> {
+    return this.recordCheckpoint(runId, input);
+  }
+
+  async listCheckpoints(runId: string, afterSequence = 0, limit = 500): Promise<AgentRunCheckpoint[]> {
+    await this.getRun(runId);
+    return this.store.listCheckpoints(runId, afterSequence, Math.min(1000, Math.max(1, limit)));
+  }
+
+  async listAttempts(runId: string): Promise<AgentRunAttempt[]> {
+    await this.getRun(runId);
+    return this.store.listAttempts(runId);
   }
 
   /** 只读重放：返回指定序号之后的事件，不触发任何副作用。 */

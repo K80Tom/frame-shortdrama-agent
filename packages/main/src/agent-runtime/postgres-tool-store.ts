@@ -115,6 +115,13 @@ export class PostgresToolInvocationStore implements ToolInvocationStore {
       WHERE attempt_id = $1
     `, [attemptId, patch.state, patch.endedAt ?? null, patch.reasonCode ?? null, patch.summary ?? null]);
   }
+
+  async interruptRunningAttempts(invocationId: string, reasonCode: string, endedAt: string): Promise<void> {
+    await this.database.query(`
+      UPDATE agent_tool_attempts SET state = 'failed', ended_at = $2, reason_code = $3
+      WHERE invocation_id = $1 AND state = 'running'
+    `, [invocationId, endedAt, reasonCode]);
+  }
 }
 
 interface AccountRow { available_micros: string | number; reserved_micros: string | number }
@@ -256,6 +263,22 @@ export class PostgresBudgetLedger implements BudgetLedger {
       if (!row || row.state !== 'reserved') return;
       await this.releaseRow(client, row);
     });
+  }
+
+  async settleForInvocation(input: { workspaceId: string; invocationId: string; actualMicros: number }): Promise<void> {
+    const result = await this.database.query<{ reservation_id: string; state: string }>(`
+      SELECT reservation_id, state FROM agent_budget_reservations
+      WHERE workspace_id = $1 AND invocation_id = $2
+    `, [input.workspaceId, input.invocationId]);
+    const row = result.rows[0];
+    // 预留在崩溃前已结算/释放时，恢复不得重复扣款或退款。
+    if (!row || row.state !== 'reserved') return;
+    try {
+      await this.settle({ reservationId: row.reservation_id, actualMicros: input.actualMicros });
+    } catch (error) {
+      if (error instanceof AgentContractError && error.code === 'AGENT_BUDGET_RESERVATION_SETTLED') return;
+      throw error;
+    }
   }
 
   private async releaseRow(client: PoolClient, row: ReservationRow): Promise<void> {
