@@ -46,7 +46,7 @@ export const EVOLUTION_GATE_TRANSITIONS: Readonly<Record<EvolutionCandidateState
   evaluating: ['gated', 'rejected'],
   gated: ['approved', 'rejected'],
   approved: ['canary', 'rejected'],
-  canary: ['promoted', 'paused', 'failed'],
+  canary: ['promoted', 'paused', 'failed', 'rolled_back'],
   paused: ['canary', 'promoted', 'rolled_back'],
   failed: ['rolled_back'],
   promoted: ['rolled_back'],

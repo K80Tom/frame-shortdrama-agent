@@ -15,6 +15,7 @@
 | [docs/agent-runtime-recovery.md](agent-runtime-recovery.md) | 2026-11-10 / 本 PR 新增 | `feat/resumable-agent-runtime` + 本 PR 文档增量 | #136A 恢复内核的范围、断点语义与验证边界；Worker/API 装配仍待后续 PR |
 | [docs/director-scene-versions.md](director-scene-versions.md) | 2026-11-09 / bc9cc42 | dev b264844 + 本 PR 文档增量 | 已合并切片的进度/边界记录；文中测试/fixture 需按其适用提交理解，本轮未重跑 |
 | [docs/documentation-index.md](documentation-index.md) | 2026-11-09 / 本 PR 新增 | dev b264844 + 本 PR 文档增量 | 本文档有效性与 Git 元数据目录；日期不是验收日期 |
+| [docs/evolution-publication-atomicity.md](evolution-publication-atomicity.md) | 2026-11-10 / 本修复新增 | `fix/evolution-authoritative-gates`，dev cc837c7 | #164 局部事务/HTTP权限修复；PG故障注入证据，权威评测及内部RBAC仍未完成 |
 | [docs/evaluation-data-governance.md](evaluation-data-governance.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [docs/evaluation-run-contract.md](evaluation-run-contract.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [docs/feature-status.md](feature-status.md) | 2026-11-10 / 本 PR 新增 | dev ddd33d3 + 本 PR 文档增量 | 本 PR 更新的能力快照/证据入口；待审 PR 不算已合入 |

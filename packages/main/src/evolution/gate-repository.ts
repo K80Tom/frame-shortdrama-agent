@@ -6,6 +6,8 @@ import type {
 } from '@lyra/shared';
 
 export interface EvolutionGateRepository {
+  /** All writes in a service command commit or roll back together. */
+  atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T>;
   insertCandidate(candidate: EvolutionCandidate): Promise<void>;
   getCandidate(workspaceId: string, candidateId: string): Promise<EvolutionCandidate | null>;
   /** 同一 proposal_key 已存在的 Candidate 数（含全部非删除状态）。 */
@@ -16,6 +18,7 @@ export interface EvolutionGateRepository {
   insertBinding(binding: EvolutionGateBinding): Promise<void>;
   getLatestBinding(workspaceId: string, candidateId: string): Promise<EvolutionGateBinding | null>;
   insertRollout(rollout: EvolutionRollout): Promise<void>;
+  listCandidateRollouts(workspaceId: string, candidateId: string): Promise<EvolutionRollout[]>;
   getRollout(workspaceId: string, rolloutId: string): Promise<EvolutionRollout | null>;
   updateRollout(workspaceId: string, rolloutId: string, expectedVersion: number,
     next: EvolutionRollout): Promise<boolean>;
@@ -57,6 +60,32 @@ export class InMemoryEvolutionGateRepository implements EvolutionGateRepository 
   private readonly rollouts = new Map<string, EvolutionRollout>();
   private readonly revisions: EvolutionRegistryRevision[] = [];
   private readonly audit: EvolutionAuditEvent[] = [];
+
+  private pending: Promise<void> = Promise.resolve();
+
+  async atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T> {
+    const previous = this.pending;
+    let release!: () => void;
+    this.pending = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      const scoped = new InMemoryEvolutionGateRepository();
+      for (const [id, value] of this.candidates) scoped.candidates.set(id, structuredClone(value));
+      for (const [id, value] of this.rollouts) scoped.rollouts.set(id, structuredClone(value));
+      scoped.bindings.push(...structuredClone(this.bindings));
+      scoped.revisions.push(...structuredClone(this.revisions));
+      scoped.audit.push(...structuredClone(this.audit));
+      const result = await work(scoped);
+      this.candidates.clear();
+      for (const [id, value] of scoped.candidates) this.candidates.set(id, value);
+      this.rollouts.clear();
+      for (const [id, value] of scoped.rollouts) this.rollouts.set(id, value);
+      this.bindings.splice(0, this.bindings.length, ...scoped.bindings);
+      this.revisions.splice(0, this.revisions.length, ...scoped.revisions);
+      this.audit.splice(0, this.audit.length, ...scoped.audit);
+      return result;
+    } finally { release(); }
+  }
 
   async insertCandidate(candidate: EvolutionCandidate): Promise<void> {
     if (this.candidates.has(candidate.candidateId)) {
@@ -103,6 +132,11 @@ export class InMemoryEvolutionGateRepository implements EvolutionGateRepository 
   async insertRollout(rollout: EvolutionRollout): Promise<void> {
     if (this.rollouts.has(rollout.rolloutId)) throw new Error(`duplicate rollout ${rollout.rolloutId}`);
     this.rollouts.set(rollout.rolloutId, structuredClone(rollout));
+  }
+
+  async listCandidateRollouts(workspaceId: string, candidateId: string): Promise<EvolutionRollout[]> {
+    return [...this.rollouts.values()].filter(row => row.workspaceId === workspaceId
+      && row.candidateId === candidateId).map(row => structuredClone(row));
   }
 
   async getRollout(workspaceId: string, rolloutId: string): Promise<EvolutionRollout | null> {
