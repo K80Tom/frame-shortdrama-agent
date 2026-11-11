@@ -57,7 +57,9 @@ async function readPlanStatus(plan: FactPlan | null): Promise<{ check: Check | n
   return { check, issues };
 }
 
-export default function ProjectScriptWorkspace({ projectId }: { projectId: string }) {
+export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
+  projectId: string; onUnsavedChange?: (dirty: boolean) => void;
+}) {
   const [project, setProject] = useState<Project | null>(null);
   const [script, setScript] = useState('');
   const [savedScript, setSavedScript] = useState('');
@@ -77,6 +79,11 @@ export default function ProjectScriptWorkspace({ projectId }: { projectId: strin
   const drafts = plan ? draftBook[plan.id]?.drafts ?? createEntityDrafts(plan.content) : {};
   const edits = plan ? buildEntityEdits(plan.content, drafts) : [];
   const dirty = edits.length > 0;
+  const unsaved = dirty || script !== savedScript;
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+    return () => onUnsavedChange?.(false);
+  }, [unsaved, onUnsavedChange]);
   const draftErrors = plan && dirty ? validateEntityDrafts(plan.content, drafts) : [];
   const latestPlan = latestPlanForScript(plans, project?.currentScriptVersionId ?? null);
   const editable = Boolean(plan && latestPlan?.id === plan.id);

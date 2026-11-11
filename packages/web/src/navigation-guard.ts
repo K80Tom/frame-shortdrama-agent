@@ -13,6 +13,7 @@ export function applyHashNavigation<RouteType extends Route>(current: Location<R
   commitRoute: (route: RouteType) => void;
 }): Location<RouteType> {
   const leavingDirtyEditor = (current.route.page === 'production' && options.hasUnsavedProduction)
+    || (current.route.page === 'projects' && current.route.projectSection === 'script' && options.hasUnsavedProduction)
     || (current.route.page === 'novel' && options.hasUnsavedNovel)
     || (current.route.page === 'assets' && options.hasUnsavedAssets)
     || (current.route.page === 'settings' && current.route.resourceId === 'models' && options.hasUnsavedModelConnections)

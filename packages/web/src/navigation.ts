@@ -1,6 +1,7 @@
 import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Network, Settings2, Sparkles, Wand2, Workflow } from 'lucide-react';
 import type { Page } from './model';
 import type { NovelAdaptationResult } from '@lyra/shared';
+import { parseProjectFlowSection, type ProjectFlowSection } from './project-flow';
 
 export const workspaceNavigation = [
   { id: 'studio' as Page, label: '工作台', en: 'Workspace', icon: House },
@@ -35,11 +36,7 @@ export type WorkspaceRoute = {
   resourceId?: string;
   screenplay?: NovelAdaptationResult;
   projectId?: string;
-  projectSection?: ProjectSection;
-};
-const projectPages: Record<ProjectSection, Page> = {
-  overview: 'projects', source: 'production', screenplay: 'production', storyboard: 'storyboard',
-  canvas: 'canvas', director: 'director', production: 'automation', review: 'projects', history: 'projects',
+  projectSection?: ProjectSection | ProjectFlowSection;
 };
 export function projectWorkspaceHash(projectId: string, section: ProjectSection): string {
   return `#/projects/${encodeURIComponent(projectId)}/${section}`;
@@ -51,12 +48,14 @@ export function routeFromHash(hash: string): WorkspaceRoute {
   const screenplay = /^#\/automation\/from-script\/([a-z][a-z0-9_-]{2,127})\/([a-z][a-z0-9_-]{2,127})$/u.exec(hash);
   if (screenplay) return { page: 'automation', step: 1, resourceId: screenplay[0].slice(2),
     screenplay: { projectId: screenplay[1]!, scriptVersionId: screenplay[2]! } };
-  const project = /^#\/projects\/([^/]+)\/(overview|source|screenplay|storyboard|canvas|director|production|review|history)\/?$/u.exec(hash);
+  // 项目区段统一由 project-flow.ts 归一：新区段（script/assets/storyboard）落到项目外壳，
+  // 旧区段（source/screenplay/review/history/director）走别名，未知区段降级 overview 且保留 projectId。
+  const project = /^#\/projects\/([^/]+)\/([^/]+)\/?$/u.exec(hash);
   if (project) {
     try {
       const projectId = decodeURIComponent(project[1]!);
-      const projectSection = project[2]! as ProjectSection;
-      return { page: projectPages[projectSection], step: 1, projectId, projectSection };
+      const projectSection = parseProjectFlowSection(project[2]) ?? 'overview';
+      return { page: 'projects', step: 1, projectId, projectSection };
     } catch { return { page: 'projects', step: 1 }; }
   }
   const legacy = /^#step-([1-9])$/.exec(hash);
