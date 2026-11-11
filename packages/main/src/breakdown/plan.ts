@@ -90,7 +90,7 @@ export interface PlanDialogue extends Omit<Static<typeof CandidateDialogueSchema
 }
 export interface ExtractFactsPlanContent {
   schemaVersion: typeof PLAN_CONTENT_SCHEMA_VERSION;
-  synopsis: SourcedText | null;
+  synopsis: PlanText | null;
   characters: PlanEntity[];
   locations: PlanEntity[];
   props: PlanEntity[];
@@ -130,13 +130,14 @@ const EntityEditSchema = Type.Object({
 }, { additionalProperties: false });
 export const CreateEntityEditsSchema = Type.Object({
   expectedActivePlanRevisionId: Type.Union([Type.Null(), OpaqueId]),
-  edits: Type.Array(EntityEditSchema, { minItems: 1, maxItems: 6_000 }),
+  edits: Type.Array(EntityEditSchema, { minItems: 0, maxItems: 6_000 }),
+  synopsis: Type.Optional(Type.Union([Type.Null(), Nonblank(20_000)])),
 }, { additionalProperties: false });
 export type CreateEntityEditsRequest = Static<typeof CreateEntityEditsSchema>;
 
 const StoredContentSchema = Type.Object({
   schemaVersion: Type.Literal(PLAN_CONTENT_SCHEMA_VERSION),
-  synopsis: Type.Union([Type.Null(), SourcedTextSchema]),
+  synopsis: Type.Union([Type.Null(), PlanTextSchema]),
   characters: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
   locations: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
   props: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
@@ -166,15 +167,40 @@ export function parseCreateEntityEdits(value: unknown): CreateEntityEditsRequest
 }
 
 /** A local user correction, never a model call or an in-place rewrite. */
-export function materializeEntityEdits(base: ExtractFactsPlanContent, edits: CreateEntityEditsRequest["edits"], context: {
+function synopsisSourceRefs(base: ExtractFactsPlanContent, script: ScriptForPlanValidation): SourceRef[] {
+  const existing = base.synopsis?.sourceRefs;
+  if (existing?.length) return existing;
+  const sceneRef = base.scenes.find((scene) => scene.sourceRefs.length > 0)?.sourceRefs[0];
+  if (sceneRef) return [sceneRef];
+  const entityRef = [...base.characters, ...base.locations, ...base.props]
+    .find((entity) => entity.sourceRefs.length > 0)?.sourceRefs[0];
+  if (entityRef) return [entityRef];
+  const chars = Array.from(script.rawText);
+  const end = Math.min(chars.length, 200_000);
+  if (end < 1) invalid("剧本为空，无法保存梗概。");
+  return [{ scriptVersionId: script.id, start: 0, end, quote: chars.slice(0, end).join("") }];
+}
+
+export function materializeEntityEdits(base: ExtractFactsPlanContent, request: CreateEntityEditsRequest, context: {
   script: ScriptForPlanValidation; revisionId: string;
 }): ExtractFactsPlanContent {
-  parseCreateEntityEdits({ expectedActivePlanRevisionId: null, edits });
+  const { edits } = request;
+  parseCreateEntityEdits({ expectedActivePlanRevisionId: null, edits,
+    ...(request.synopsis === undefined ? {} : { synopsis: request.synopsis }) });
   validateStoredPlanContent(base, context.script);
   const content = structuredClone(base);
   const groups = { character: content.characters, location: content.locations, prop: content.props };
   const seen = new Set<string>();
   let changed = false;
+  if (request.synopsis !== undefined) {
+    const next = request.synopsis === null ? null : request.synopsis.trim();
+    if ((base.synopsis?.value ?? null) !== next) {
+      content.synopsis = next === null ? null : {
+        value: next, origin: "user", sourceRefs: cloneRefs(synopsisSourceRefs(base, context.script)), answerIds: [],
+      };
+      changed = true;
+    }
+  }
   for (const edit of edits) {
     if (seen.has(edit.entityId)) invalid("同一实体不能在一次校对中重复提交。");
     seen.add(edit.entityId);
@@ -331,7 +357,7 @@ export function validateStoredPlanContent(content: ExtractFactsPlanContent, scri
     description: entry.description ? { ...entry.description, origin: "source" } : null,
   });
   const candidate: CreateExtractFactsCandidateRequest = {
-    synopsis: content.synopsis,
+    synopsis: content.synopsis ? { ...content.synopsis, origin: "source" } : null,
     characters: content.characters.map(sourceEntity),
     locations: content.locations.map(sourceEntity),
     props: content.props.map(sourceEntity),

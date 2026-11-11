@@ -408,3 +408,28 @@ test('entity proofreading prevents rechecking and adopting older snapshots over 
     planRevisionId: first.id, checkId: oldCheck.check.id, expectedActivePlanRevisionId: latest.id,
   }), (error) => error.status === 409, 'refreshing the active pointer must not allow overwriting manual work with an older candidate');
 });
+
+test('manual synopsis fills a missing synopsis and unblocks program checks and adoption', async () => {
+  const { service } = fixture();
+  const { project, script, run } = await prepared(service);
+  const missingSynopsis = facts(script);
+  missingSynopsis.synopsis = null;
+  const plan = await service.createExtractFactsCandidate(run.id, missingSynopsis);
+  const failed = await service.checkPlan(plan.id);
+  assert.equal(failed.check.result, 'failed');
+  assert.ok(failed.issues.some((issue) => issue.code === 'SYNOPSIS_MISSING'));
+
+  const edited = await service.createEntityEditCandidate(plan.id, {
+    expectedActivePlanRevisionId: null, edits: [],
+    synopsis: '林晚拿着信封来到医院走廊，寻找等待她的顾沉。',
+  });
+  assert.equal(edited.createdBy, 'user');
+  assert.equal(edited.reason, 'manualEdit');
+  assert.equal(edited.content.synopsis.value, '林晚拿着信封来到医院走廊，寻找等待她的顾沉。');
+  assert.equal(edited.content.synopsis.origin, 'user');
+  assert.equal(edited.content.synopsis.sourceRefs.length, 1);
+
+  const passed = await service.checkPlan(edited.id);
+  assert.equal(passed.check.result, 'passed');
+  await adopt(service, project, edited);
+});

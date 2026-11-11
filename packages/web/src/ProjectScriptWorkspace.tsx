@@ -3,7 +3,8 @@ import { ArrowRight, CircleDashed, CheckCircle2, Play, Save } from 'lucide-react
 import FactsEditor from './FactsEditor';
 import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
 import {
-  buildEntityEdits, createEntityDrafts, latestPlanForScript, validateEntityDrafts,
+  buildEntityEdits, createEntityDrafts, latestPlanForScript, synopsisChanged, synopsisDraftErrors,
+  synopsisEditValue, validateEntityDrafts,
   type EntityDrafts, type FactPlan,
 } from './facts-editor';
 import { workspaceFetch } from './deployment';
@@ -63,6 +64,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const [project, setProject] = useState<Project | null>(null);
   const [script, setScript] = useState('');
   const [savedScript, setSavedScript] = useState('');
+  const [synopsisDraft, setSynopsisDraft] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run | null>(null);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
@@ -78,13 +80,15 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
 
   const drafts = plan ? draftBook[plan.id]?.drafts ?? createEntityDrafts(plan.content) : {};
   const edits = plan ? buildEntityEdits(plan.content, drafts) : [];
-  const dirty = edits.length > 0;
+  const dirty = edits.length > 0 || synopsisChanged(plan, synopsisDraft);
   const unsaved = dirty || script !== savedScript;
   useEffect(() => {
     onUnsavedChange?.(unsaved);
     return () => onUnsavedChange?.(false);
   }, [unsaved, onUnsavedChange]);
-  const draftErrors = plan && dirty ? validateEntityDrafts(plan.content, drafts) : [];
+  const draftErrors = plan
+    ? [...(dirty ? validateEntityDrafts(plan.content, drafts) : []), ...synopsisDraftErrors(plan, synopsisDraft)]
+    : [];
   const latestPlan = latestPlanForScript(plans, project?.currentScriptVersionId ?? null);
   const editable = Boolean(plan && latestPlan?.id === plan.id);
   const adopted = Boolean(project && plan && project.activePlanRevisionId === plan.id);
@@ -114,6 +118,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
         setProject(selected); setRuns(runHistory.items); setPlans(revisions.items);
         setRun(runHistory.items.find(item => item.id === current?.runId) ?? runHistory.items[0] ?? null);
         setSavedScript(saved.rawText); setScript(saved.rawText);
+        setSynopsisDraft(current?.content.synopsis?.value ?? '');
         setPlan(current); setCheck(status.check); setIssues(status.issues); setModelCatalog(catalog);
       } catch (reason) {
         if (epoch.current === my) setMessage(reason instanceof Error ? reason.message : '读取项目失败。');
@@ -141,6 +146,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
       const status = await readPlanStatus(current);
       setProject(selected); setPlans(revisions.items); setPlan(current); setCheck(status.check); setIssues(status.issues);
+      setSynopsisDraft(current?.content.synopsis?.value ?? '');
     });
   }
 
@@ -204,7 +210,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       <div className="project-flow-head"><h3>事实候选与采用</h3>
         <button className="text-button" onClick={reload}>刷新版本列表</button></div>
       <select aria-label="拆解版本" value={plan?.id ?? ''} disabled={!!busy}
-        onChange={event => { const chosen = plans.find(item => item.id === event.target.value); if (!chosen) return; setPlan(chosen); setCheck(null); setIssues([]); }}>
+        onChange={event => { const chosen = plans.find(item => item.id === event.target.value); if (!chosen) return; setPlan(chosen); setCheck(null); setIssues([]); setSynopsisDraft(chosen.content.synopsis?.value ?? ''); }}>
         {[...plans].reverse().map(item => <option key={item.id} value={item.id}>
           {item.reason === 'manualEdit' ? '人工校对' : '模型提取'} · {new Date(item.createdAt).toLocaleString('zh-CN')}
           {project?.activePlanRevisionId === item.id ? ' · 已采用' : ' · 候选'}
@@ -213,13 +219,22 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       </select>
       {plan && <>
         {!editable && <p className="facts-readonly">这是历史拆解版本，仅供查看；请选择当前原文的最新版本继续校对。</p>}
+        <div className="project-flow-synopsis">
+          <label htmlFor="project-facts-synopsis">剧情梗概</label>
+          <textarea id="project-facts-synopsis" value={synopsisDraft} disabled={!!busy || !editable}
+            onChange={event => setSynopsisDraft(event.target.value)}
+            placeholder="用一两句话概括本集剧情；拆解没有提取到梗概时，可在这里人工补写。" />
+          {plan.content.synopsis && <small>原文依据：{plan.content.synopsis.sourceRefs[0]?.quote ?? '人工填写'}</small>}
+        </div>
         <div className="production-save-bar"><div>
-          <strong>{dirty ? `${edits.length} 项实体有未保存校对` : '当前版本没有未保存校对'}</strong>
+          <strong>{dirty ? `${edits.length} 项实体${synopsisChanged(plan, synopsisDraft) ? '和梗概' : ''}有未保存校对` : '当前版本没有未保存校对'}</strong>
         </div><div className="production-actions">
           <button disabled={!!busy || !dirty} onClick={() => setDraftBook(previous => { const next = { ...previous }; delete next[plan.id]; return next; })}>取消修改</button>
           <button className="production-primary" disabled={!!busy || !editable || !dirty || draftErrors.length > 0}
             onClick={() => void mutate('保存校对', async () => {
-              await api(`/api/plan-revisions/${plan.id}/entity-edits`, { expectedActivePlanRevisionId: project?.activePlanRevisionId, edits });
+              const synopsis = synopsisEditValue(plan, synopsisDraft);
+              await api(`/api/plan-revisions/${plan.id}/entity-edits`, { expectedActivePlanRevisionId: project?.activePlanRevisionId, edits,
+                ...(synopsis === undefined ? {} : { synopsis }) });
               reload();
             })}>{busy === '保存校对' ? '保存中…' : '保存校对为新候选'}</button>
         </div></div>
@@ -232,7 +247,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
           <button disabled={!!busy || dirty || !editable} onClick={() => void mutate('程序校验', async () => {
             const result = await api<{ check: Check; issues: PlanCheckIssue[] }>(`/api/plan-revisions/${plan.id}/checks`, {});
             setCheck(result.check); setIssues(result.issues);
-          })}>运行程序校验</button>
+          })}>{busy === '程序校验' ? '校验中…' : check ? '重新运行程序校验' : '运行程序校验'}</button>
           <button className="production-primary" disabled={!!busy || dirty || !editable || adopted || !checkPassed}
             onClick={() => void mutate('采用', async () => {
               await api(`/api/projects/${projectId}/adoptions`, { planRevisionId: plan.id, checkId: check!.id, expectedActivePlanRevisionId: project?.activePlanRevisionId });
@@ -240,6 +255,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
             })}>采用这版事实</button>
         </div>
         <p className="project-flow-status">程序校验：{check ? (checkPassed ? '通过' : check.result === 'failed' ? `未通过 · ${issues.length} 项` : '旧规则已通过') : '未运行'} · {adopted ? '这版已采用' : '这版尚未采用'} · 人工仍需核对语义</p>
+        {check?.result === 'failed' && <p className="project-flow-status">校验未通过：按待处理问题修改后，先保存为新候选，再重新运行程序校验。</p>}
         <PlanIssueList issues={issues} />
       </>}
     </section>}

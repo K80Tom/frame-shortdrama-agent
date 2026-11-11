@@ -288,7 +288,7 @@ export class BreakdownService implements BreakdownServicePort {
     const base = await this.getPlanRevision(baseRevisionId);
     const script = await this.getScriptVersion(base.projectId, base.scriptVersionId);
     const revisionId = this.nextId("plan");
-    const content = materializeEntityEdits(base.content, request.edits, { script, revisionId });
+    const content = materializeEntityEdits(base.content, request, { script, revisionId });
     return this.repository.createEntityEditRevision({
       id: revisionId,
       projectId: base.projectId,
