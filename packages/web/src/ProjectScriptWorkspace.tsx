@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, CircleDashed, CheckCircle2, Play, Save, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CircleDashed, CheckCircle2, Save, Sparkles, X } from 'lucide-react';
 import FactsEditor from './FactsEditor';
 import StructuredScriptEditor from './StructuredScriptEditor';
 import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
@@ -78,13 +78,11 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const [structureDirty, setStructureDirty] = useState(false);
   const [synopsisDraft, setSynopsisDraft] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
-  const [run, setRun] = useState<Run | null>(null);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
   const [plans, setPlans] = useState<FactPlan[]>([]);
   const [plan, setPlan] = useState<FactPlan | null>(null);
   const [check, setCheck] = useState<Check | null>(null);
   const [issues, setIssues] = useState<PlanCheckIssue[]>([]);
-  const [allowPaid, setAllowPaid] = useState(false);
   const [draftBook, setDraftBook] = useState<Record<string, { basePlan: FactPlan; drafts: EntityDrafts }>>({});
   const [busy, setBusy] = useState('');
   const [savingSceneId, setSavingSceneId] = useState<string | null>(null);
@@ -107,8 +105,6 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const adopted = Boolean(project && plan && project.activePlanRevisionId === plan.id);
   const checkPassed = check?.result === 'passed' && check.ruleVersion === CURRENT_FACT_CHECK_RULE_VERSION;
   const modelReady = Boolean(modelCatalog?.configured);
-  const runModelMatch = Boolean(run && modelCatalog && run.modelConfig.provider === modelCatalog.provider
-    && run.modelConfig.model === modelCatalog.defaultModel && run.modelConfig.reasoningEffort === 'model-default');
 
   useEffect(() => {
     epoch.current += 1;
@@ -130,7 +126,6 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
         const status = await readPlanStatus(current);
         if (epoch.current !== my) return;
         setProject(selected); setRuns(runHistory.items); setPlans(revisions.items);
-        setRun(runHistory.items.find(item => item.id === current?.runId) ?? runHistory.items[0] ?? null);
         setSavedScript(saved.rawText); setScript(saved.rawText);
         setStructureReady(Boolean(savedStructure)); setStructuredMode(Boolean(savedStructure));
         setScriptStructure(savedStructure ?? emptyScriptStructure());
@@ -302,7 +297,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
     <div className="project-flow-hero">
       <span className="project-kicker">SCRIPT & FACTS</span>
       <h2>剧本与事实</h2>
-      <p>原文版本、拆解运行与事实采用都归属本项目正式链；人工校对与采用才会更新正式版本。</p>
+      <p>原文版本、AI 解析与事实采用都归属本项目正式链；人工校对与采用才会更新正式版本。</p>
       <PrimaryActionBanner projectId={projectId} primary={primary} />
     </div>
 
@@ -332,7 +327,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
           || script !== savedScript || !project?.currentScriptVersionId}
           onClick={startParse}><Sparkles size={14} />{busy === 'AI解析' ? '正在解析…' : 'AI 解析分场与人物'}</button>
         {script !== savedScript && <small>原文有未保存修改，请先点「保存剧本新版本」再解析。</small>}
-        {!modelReady && <small>拆解模型未配置，暂时不能解析。</small>}
+        {!modelReady && <small>拆解模型未配置，暂时不能解析。<a href="#/settings/models">去配置模型</a></small>}
       </div>}
 
       {parsePreview && <div className="script-character-preview">
@@ -379,31 +374,6 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
           }}><Save size={14} />{busy === '保存原文' || busy === '保存剧本' ? '保存中…' : '保存剧本新版本'}</button>
       </div>}
     </section>
-    <section className="project-flow-card">
-      <h3>拆解运行</h3>
-      <p className="muted">{modelReady ? `当前拆解模型：${modelCatalog!.defaultModel}` : '拆解模型未配置时，人工校对不受影响；模型调用前会再次确认。'}</p>
-      <div className="project-flow-row">
-        <button disabled={!!busy || !project?.currentScriptVersionId || script !== savedScript}
-          onClick={() => void mutate('创建 Run', async () => {
-            const outputBudget = Math.min(32_768, Math.max(256, modelCatalog?.maxOutputTokens ?? 8192));
-            await api(`/api/projects/${projectId}/breakdown-runs`, { maxModelCalls: 1, maxOutputTokens: outputBudget, requirements: { language: '中文' } });
-            setAllowPaid(false); reload();
-          })}>创建拆解 Run</button>
-        {runs.length > 0 && <select aria-label="选择运行记录" value={run?.id ?? ''} disabled={!!busy}
-          onChange={event => { const chosen = runs.find(item => item.id === event.target.value); if (chosen) { setRun(chosen); setAllowPaid(false); } }}>
-          {runs.map(item => <option key={item.id} value={item.id}>{item.id.slice(0, 15)} · {item.status}</option>)}</select>}
-      </div>
-      {run && <p className="project-flow-status">状态：{run.status} · 模型：{run.modelConfig.model}{!runModelMatch && ' · 历史模型配置已变更，不能继续执行'}</p>}
-      <label className="production-consent"><input type="checkbox" checked={allowPaid} disabled={!!busy || !modelReady || !runModelMatch}
-        onChange={event => setAllowPaid(event.target.checked)} />我确认此次调用模型，可能产生费用</label>
-      <button className="production-primary" disabled={!!busy || !modelReady || !runModelMatch || !run
-        || run.status !== 'draft' || run.scriptVersionId !== project?.currentScriptVersionId || script !== savedScript || !allowPaid}
-        onClick={() => void mutate('运行拆解', async () => {
-          await api(`/api/breakdown-runs/${run!.id}/execute`, { allowPaid: true });
-          setAllowPaid(false); reload();
-        })}><Play size={14} />{busy === '运行拆解' ? '正在拆解…' : '运行事实拆解'}</button>
-    </section>
-
     {plans.length > 0 && <section className="project-flow-card">
       <div className="project-flow-head"><h3>事实候选与采用</h3>
         <button className="text-button" onClick={reload}>刷新版本列表</button></div>
@@ -464,7 +434,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
 function PrimaryActionBanner({ projectId, primary }: { projectId: string; primary: ScriptPrimaryAction }) {
   const copy = {
     'add-script': { title: '添加剧本', detail: '先保存一版原文，再开始拆解事实。' },
-    'start-breakdown': { title: '开始拆解', detail: '为当前原文创建并运行拆解 Run（模型调用前会再次确认）。' },
+    'start-breakdown': { title: '开始拆解', detail: '保存原文后点「AI 解析分场与人物」，解析结果先预览再保存。' },
     'review-facts': { title: '核对事实候选', detail: '对照原文校对实体、运行程序校验，再决定采用。' },
     'adopt-facts': { title: '采用事实版本', detail: '校验已通过；人工确认语义后采用，旧版本保留可查。' },
     'into-storyboard': { title: '进入分镜', detail: '事实已采用，可以基于它生成分镜候选。' },
