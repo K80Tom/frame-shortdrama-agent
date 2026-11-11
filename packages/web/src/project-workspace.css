@@ -188,7 +188,7 @@
 /* #182 项目正式主链视图 */
 .project-flow-view { display: grid; gap: 16px; }
 .project-flow-hero h2 { margin: 4px 0; }
-.project-flow-card { border: 1px solid var(--line, #e5e7eb); border-radius: 12px; padding: 16px; background: var(--panel, #fff); display: grid; gap: 10px; }
+.project-flow-card { border: 1px solid rgba(255, 255, 255, .075); border-radius: 12px; padding: 16px; background: var(--project-surface, var(--surface, #191918)); display: grid; gap: 10px; }
 .project-flow-head { display: flex; align-items: center; justify-content: space-between; }
 .project-flow-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .project-flow-script { min-height: 140px; width: 100%; box-sizing: border-box; }
