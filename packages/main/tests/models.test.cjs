@@ -108,6 +108,32 @@ test('thinking is omitted by default and only explicit disabled is accepted with
   assert.equal(calls, 1);
 });
 
+test('DeepSeek OpenAI-compatible connections receive disabled thinking, other compatible endpoints do not', async () => {
+  const bodies = [];
+  const deepseek = { ...config, provider: 'openai-compatible', baseUrl: '', endpointUrl: 'https://api.deepseek.com/v1/chat/completions',
+    authType: 'bearer', defaultModel: 'deepseek-v4-flash' };
+  const other = { ...config, provider: 'openai-compatible', baseUrl: 'https://openrouter.test/v1', endpointUrl: 'https://openrouter.test/v1/chat/completions',
+    authType: 'bearer', defaultModel: 'deepseek-v4-flash' };
+  const deepseekClient = new ModelClient(deepseek, async (_, options) => {
+    bodies.push(JSON.parse(options.body)); return json(completion());
+  });
+  const otherClient = new ModelClient(other, async (_, options) => {
+    bodies.push(JSON.parse(options.body)); return json(completion());
+  });
+  await deepseekClient.call(input({ model: 'deepseek-v4-flash', thinking: 'disabled', maxOutputTokens: 4096 }));
+  await otherClient.call(input({ model: 'deepseek-v4-flash', thinking: 'disabled', maxOutputTokens: 4096 }));
+  assert.deepEqual(bodies[0].thinking, { type: 'disabled' });
+  assert.equal(Object.hasOwn(bodies[0], 'reasoning_effort'), false);
+  assert.equal(bodies[0].max_tokens, 4096);
+  assert.equal(Object.hasOwn(bodies[1], 'thinking'), false);
+});
+
+test('empty final content reports reasoning-only diagnosis instead of pretending it parsed JSON', async () => {
+  const client = new ModelClient(config, async () => json({ choices: [{ finish_reason: 'stop',
+    message: { content: '', reasoning_content: 'reasoning-only' } }], usage: { prompt_tokens: 10, completion_tokens: 8192, total_tokens: 8202 } }));
+  await assert.rejects(client.call(input()), error => error.code === 'EMPTY_OUTPUT' && /推理内容/.test(error.message));
+});
+
 test('upstream rejection of explicit disabled thinking does not retry without it or change the model', async () => {
   let calls = 0;
   const client = new ModelClient(config, async (_, options) => {
@@ -235,7 +261,7 @@ test('HTTP route integration: health/catalog are free, origin/host/header/body g
     assert.equal(health.statusCode, 200);
     assert.equal(health.json().modelAvailabilityChecked, false);
     const list = await server.inject({ url: '/api/models', headers });
-    assert.equal(list.json().models.length, 1); assert.equal(calls, 0);
+    assert.equal(list.json().models.length, 1); assert.equal(list.json().maxOutputTokens, config.maxOutputTokens); assert.equal(calls, 0);
     for (const response of [health, list]) {
       assert.equal(response.body.includes(modelEnv.LLM_API_KEY), false);
       assert.equal(response.body.includes(modelEnv.LLM_BASE_URL), false);

@@ -7,7 +7,7 @@ import './production.css';
 
 type Project = { id: string; title: string; source: { url: string; title?: string; author?: string; chapterTitle?: string } | null; currentScriptVersionId: string | null; activePlanRevisionId: string | null; activeStoryboardRevisionId: string | null };
 type Run = { id: string; status: string; scriptVersionId: string; modelConfig: { provider: string; model: string; reasoningEffort: string; connectionRevision?: string } };
-type ModelCatalog = { provider: string; configured: boolean; defaultModel: string; connectionRevision?: string };
+type ModelCatalog = { provider: string; configured: boolean; defaultModel: string; maxOutputTokens?: number; connectionRevision?: string };
 type Check = { id: string; result: 'passed' | 'failed'; ruleVersion: string };
 const CURRENT_FACT_CHECK_RULE_VERSION = 'extract-facts-completeness/2';
 type Storyboard = { id: string; sourcePlanRevisionId: string; shots: Array<{ id: string; sceneId: string; order: number;
@@ -207,7 +207,8 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
   function createRun() {
     if (!project || !confirmLeavingDraft('创建新的拆解 Run')) return;
     void action('创建 Run', async isCurrent => {
-      const created = await api<Run>(`/api/projects/${project.id}/breakdown-runs`, { maxModelCalls: 1, maxOutputTokens: 8192, requirements: { language: '中文' } });
+      const outputBudget = Math.min(32_768, Math.max(256, modelCatalog?.maxOutputTokens ?? 8192));
+      const created = await api<Run>(`/api/projects/${project.id}/breakdown-runs`, { maxModelCalls: 1, maxOutputTokens: outputBudget, requirements: { language: '中文' } });
       if (!isCurrent()) return;
       setRun(created); setRuns(items => [created, ...items]); setAllowPaid(false);
       setMessage('Run 已创建，尚未调用模型。已有拆解和未保存校对仍保留。');
