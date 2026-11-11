@@ -5,6 +5,10 @@ import { configuredModel } from './registry';
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+/** DeepSeek's OpenAI-compatible endpoint supports {"thinking":{"type":"disabled"}}. */
+function supportsThinkingControl(config: AppConfig): boolean {
+  return config.provider === 'maas' || (config.endpointUrl?.startsWith('https://api.deepseek.com/') ?? false);
+}
 const safeString = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_.:()\/-]{1,160}$/.test(value) ? value : null;
 const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
 
@@ -64,7 +68,7 @@ export class ModelClient {
           typeof message.content === 'string' ? message : { role: message.role, content: message.content.map(part =>
             part.type === 'text' ? { type: 'text', text: part.text }
               : { type: 'image_url', image_url: { url: `data:${part.mediaType};base64,${part.dataBase64}` } }) }), stream: false,
-          ...(request.thinking && this.config.provider === 'maas' ? { thinking: { type: request.thinking } } : {}),
+          ...(request.thinking && supportsThinkingControl(this.config) ? { thinking: { type: request.thinking } } : {}),
           ...(request.jsonOutput ? { response_format: { type: 'json_object' } } : {}),
           max_tokens: Math.min(request.maxOutputTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens) }),
       });
@@ -92,8 +96,11 @@ export class ModelClient {
       if (finishReason !== 'stop' && finishReason !== 'length') {
         throw new ModelError(502, 'UNEXPECTED_FINISH', '模型未返回普通文本结果；未执行任何工具或重试。', { usage: usageSummary });
       }
+      const reasoningContent = typeof message.reasoning_content === 'string' ? message.reasoning_content.trim() : '';
       if (typeof message.content !== 'string' || !message.content.trim()) {
-        throw new ModelError(502, 'EMPTY_OUTPUT', '模型没有可见文本，可能已耗尽推理预算；未自动重试。', { finishReason, usage: usageSummary });
+        throw new ModelError(502, 'EMPTY_OUTPUT', reasoningContent
+          ? '模型只返回了推理内容，没有返回最终文本；请关闭思考模式或提高输出额度后重试。'
+          : '模型没有可见文本，可能已耗尽推理预算；未自动重试。', { finishReason, usage: usageSummary });
       }
       return { callId, requestedModel: model.id, reportedModel: safeString(payload.model),
         providerRequestId: safeString(payload.id), text: message.content, reasoningEffort: effort,

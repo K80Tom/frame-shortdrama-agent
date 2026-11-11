@@ -183,6 +183,7 @@ test('settings HTTP requires local write intent, returns no secrets, and general
   const saved = await invoke('/api/model-connections/general', payload);
   assert.equal(saved.statusCode, 200); assert.equal(saved.body.includes('new-test-only'), false);
   assert.equal((await invoke('/api/models?role=general')).json().defaultModel, 'GPT-5.6 Sol');
+  assert.equal((await invoke('/api/models?role=general')).json().maxOutputTokens, 4096);
   assert.equal((await invoke('/api/models?role=breakdown')).json().defaultModel, base.defaultModel);
   assert.equal((await invoke('/api/models?role=image')).statusCode, 400);
   assert.equal(routed.length, 0, 'saving config and reading catalog must not spend tokens');

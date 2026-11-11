@@ -211,7 +211,7 @@ class ModelsService {
     const config = configForRole(this.config, role);
     const model = configuredModel(config.defaultModel, config.defaultModel);
     return { role, provider: config.provider, configured: Boolean((config.endpointUrl || config.baseUrl) && config.apiKey && config.defaultModel),
-      defaultModel: config.defaultModel, connectionRevision: config.connectionRevision, streaming: false, automaticFallback: false,
+      defaultModel: config.defaultModel, maxOutputTokens: config.maxOutputTokens, connectionRevision: config.connectionRevision, streaming: false, automaticFallback: false,
       capabilitySource: 'user-configured-text-model', verificationNote: '配置完整不等于上游可用，模型能力和质量仍需单独验证。',
       models: model ? [{ ...model, textInput: true, imageGeneration: false, videoGeneration: false,
         effectiveDefaultReasoningEffort: config.reasoningEffort }] : [] };
