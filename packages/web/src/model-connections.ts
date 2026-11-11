@@ -1,4 +1,6 @@
 import { workspaceFetch } from './deployment';
+import type { ModelKind as SharedModelKind, ModelPresetCatalogResponse, ModelPresetEntry,
+  ProviderCatalogEntry } from '@lyra/shared';
 
 export const modelRoles = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof modelRoles[number];
@@ -8,12 +10,16 @@ export type ModelConnection = {
   source: 'environment' | 'local'; execution: 'text' | 'asset-generation' | 'task-api-ready' | 'not-implemented';
   profileId: string | null; profileName: string | null;
 };
-export type ModelKind = 'text' | 'image' | 'video';
+export type ModelKind = SharedModelKind;
+export type ModelPresetCatalog = ModelPresetCatalogResponse;
+export type ProviderCatalog = ProviderCatalogEntry;
+export type ModelPreset = ModelPresetEntry;
 export type ModelProfile = Omit<ModelConnection, 'role' | 'profileId' | 'profileName'> & { id: string; name: string; kind: ModelKind; roles: ModelRole[] };
 export type ModelCatalog = { connections: ModelConnection[]; profiles: ModelProfile[]; legacyImportAvailable: boolean; legacyModel: string };
 export type ConnectionDraft = { endpoint: string; model: string; authType: 'bearer' | 'api-key'; apiKey: string;
   clearApiKey: boolean; maxOutputTokens: number; timeoutMs: number };
-export type ProfileDraft = ConnectionDraft & { name: string; kind: ModelKind; copyCredentialsFrom?: { profileId: string; revision: string } };
+export type ProfileDraft = ConnectionDraft & { name: string; kind: ModelKind; presetCode?: string;
+  copyCredentialsFrom?: { profileId: string; revision: string } };
 export const roleInfo = {
   breakdown: { title: '剧本／小说拆解', short: '拆解模型', en: 'BREAKDOWN', description: '提取人物、场景、道具与对白；逐段查漏、局部修复和复核也使用此配置。' },
   image: { title: '图像生成', short: '生图模型', en: 'IMAGE', description: '为已校对的人物、场景与道具生成候选图；图片自动导入候选区，人工确认后才关联资产库。' },
@@ -28,6 +34,21 @@ export function profileDraft(profile?: ModelProfile, kind: ModelKind = 'text'): 
   return profile ? { ...connectionDraft(profile), name: profile.name, kind: profile.kind } : { name: '', kind, endpoint: '', model: '',
     authType: 'bearer', apiKey: '', clearApiKey: false, maxOutputTokens: 8192, timeoutMs: 180000 };
 }
+/** 预设只回填公开参数；API Key 始终由用户在当前表单里输入，不从目录读取。 */
+export function presetProfileDraft(preset: ModelPresetEntry, provider?: ProviderCatalogEntry): ProfileDraft {
+  return {
+    presetCode: preset.code,
+    name: preset.name.slice(0, 80),
+    kind: preset.kind,
+    endpoint: preset.defaultBaseUrl || provider?.defaultBaseUrl || '',
+    model: preset.modelCode,
+    authType: 'bearer',
+    apiKey: '',
+    clearApiKey: false,
+    maxOutputTokens: preset.config?.maxOutputTokens ?? 8192,
+    timeoutMs: preset.config?.defaultTimeoutMs ?? (preset.kind === 'video' ? 300000 : 180000),
+  };
+}
 export function copyProfileDraft(profile: ModelProfile): ProfileDraft {
   return { ...profileDraft(profile), name: `${profile.name.slice(0, 70)} 副本`, copyCredentialsFrom: { profileId: profile.id, revision: profile.revision } };
 }
@@ -38,7 +59,13 @@ export function validateProfileDraft(draft: ProfileDraft): string | null {
   return validateConnectionDraft(draft.kind === 'text' ? 'general' : draft.kind, draft);
 }
 export function profilePayload(draft: ProfileDraft, profile?: ModelProfile) {
-  return { ...draft, name: draft.name.trim(), endpoint: draft.endpoint.trim(), model: draft.model.trim(),
+  const name = draft.name.trim();
+  if (draft.presetCode) {
+    return { presetCode: draft.presetCode, name, apiKey: draft.apiKey, clearApiKey: draft.clearApiKey,
+      ...(draft.copyCredentialsFrom ? { copyCredentialsFrom: draft.copyCredentialsFrom } : {}),
+      ...(profile ? { expectedRevision: profile.revision } : {}) };
+  }
+  return { ...draft, name, endpoint: draft.endpoint.trim(), model: draft.model.trim(),
     ...(profile ? { expectedRevision: profile.revision } : {}) };
 }
 export function connectionDraft(item: Pick<ModelConnection, 'endpoint' | 'model' | 'authType' | 'maxOutputTokens' | 'timeoutMs'>): ConnectionDraft {

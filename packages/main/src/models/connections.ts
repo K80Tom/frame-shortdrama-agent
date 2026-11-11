@@ -3,7 +3,8 @@ import { readFileSync, statSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { AppConfig } from '../config';
-import { ModelError } from '@lyra/shared';
+import { ModelError, type ModelKind as SharedModelKind } from '@lyra/shared';
+import { ModelPresetService } from './presets/service';
 
 export const MODEL_ROLES = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof MODEL_ROLES[number];
@@ -16,7 +17,7 @@ export interface Connection {
   timeoutMs: number;
   revision: string;
 }
-export type ModelKind = 'text' | 'image' | 'video';
+export type ModelKind = SharedModelKind;
 export interface ModelProfile extends Connection {
   id: string;
   name: string;
@@ -32,6 +33,8 @@ interface ConnectionLibrary {
 const kindForRole = (role: ModelRole): ModelKind => role === 'breakdown' || role === 'general' ? 'text' : role;
 const labels: Record<ModelRole, string> = { breakdown: '拆解', general: '通用', image: '生图', video: '生视频' };
 const profileId = () => `model_${randomUUID().replaceAll('-', '')}`;
+/** 内置目录在模块加载时完成一次契约校验；之后只做内存查询。 */
+const modelPresets = new ModelPresetService();
 export function parseModelRole(value: unknown): ModelRole {
   if (!MODEL_ROLES.includes(value as ModelRole)) throw invalid('未知模型用途。');
   return value as ModelRole;
@@ -305,20 +308,33 @@ export class ModelConnections {
   }
   async createProfile(input: unknown) {
     return this.serial(async () => {
-      const data = strict(input, [...fields, 'copyCredentialsFrom']);
-      const title = name(data.name);
+      const data = strict(input, [...fields, 'copyCredentialsFrom', 'presetCode']);
+      const preset = data.presetCode === undefined ? null : modelPresets.profileDefaults(data.presetCode);
+      if (preset) {
+        const overridden = ['kind', 'endpoint', 'model', 'authType', 'maxOutputTokens', 'timeoutMs']
+          .filter(key => data[key] !== undefined);
+        if (overridden.length) throw invalid('使用厂商预设时不能重复填写 Endpoint、模型名或默认参数；只需补充名称和 API Key。');
+      }
+      const title = data.name === undefined && preset ? this.uniqueName(preset.name) : name(data.name);
       this.checkName(title); this.checkLimit(this.state.profiles.length + 1);
+      const source = preset ? { ...preset, name: title } : data;
       let copiedKey = '';
       if (data.copyCredentialsFrom !== undefined) {
         const copy = strict(data.copyCredentialsFrom, ['profileId', 'revision']);
-        const source = this.profile(identifier(copy.profileId));
-        this.checkVersion(copy.revision, source.revision);
-        if (endpoint(data.endpoint) !== source.endpoint || data.authType !== source.authType) throw invalid('复用密钥必须保持原接口与鉴权方式；新接口请填写单独的密钥。');
+        const credentialSource = this.profile(identifier(copy.profileId));
+        this.checkVersion(copy.revision, credentialSource.revision);
+        if (endpoint(source.endpoint) !== credentialSource.endpoint || source.authType !== credentialSource.authType) {
+          throw invalid('复用密钥必须保持原接口与鉴权方式；新接口请填写单独的密钥。');
+        }
         if (data.clearApiKey || (data.apiKey !== undefined && text(data.apiKey, 4096))) throw invalid('复用与替换／清除密钥不能同时操作。');
-        copiedKey = source.apiKey;
+        copiedKey = credentialSource.apiKey;
       }
-      const profile: ModelProfile = { ...profileFields({ ...data, revision: randomUUID() }, secret(data, copiedKey)),
-        id: profileId(), name: title, kind: data.kind as ModelKind, source: 'local' };
+      const profile: ModelProfile = { ...profileFields({
+        endpoint: source.endpoint, model: source.model, authType: source.authType, apiKey: data.apiKey,
+        maxOutputTokens: source.maxOutputTokens, timeoutMs: source.timeoutMs, kind: source.kind,
+        revision: randomUUID(),
+      }, secret(data, copiedKey)),
+      id: profileId(), name: title, kind: source.kind as ModelKind, source: 'local' };
       await this.commit({ ...this.state, profiles: [...this.state.profiles, profile] });
       return this.publicProfile(profile);
     });
