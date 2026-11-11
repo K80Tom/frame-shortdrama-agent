@@ -10,6 +10,7 @@ import { ModelClient } from './models/client';
 import { MAX_REQUEST_BYTES, AgentContractError, ModelError, parseCall } from '@lyra/shared';
 import { configuredModel } from './models/registry';
 import { configForRole, ModelConnections, parseModelRole, type ModelRole } from './models/connections';
+import { ModelPresetService } from './models/presets/service';
 import {
   parseAdoptPlan,
   parseCreateBreakdownRun,
@@ -203,6 +204,7 @@ class AdoptPlanPipe implements PipeTransform {
 @Injectable()
 class ModelsService {
   private readonly clients = new WeakMap<AppConfig, ModelClient>();
+  private readonly presets = new ModelPresetService();
   constructor(@Inject(CONFIG) private readonly config: AppConfig, @Inject(TRANSPORT) private readonly transport: typeof fetch) {}
   list(role: ModelRole = 'general') {
     if (role !== 'general' && role !== 'breakdown') throw new ModelError(400, 'MODEL_ROLE_NOT_TEXT', '媒体配置不进入文本调用通道。');
@@ -215,6 +217,8 @@ class ModelsService {
         effectiveDefaultReasoningEffort: config.reasoningEffort }] : [] };
   }
   connections() { return this.config.modelConnections!.list(); }
+  presetCatalog(query: { kind?: string; modality?: string; providerId?: string }) { return this.presets.listPresets(query); }
+  providerCatalog() { return this.presets.listProviders(); }
   update(role: ModelRole, input: unknown) { return this.config.modelConnections!.update(role, input); }
   async createProfile(input: unknown) {
     const profile = await this.config.modelConnections!.createProfile(input);
@@ -247,6 +251,11 @@ class ModelsController {
   @Get('api/models') list(@Query('role') role?: string) { return this.models.list(role === undefined ? 'general' : parseModelRole(role)); }
   @Get('api/model-connections') connections() { return this.models.connections(); }
   @Get('api/model-profiles') profiles() { return this.models.connections(); }
+  @Get('api/provider-catalog') providerCatalog() { return this.models.providerCatalog(); }
+  @Get('api/model-presets') presetCatalog(@Query('kind') kind?: string, @Query('modality') modality?: string,
+    @Query('providerId') providerId?: string) {
+    return this.models.presetCatalog({ kind, modality, providerId });
+  }
   @Post('api/model-profiles') @HttpCode(200)
   createProfile(@Body() body: unknown) { return this.models.createProfile(body); }
   @Post('api/model-profiles/import-environment') @HttpCode(200)
@@ -576,7 +585,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
   adapter.getInstance().addHook('onRequest', async (request, reply) => {
     const path = requestPath(request.url);
-    if (request.url.startsWith('/api/platform') || request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
+    if (request.url.startsWith('/api/platform') || request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/provider-catalog') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
       || request.url.startsWith('/api/evolution')
