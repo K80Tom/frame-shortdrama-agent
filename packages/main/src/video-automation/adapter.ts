@@ -3,6 +3,7 @@ import { AssetError, localAssetUrl } from '@lyra/shared';
 import type { AssetService } from '../assets/service';
 import { SeedanceVideoClient, type SeedanceTask } from '../models/media-client';
 import { ModelError } from '@lyra/shared';
+import { createVideoModelClient } from '../models/media-runtime';
 import { VideoAutomationError, type StoredVideoRun, type VideoAvailability } from './contracts';
 
 export type VideoSubmitResult = { state: 'submitted'; task: SeedanceTask }
@@ -19,7 +20,7 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
   constructor(private readonly resolveConfig: () => AppConfig, private readonly transport: typeof fetch = fetch,
     private readonly assets?: Pick<AssetService, 'get' | 'content'>) {}
   private client(config: AppConfig) {
-    return new SeedanceVideoClient({ endpoint: config.endpointUrl ?? '', model: config.defaultModel,
+    return createVideoModelClient({ executionBinding: config.modelExecution, endpoint: config.endpointUrl ?? '', model: config.defaultModel,
       authType: config.authType ?? 'api-key', apiKey: config.apiKey, timeoutMs: config.timeoutMs, fetch: this.transport });
   }
   async health(): Promise<VideoAvailability> {

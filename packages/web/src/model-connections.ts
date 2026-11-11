@@ -1,13 +1,14 @@
 import { workspaceFetch } from './deployment';
 import type { ModelKind as SharedModelKind, ModelPresetCatalogResponse, ModelPresetEntry,
-  ProviderCatalogEntry } from '@lyra/shared';
+  ProviderCatalogEntry, ModelExecutionBinding } from '@lyra/shared';
 
 export const modelRoles = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof modelRoles[number];
 export type ModelConnection = {
   role: ModelRole; endpoint: string; model: string; authType: 'bearer' | 'api-key';
   hasApiKey: boolean; configured: boolean; revision: string; maxOutputTokens: number; timeoutMs: number;
-  source: 'environment' | 'local'; execution: 'text' | 'asset-generation' | 'task-api-ready' | 'not-implemented';
+  source: 'environment' | 'local'; execution: 'text' | 'asset-generation' | 'task-api-ready' | 'not-implemented' | 'metadata-only';
+  executionBinding?: ModelExecutionBinding;
   profileId: string | null; profileName: string | null;
 };
 export type ModelKind = SharedModelKind;

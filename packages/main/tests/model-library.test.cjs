@@ -102,7 +102,7 @@ test('v1 migration preserves all role snapshots, credentials and cleared fields 
   const restored = new ModelConnections(base, file); await restored.initialize();
   assert.deepEqual(restored.list().profiles.map(p => p.id), firstIds);
   assert.equal(restored.public('general').configured, false);
-  assert.equal(JSON.parse(await readFile(file, 'utf8')).schemaVersion, 2);
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).schemaVersion, 3);
   assertUnixMode((await stat(file)).mode, 0o600);
 });
 

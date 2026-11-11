@@ -1,7 +1,10 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { MAX_ASSET_BYTES, inspectAssetImage, type AssetMedia } from '../assets/media';
-import { ModelError } from '@lyra/shared';
+import { ModelError, type ModelExecutionBinding } from '@lyra/shared';
+import { assertExecutionBinding, bindingForConnection, freezeExecutionBinding } from './execution-binding';
+import { imageInputWithCapabilities, videoInputWithCapabilities } from './media-capabilities';
+import { assertNativeMediaProtocol } from './media-protocol-guard';
 
 export type MediaAuthType = 'api-key' | 'bearer';
 
@@ -11,6 +14,7 @@ export type MediaDnsLookup = (hostname: string) => Promise<ReadonlyArray<{ addre
 export interface MediaClientConfig {
   endpoint: string;
   model: string;
+  executionBinding?: ModelExecutionBinding;
   authType: MediaAuthType;
   apiKey: string;
   timeoutMs: number;
@@ -114,7 +118,7 @@ function operationUrl(value: string): string {
   return parsed.href.replace(/\/$/, '');
 }
 
-function resolveConfig(value: MediaClientConfig): ResolvedConfig {
+function resolveConfig(value: MediaClientConfig, kind: 'image' | 'video'): ResolvedConfig {
   const endpoint = operationUrl(value.endpoint);
   const model = configText(value.model, '模型名称', 200);
   const apiKey = configText(value.apiKey, 'API key', 4096);
@@ -127,7 +131,8 @@ function resolveConfig(value: MediaClientConfig): ResolvedConfig {
   if (value.allowIntranetMediaSources !== undefined && typeof value.allowIntranetMediaSources !== 'boolean') {
     throw mediaError(503, 'MEDIA_NOT_CONFIGURED', '媒体内网源开关配置不正确。');
   }
-  return { endpoint, model, authType: value.authType, apiKey, timeoutMs: value.timeoutMs,
+  const binding = assertExecutionBinding(kind, endpoint, model, value.executionBinding ?? bindingForConnection(kind, endpoint, model));
+  return { endpoint, model, executionBinding: freezeExecutionBinding(binding), authType: value.authType, apiKey, timeoutMs: value.timeoutMs,
     fetch: value.fetch ?? globalThis.fetch,
     lookup: value.lookup ?? (hostname => dnsLookup(hostname, { all: true, verbatim: true })),
     allowIntranetMediaSources: value.allowIntranetMediaSources ?? false };
@@ -384,9 +389,13 @@ function inputImageSource(value: unknown, label: string): string {
 /** OpenAI-compatible/Doubao image-generation adapter with bounded, verified image output. */
 export class DoubaoImageClient {
   private readonly config: ResolvedConfig;
-  constructor(config: MediaClientConfig) { this.config = resolveConfig(config); }
+  constructor(config: MediaClientConfig) {
+    assertNativeMediaProtocol('image', config.endpoint, config.model);
+    this.config = resolveConfig(config, 'image');
+  }
 
   async generateImage(input: GenerateImageInput): Promise<GeneratedImage> {
+    input = imageInputWithCapabilities(this.config.executionBinding?.config ?? {}, input);
     const prompt = cleanText(input.prompt, '生图提示词', MAX_PROMPT_CHARS);
     const size = input.size === undefined ? '2K' : cleanText(input.size, '图片尺寸', 40);
     if (input.responseFormat !== undefined && input.responseFormat !== 'url' && input.responseFormat !== 'b64_json') {
@@ -453,9 +462,13 @@ function safeProviderMessage(value: unknown, config: ResolvedConfig): string | n
 /** Seedance asynchronous task adapter. The configured endpoint is the complete task-collection URL. */
 export class SeedanceVideoClient {
   private readonly config: ResolvedConfig;
-  constructor(config: MediaClientConfig) { this.config = resolveConfig(config); }
+  constructor(config: MediaClientConfig) {
+    assertNativeMediaProtocol('video', config.endpoint, config.model);
+    this.config = resolveConfig(config, 'video');
+  }
 
   async submit(input: SeedanceSubmitInput): Promise<SeedanceTask> {
+    input = videoInputWithCapabilities(this.config.executionBinding?.config ?? {}, input);
     const prompt = cleanText(input.prompt, '生视频提示词', MAX_PROMPT_CHARS);
     const content: Record<string, unknown>[] = [{ type: 'text', text: prompt }];
     if (input.firstFrameUrl) content.push({ type: 'image_url',

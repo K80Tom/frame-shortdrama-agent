@@ -1,3 +1,4 @@
+import type { ModelExecutionBinding } from '@lyra/shared';
 import { findModel } from './models/registry';
 import type { ModelConnections } from './models/connections';
 
@@ -38,6 +39,7 @@ export interface AppConfig {
   authType?: 'api-key' | 'bearer';
   endpointUrl?: string;
   connectionRevision?: string;
+  modelExecution?: ModelExecutionBinding;
   /** Runtime-only service. Never serialize AppConfig or return it to the browser. */
   modelConnections?: ModelConnections;
   callBudget?: { active: number };
