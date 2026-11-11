@@ -11,6 +11,10 @@
 
 源码入口、测试文件、实际执行、真实环境验证是不同字段。以下能力均未因此升级为 `verified`；本 PR 本地只做文档/治理静态校验，未重跑产品、数据库、模型或浏览器测试。引用合并 PR 的既有测试入口/记录时，只是证据导航，不冒称本轮独立复验。
 
+## #175 调用契约修复增量（2026-11-11）
+
+Owner：@K80Tom / @255308153；适用 `fix/assistant-model-call-contract`（基于 `dev df976eb`）。决策和收尾均显式满足 `ModelCall.allowPaid`，已跑真实 ModelClient + 模拟传输回归，不隐式授权未知请求，不跳过制作确认。构建、助手/模型 38、Agent 44、Web 140 均通过；Main 全套 1010 pass / 2 既有 Windows fail / 5 skipped。详见[证据与限制](assistant-model-call-contract.md)。这仅修复 #175，#125 保持 partial；未验证真实模型、部署或浏览器。
+
 ## 当前 15 项 Issue 台账
 
 各行适用上述快照；源码是已合入入口，待审代码另列。默认 owner 同上。无独立执行记录的项目写“本轮未重跑”，不代表失败，也不是通过。

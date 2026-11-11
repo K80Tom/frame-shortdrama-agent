@@ -1,4 +1,4 @@
-import { parseCreateProductionRun } from '@lyra/shared';
+import { parseCreateProductionRun, type ModelCall } from '@lyra/shared';
 import {
   AssistantError, newAssistantId, type AssistantContextSnapshot, type AssistantEvent, type AssistantMessage,
   type AssistantQuote, type AssistantSession,
@@ -6,7 +6,7 @@ import {
 import { ASSISTANT_TOOLS, executeAssistantTool, type AssistantToolPorts } from './tools';
 
 export interface AssistantBrain {
-  call(input: unknown): Promise<{ text: string; status?: string }>;
+  call(input: ModelCall): Promise<{ text: string; status?: string }>;
 }
 
 export interface AssistantQuoteDraft {
@@ -149,11 +149,11 @@ function parseDecision(text: string): Decision {
 }
 
 function historyMessages(session: AssistantSession, history: AssistantMessage[], content: string,
-  snapshot?: AssistantContextSnapshot) {
+  snapshot?: AssistantContextSnapshot): ModelCall['messages'] {
   const past = history
     .filter(message => message.role === 'user' || (message.role === 'assistant' && message.status === 'complete'))
     .slice(-MAX_HISTORY_MESSAGES)
-    .map(message => ({ role: message.role, content: message.content.slice(0, 2000) }));
+    .map(message => ({ role: message.role as 'user' | 'assistant', content: message.content.slice(0, 2000) }));
   const facts = snapshot
     ? `后端上下文快照（只读，以此为准）：${JSON.stringify({
       projectId: snapshot.projectId ?? null, projectTitle: snapshot.projectTitle ?? null,
@@ -196,7 +196,7 @@ export class AssistantOrchestrator {
   async decide(session: AssistantSession, history: AssistantMessage[], content: string,
     snapshot?: AssistantContextSnapshot): Promise<Decision> {
     const response = await this.brain.call({
-      messages: historyMessages(session, history, content, snapshot), jsonOutput: true, maxOutputTokens: 2200,
+      messages: historyMessages(session, history, content, snapshot), jsonOutput: true, maxOutputTokens: 2200, allowPaid: true,
     });
     return parseDecision(response.text);
   }
@@ -211,7 +211,7 @@ export class AssistantOrchestrator {
         { role: 'assistant', content: JSON.stringify({ reply: decision.reply, toolCalls: decision.toolCalls, quote: null }) },
         { role: 'user', content: `以下是工具真实返回的观察结果（JSON），请据此用中文回答用户最初的问题；不要编造观察里没有的信息，不要再次调用工具。\n${observations.map(item => `【${item.name}】${item.observation}`).join('\n')}` },
       ],
-      jsonOutput: true, maxOutputTokens: 2200,
+      jsonOutput: true, maxOutputTokens: 2200, allowPaid: true,
     });
     const final = parseDecision(response.text);
     return (final.reply || decision.reply).trim();
