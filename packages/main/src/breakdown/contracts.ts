@@ -1,6 +1,7 @@
 import Ajv from "ajv";
 import { Type, type Static } from "@sinclair/typebox";
 import {
+  parseScriptStructure,
   serializeScriptStructure,
   validateScriptStructure,
   type ScriptStructure,
@@ -123,6 +124,9 @@ export function parseCreateScriptVersion(value: unknown): CreateScriptVersionReq
       throw new BreakdownError(400, "INVALID_BREAKDOWN_REQUEST", "剧本文本或结构化剧本至少提供一项。");
     }
     rawText = parsed.rawText;
+    // 输入原文时立即做一次结构化拆解：分集/场次/元素成为正式快照，
+    // 原文仍保留为用户输入，后续在结构化编辑器保存时才派生出 canonical rawText。
+    structure = parseScriptStructure(rawText);
   }
   if (Buffer.byteLength(rawText, "utf8") > 2 * 1024 * 1024) {
     throw new BreakdownError(413, "SCRIPT_TOO_LARGE", "剧本文本超过当前 P0.2 的 2 MiB 上限。");

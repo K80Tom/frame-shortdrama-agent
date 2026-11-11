@@ -38,13 +38,14 @@ test('createScriptVersion accepts a structured script and derives canonical rawT
   assert.equal(loaded.structure.episodes[0].scenes[0].dialogues[0].characterName, '林澈');
 });
 
-test('createScriptVersion still accepts legacy raw text without structure', async () => {
+test('createScriptVersion accepts raw text and derives its structure', async () => {
   const parsed = parseCreateScriptVersion({ rawText: '第1集\n\n1-1 内景 客厅 日\n林澈：你好。' });
-  assert.equal(parsed.structure, undefined);
+  assert.equal(parsed.structure.schemaVersion, 'script-structure/1');
+  assert.equal(parsed.structure.episodes[0].scenes[0].dialogues[0].type, 1);
   const service = createService();
   const project = await service.createProject({ title: '旧原文' });
   const saved = await service.createScriptVersion(project.id, parsed);
-  assert.equal(saved.structure, null);
+  assert.equal(saved.structure.episodes[0].scenes[0].location, '客厅');
   assert.match(saved.rawText, /林澈：你好。/);
 });
 

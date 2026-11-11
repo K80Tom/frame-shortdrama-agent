@@ -228,7 +228,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
             savingSceneId={savingSceneId} onSaveScene={(_episodeId, sceneId) => saveStructure(sceneId)}
             onChange={syncStructure} />
         : <textarea className="project-flow-script" aria-label="创作原文" disabled={!!busy || !project}
-            value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一章小说或一集中文剧本。每次保存创建新版本，旧版本不被覆盖。" />}
+            value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一章小说或一集中文剧本。保存后自动拆解为分集和场次；每次保存创建新版本，旧版本不被覆盖。" />}
       <div className="project-flow-row">
         <small>{script !== savedScript ? '剧本有未保存修改' : project?.currentScriptVersionId ? '剧本已保存' : '尚未保存剧本'}</small>
         <button disabled={!!busy || !project || !script.trim() || script === savedScript}
@@ -239,6 +239,8 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
                 setSavedScript(detail.rawText); setScript(detail.rawText);
                 setScriptStructure(detail.structure ?? parseScriptStructure(detail.rawText));
                 await refreshAfterSave();
+                setStructuredMode(true);
+                setMessage('原文已保存，并已自动拆解为分集和场次。');
               });
               return;
             }
