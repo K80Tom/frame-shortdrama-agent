@@ -97,7 +97,7 @@ function decisionInput(observationId, clientRequestId, quality = 'clean',
 
 function serviceFixture() {
   const repository = new InMemoryAssetRetrievalGovernanceRepository();
-  const gate = new EvolutionGateService(new InMemoryEvolutionGateRepository(), () => new Date(at));
+  const gate = new EvolutionGateService(new InMemoryEvolutionGateRepository(() => true), () => new Date(at));
   const service = new AssetRetrievalGovernanceService(repository, {
     now: () => new Date(at), gate,
     // Explicit trusted test double for ranking/governance fixtures, not PG authorization evidence.

@@ -18,7 +18,7 @@ const BASELINE = 'a'.repeat(64);
 const CANDIDATE_DIGEST = 'b'.repeat(64);
 
 function service() {
-  return new EvolutionGateService(new InMemoryEvolutionGateRepository(), () => new Date('2026-11-10T12:00:00Z'));
+  return new EvolutionGateService(new InMemoryEvolutionGateRepository(() => true), () => new Date('2026-11-10T12:00:00Z'));
 }
 
 function createInput(overrides = {}) {
@@ -490,4 +490,15 @@ test('InMemory commands serialize competing quota claims and discard failed snap
   assert.deepEqual(await repository.getCandidate(WS, candidate.candidateId), before);
   await gate.startEvaluation(WS, candidate.candidateId, { expectedVersion: 1, actorId: 'user-1' });
   assert.equal((await repository.getCandidate(WS, candidate.candidateId)).state, 'evaluating');
+});
+
+
+test('InMemory publisher authorization is fail-closed without an explicit trusted policy', async () => {
+  const gate = new EvolutionGateService(new InMemoryEvolutionGateRepository());
+  const id = 'evocand_' + '1'.repeat(32), rid = 'evoroll_' + '2'.repeat(32);
+  const input = { expectedVersion: 1, actorId: 'owner', reason: 'forged', rolloutExpectedVersion: 1 };
+  for (const [method, target] of [['bindGate', id], ['approve', id], ['reject', id], ['startCanary', id],
+    ['observe', rid], ['stopCanary', rid], ['promote', rid], ['rollback', id]]) {
+    await assert.rejects(gate[method](WS, target, input), error => error.code === 'EVOLUTION_PUBLISHER_REQUIRED');
+  }
 });
