@@ -298,7 +298,7 @@ npm run cli -- run cancel
 
 ## 文档导航
 
-先查看[文档有效性目录](docs/documentation-index.md)；Stage 1 最新架构与限制以[生产路线](docs/production-architecture-roadmap.md)为准。
+项目开发接续先查看[项目索引](PROJECT_INDEX.md)（团队共享规则与个人本地状态分离）；文档适用范围查看[文档有效性目录](docs/documentation-index.md)；Stage 1 最新架构与限制以[生产路线](docs/production-architecture-roadmap.md)为准。
 
 | 主题 | 文档 |
 | --- | --- |

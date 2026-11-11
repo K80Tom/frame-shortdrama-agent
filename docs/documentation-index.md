@@ -2,12 +2,13 @@
 
 最后盘点：2026-11-09；适用源码快照：`dev b264844`，加本 PR 文档增量。下表“最后修改”由 `git log -1 origin/dev -- <文件>` 查询，不是验收日期，也不表示该文件所有说法已重新验证。
 
-当前工程/分支/审查安全规范以[根 AGENTS.md](../AGENTS.md)为准，能力边界以[功能台账](feature-status.md)分层记录；[生产架构路线](production-architecture-roadmap.md)是目标规范，不将未完成部署和故障演练写成现状。已有设计文档中的产品目标、技术候选与真实验收必须分别理解。
+当前工程/分支/审查安全规范以[根 AGENTS.md](../AGENTS.md)为准，能力边界以[功能台账](feature-status.md)分层记录；[生产架构路线](production-architecture-roadmap.md)是目标规范，不将未完成部署和故障演练写成现状。已有设计文档中的产品目标、技术候选与真实验收必须分别理解。项目开发记录、路径、运行、决策与风险的统一路由于 2026-11-11 新增至[项目索引](../PROJECT_INDEX.md)；个人 Git 状态与实际 worktree 保存在被忽略的本地补充文件，不进入团队共享记录。
 
 旧 OHAO / FRAME 名称和运行时兼容变量不能仅为改名直接删除。旧 agent 文件名保留兼容入口，正文和 applyTo 仅指向现行 packages 路径，不能借历史命名恢复旧分支/权限规则。`reference/` 为只读历史参考，不属于可运行产品。
 
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
+| [PROJECT_INDEX.md](../PROJECT_INDEX.md) | 2026-11-11 / 本地新增 | 当前工作区文档初始化 | 项目记录统一路由；共享文件保存项目事实，个人 Git/worktree 状态保存在被忽略的本地补充文件 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前工程/分支/安全与真人审批规范；本 PR 不修改它 |
 | [README.md](../README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
 | [packages/main/README.md](../packages/main/README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前 main 操作入口；命令存在不等于目标环境已部署 |

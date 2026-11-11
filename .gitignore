@@ -10,3 +10,8 @@ outputs/
 # 本地发布产物（由 deploy/build-release-bundle.sh 生成，禁止提交）
 lyra-docker-v*.tar.gz
 lyra-docker-v*.tar.gz.sha256
+
+# 个人项目记录（共享的 *.local.example.md 模板不受忽略）
+/NOW.local.md
+/MAP.local.md
+/RUNBOOK.local.md
