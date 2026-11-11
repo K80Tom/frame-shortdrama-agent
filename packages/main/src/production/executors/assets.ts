@@ -83,7 +83,7 @@ interface PlanBlocked {
   message: string;
 }
 
-interface AssetMatch {
+export interface AssetMatch {
   entityId: string;
   kind: AssetKind;
   entityName: string;

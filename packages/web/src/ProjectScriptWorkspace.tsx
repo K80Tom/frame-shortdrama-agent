@@ -24,12 +24,17 @@ export function deriveScriptState(input: {
   runs: Run[];
   plans: FactPlan[];
   activePlanRevisionId: string | null;
+  /** 已采用事实所属的剧本版本；null 表示没有已采用事实。 */
+  activePlanScriptVersionId: string | null;
   check: Check | null;
 }): ScriptPrimaryAction {
   if (!input.currentScriptVersionId) return 'add-script';
   const hasRunForScript = input.runs.some(run => run.scriptVersionId === input.currentScriptVersionId);
   if (!hasRunForScript) return 'start-breakdown';
-  if (input.activePlanRevisionId) return 'into-storyboard';
+  // 已采用事实必须属于当前剧本版本才算新鲜；旧事实不允许直接进入分镜。
+  const adoptedFresh = Boolean(input.activePlanRevisionId
+    && input.activePlanScriptVersionId === input.currentScriptVersionId);
+  if (adoptedFresh) return 'into-storyboard';
   if (!latestPlanForScript(input.plans, input.currentScriptVersionId)) return 'review-facts';
   const passed = Boolean(input.check && input.check.result === 'passed' && input.check.ruleVersion === CURRENT_FACT_CHECK_RULE_VERSION);
   return passed ? 'adopt-facts' : 'review-facts';
@@ -132,9 +137,13 @@ export default function ProjectScriptWorkspace({ projectId }: { projectId: strin
     });
   }
 
+  const activePlan = plans.find(item => item.id === project?.activePlanRevisionId) ?? null;
   const primary: ScriptPrimaryAction = deriveScriptState({
     currentScriptVersionId: project?.currentScriptVersionId ?? null,
-    runs, plans, activePlanRevisionId: project?.activePlanRevisionId ?? null, check,
+    runs, plans,
+    activePlanRevisionId: project?.activePlanRevisionId ?? null,
+    activePlanScriptVersionId: activePlan?.scriptVersionId ?? null,
+    check,
   });
 
   return <div className="project-flow-view">

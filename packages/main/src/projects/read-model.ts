@@ -16,9 +16,9 @@ import type { StoryboardRevision } from '../breakdown/storyboard';
 import type { AssetRetriever } from '../assets/retrieval';
 import { retrieveAssetForGeneration } from '../assets/retrieval';
 import {
-  exactAssetMatch,
   matchEntities,
   MATCH_RULE_VERSION,
+  type AssetMatch,
   type EntityRef,
 } from '../production/executors/assets';
 
@@ -52,11 +52,12 @@ export interface WorkflowState {
   hasRuns: boolean;
   adoptedPlan: PlanRevisionRecord | null;
   freshAdoptedPlan: boolean;
+  /** 当前剧本版本上「未采用」的最新候选（已是 activePlan 时为 null）。 */
   latestCandidate: PlanRevisionRecord | null;
   latestCheck: PlanCheckRecord | null;
   openIssueCount: number;
   assets: { missing: number; ambiguous: number };
-  boards: { adopted: StoryboardRevision | null; freshAdopted: boolean; unadoptedCandidates: number };
+  boards: { adopted: StoryboardRevision | null; freshAdopted: boolean; unadoptedCandidates: number; candidateCount: number };
   hasProductionRun: boolean;
   todos: ProjectTodo[];
   deliveryAvailable: boolean;
@@ -69,10 +70,9 @@ export function decideNextAction(state: WorkflowState): NextAction | null {
   if (!state.hasRuns) {
     return { id: 'start-breakdown', label: '开始拆解', detail: '为当前剧本创建并运行事实拆解。', section: 'script' };
   }
-  if (!state.freshAdoptedPlan) {
-    if (!state.latestCandidate) {
-      return { id: 'review-facts', label: '查看拆解运行', detail: '拆解运行尚未产出候选，请查看运行记录。', section: 'script' };
-    }
+  // 优先级解耦：无论是否已采用过旧/新鲜事实，只要当前剧本存在未采用的新候选，
+  // 都先回到「核对/采用事实」，不被 freshAdoptedPlan 挡住。
+  if (state.latestCandidate) {
     const checkPassed = Boolean(state.latestCheck && state.latestCheck.result === 'passed'
       && state.latestCheck.ruleVersion === FACT_CHECK_RULE_VERSION);
     if (!checkPassed) {
@@ -82,10 +82,14 @@ export function decideNextAction(state: WorkflowState): NextAction | null {
     }
     return { id: 'adopt-facts', label: '采用事实版本', detail: '校验已通过，人工核对语义后采用这版事实。', section: 'script' };
   }
+  if (!state.freshAdoptedPlan) {
+    return { id: 'review-facts', label: '查看拆解运行', detail: '拆解运行尚未产出候选，请查看运行记录。', section: 'script' };
+  }
   if (state.assets.missing > 0 || state.assets.ambiguous > 0) {
     return { id: 'resolve-assets', label: '处理资产缺口', detail: `缺 ${state.assets.missing} 项、歧义 ${state.assets.ambiguous} 项；同优先级候选不会自动选中。`, section: 'assets' };
   }
-  if (state.boards.unadoptedCandidates > 0 || !state.boards.freshAdopted) {
+  // 只有「存在候选且未采用」才引导采用；没有任何候选时落到生成/制作动作，文案不误导。
+  if (state.boards.candidateCount > 0 && !state.boards.freshAdopted) {
     return { id: 'adopt-storyboard', label: '采用分镜版本', detail: '核对镜头、景别与原文证据后采用；旧事实产生的候选不能直接采用。', section: 'storyboard' };
   }
   if (!state.hasProductionRun) {
@@ -187,14 +191,15 @@ export class ProjectWorkspaceReadModel {
       && adoptedBoard.sourcePlanRevisionId === adoptedPlan.id);
     const unadoptedCandidates = storyboards.filter(board => board.id !== project.activeStoryboardRevisionId).length;
 
-    // 概览只用确定性身份匹配统计，不触发检索/付费；与 asset-requirements 同源。
-    // exactAssetMatch 在无候选时返回 null，该情形同样记为缺失。
+    // 概览与 asset-requirements 共用同一套 matchEntities（精确 + 纯词法检索，不触发付费 Embedding），
+    // 保证 ready/missing/ambiguous 两端口径一致。
     const assetsLibrary = this.options.assets ? await this.options.assets.list() : [];
-    const assetMatches = adoptedPlan ? allEntities(adoptedPlan)
-      .map(ref => exactAssetMatch(ref, assetsLibrary)) : [];
-    const missing = assetMatches.filter(match => !match || (!match.asset && !match.ambiguous)).length;
-    const ambiguous = assetMatches.filter(match => match?.ambiguous).length;
-    const ready = assetMatches.filter(match => match?.asset).length;
+    const assetMatches = adoptedPlan
+      ? await this.matchPlanEntities(adoptedPlan, assetsLibrary, project.id)
+      : [];
+    const missing = assetMatches.filter(match => !match.asset && !match.ambiguous).length;
+    const ambiguous = assetMatches.filter(match => match.ambiguous).length;
+    const ready = assetMatches.filter(match => match.asset).length;
 
     const todos: ProjectTodo[] = [];
     if (latestCandidate && latestCheck && latestCheck.result === 'failed') {
@@ -218,7 +223,7 @@ export class ProjectWorkspaceReadModel {
       latestCheck,
       openIssueCount,
       assets: { missing, ambiguous },
-      boards: { adopted: adoptedBoard, freshAdopted: freshAdoptedBoard, unadoptedCandidates },
+      boards: { adopted: adoptedBoard, freshAdopted: freshAdoptedBoard, unadoptedCandidates, candidateCount: storyboards.length },
       hasProductionRun: false, // 阶段 1：制作运行由 #183 收敛，此处如实为 false。
       todos,
       deliveryAvailable: false, // 阶段 1：交付物尚未接入，如实为零值。
@@ -261,6 +266,18 @@ export class ProjectWorkspaceReadModel {
     };
   }
 
+  /**
+   * overview 与 asset-requirements 共用的匹配入口：同一套 matchEntities（精确 + 纯词法检索），
+   * workspaceId 只从服务端作用域派生；不触发模型/付费。
+   */
+  private async matchPlanEntities(plan: PlanRevisionRecord, assetsLibrary: AssetRecord[], projectId: string): Promise<AssetMatch[]> {
+    const workspaceId = this.options.workspaceId?.();
+    return matchEntities(allEntities(plan), assetsLibrary, {
+      retrieve: (query, assets, policy) => Promise.resolve(retrieveAssetForGeneration(
+        { ...query, ...(workspaceId ? { workspaceId } : {}), projectId }, assets, policy ?? DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY)),
+    }, DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY);
+  }
+
   async assetRequirements(projectId: string): Promise<ProjectAssetRequirementsResponse> {
     const project = await this.options.breakdown.getProject(projectId);
     if (!project.activePlanRevisionId) {
@@ -268,12 +285,8 @@ export class ProjectWorkspaceReadModel {
     }
     const plan = await this.options.breakdown.getPlanRevision(project.activePlanRevisionId);
     const assetsLibrary = this.options.assets ? await this.options.assets.list() : [];
-    const workspaceId = this.options.workspaceId?.();
-    // 复用生产执行器同一套匹配；workspaceId 由服务端派生，绝不读取请求体。
-    const matches = await matchEntities(allEntities(plan), assetsLibrary, {
-      retrieve: (query, assets, policy) => Promise.resolve(retrieveAssetForGeneration(
-        { ...query, ...(workspaceId ? { workspaceId } : {}), projectId }, assets, policy ?? DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY)),
-    }, DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY);
+    // 与 overview 共用同一套匹配；workspaceId 由服务端派生，绝不读取请求体。
+    const matches = await this.matchPlanEntities(plan, assetsLibrary, project.id);
 
     const requirements = matches.map(match => ({
       requirementId: match.entityId,

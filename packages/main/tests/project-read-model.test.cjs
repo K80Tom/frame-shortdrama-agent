@@ -191,10 +191,58 @@ test('decideNextAction 纯逻辑尾部：handle-todos / view-delivery / null', (
     hasScript: true, hasRuns: true, adoptedPlan: { id: 'p1' }, freshAdoptedPlan: true,
     latestCandidate: null, latestCheck: null, openIssueCount: 0,
     assets: { missing: 0, ambiguous: 0 },
-    boards: { adopted: { id: 'b1' }, freshAdopted: true, unadoptedCandidates: 0 },
+    boards: { adopted: { id: 'b1' }, freshAdopted: true, unadoptedCandidates: 0, candidateCount: 1 },
     hasProductionRun: true, todos: [], deliveryAvailable: false,
   };
   assert.equal(decideNextAction(base), null);
   assert.equal(decideNextAction({ ...base, todos: [{ id: 't1', label: 'x', kind: 'x' }] }).id, 'handle-todos');
   assert.equal(decideNextAction({ ...base, todos: [], deliveryAvailable: true }).id, 'view-delivery');
+});
+
+test('P2-1：已采用新鲜事实后同剧本又产出未采用 V2 候选 → 先 review/adopt-facts', async () => {
+  const { service } = fixture();
+  const { project, plan } = await prepared(service);
+  const checked = await service.checkPlan(plan.id);
+  await service.adoptPlan(project.id, { planRevisionId: plan.id, checkId: checked.check.id, expectedActivePlanRevisionId: null });
+  // 同剧本新版本候选（人工校对产生的新 revision，scriptVersionId 不变）。
+  const character = plan.content.characters[0];
+  const v2 = await service.createEntityEditCandidate(plan.id, {
+    expectedActivePlanRevisionId: plan.id,
+    edits: [{ kind: 'character', entityId: character.id, name: `${character.name.value}（新）`, aliases: ['小晚'], description: '拿着信封的人。' }],
+  });
+  const read = readModel(service);
+  let overview = await read.overview(project.id);
+  assert.equal(overview.facts.stale, false, '已采用事实对当前剧本仍是新鲜的');
+  assert.equal(overview.nextAction.id, 'review-facts', 'V2 候选未校验，先回到核对事实而不是跳到资产/分镜');
+
+  const v2Check = await service.checkPlan(v2.id);
+  overview = await readModel(service).overview(project.id);
+  assert.equal(overview.nextAction.id, v2Check.check.result === 'passed' ? 'adopt-facts' : 'review-facts');
+});
+
+test('P2-2：overview 资产统计与 asset-requirements 的 summary 一致', async () => {
+  const { service } = fixture();
+  const { project, plan } = await prepared(service);
+  const checked = await service.checkPlan(plan.id);
+  await service.adoptPlan(project.id, { planRevisionId: plan.id, checkId: checked.check.id, expectedActivePlanRevisionId: null });
+  const noAssets = { list: async () => [] };
+  const [overview, requirements] = await Promise.all([
+    readModel(service, { assets: noAssets }).overview(project.id),
+    readModel(service, { assets: noAssets }).assetRequirements(project.id),
+  ]);
+  assert.equal(overview.assets.total, requirements.summary.total);
+  assert.equal(overview.assets.ready, requirements.summary.matched);
+  assert.equal(overview.assets.missing, requirements.summary.missing);
+  assert.equal(overview.assets.ambiguous, requirements.summary.ambiguous);
+});
+
+test('P3-3：无任何分镜候选时 nextAction 不诱导「采用分镜」，落到 create-production', async () => {
+  const { service } = fixture();
+  const { project, plan } = await prepared(service);
+  const checked = await service.checkPlan(plan.id);
+  await service.adoptPlan(project.id, { planRevisionId: plan.id, checkId: checked.check.id, expectedActivePlanRevisionId: null });
+  const assets = { list: async () => [asset('a1', 'character', '林晚'), asset('a2', 'location', '医院走廊'), asset('a3', 'prop', '信封')] };
+  const overview = await readModel(service, { storyboards: { list: async () => [] }, assets }).overview(project.id);
+  assert.equal(overview.storyboard, null);
+  assert.equal(overview.nextAction.id, 'create-production');
 });

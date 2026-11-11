@@ -20,12 +20,21 @@ export function classifyStoryboards(boards: Storyboard[], activeStoryboardRevisi
   }));
 }
 
+/** 采用冲突（409）纯判定：由 api() 打上 status 标记。 */
+export function isConflictError(reason: unknown): boolean {
+  return Boolean(reason && typeof reason === 'object' && (reason as { status?: number }).status === 409);
+}
+
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await workspaceFetch(path, body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shortdrama-Call': '1' }, body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`${data?.error?.message ?? `请求失败（${response.status}）`}${response.status === 409 ? ' 版本已变化，请刷新后核对。' : ''}`);
+  if (!response.ok) {
+    const error = new Error(`${data?.error?.message ?? `请求失败（${response.status}）`}${response.status === 409 ? ' 版本已变化，请刷新后核对。' : ''}`);
+    (error as { status?: number }).status = response.status;
+    throw error;
+  }
   return data as T;
 }
 
@@ -70,7 +79,11 @@ export default function ProjectStoryboardWorkspace({ projectId }: { projectId: s
     if (busy) return;
     setBusy(name); setMessage('');
     try { await work(); }
-    catch (reason) { setMessage(reason instanceof Error ? reason.message : '操作失败。'); }
+    catch (reason) {
+      // 冲突只刷新服务端真值，不覆盖他人选择。
+      if (isConflictError(reason)) { try { await reload(); } catch { /* 刷新失败只保留提示 */ } }
+      setMessage(reason instanceof Error ? reason.message : '操作失败。');
+    }
     finally { setBusy(''); }
   }
 
