@@ -4,7 +4,7 @@ const { InMemoryAssistantRepository } = require('@lyra/agent');
 const { AssistantOrchestrator } = require('@lyra/agent');
 const { AssistantService } = require('@lyra/agent');
 const { executeAssistantTool } = require('@lyra/agent');
-const { ModelError } = require('@lyra/shared');
+const { ModelError, parseCall } = require('@lyra/shared');
 const {
   CONVERSATION_CONTEXT_SCHEMA,
   ConversationContextCache,
@@ -25,6 +25,7 @@ function brainWith(responses) {
   return {
     calls,
     call: async input => {
+      parseCall(input);
       calls.push(input);
       const response = responses[Math.min(index++, responses.length - 1)];
       if (response instanceof Error) throw response;
@@ -250,4 +251,44 @@ test('conversation runtime is PG-only by default and connects Redis only when ex
   assert.equal(errorListener, 1);
   await runtime.close();
   assert.equal(closed, 1);
+});
+
+// Exercise the real model contract and HTTP serialization, without any network or billing.
+test('assistant decision and tool finalization traverse ModelClient with explicit paid-call contract', async () => {
+  const { ModelClient } = require('../dist/models/client');
+  const { readConfig } = require('../dist/config');
+  const requests = [];
+  const responses = [
+    { reply: '正在查询。', toolCalls: [{ name: 'list_projects', arguments: {} }], quote: null },
+    { reply: '共有一个项目。', toolCalls: [], quote: null },
+  ];
+  const client = new ModelClient(readConfig({
+    LLM_BASE_URL: 'https://model.invalid/v1', LLM_API_KEY: 'test-only',
+  }), async (url, options) => {
+    assert.equal(url, 'https://model.invalid/v1/chat/completions');
+    requests.push(JSON.parse(options.body));
+    const content = JSON.stringify(responses[requests.length - 1]);
+    return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }),
+      { headers: { 'content-type': 'application/json' } });
+  });
+  const repository = new InMemoryAssistantRepository();
+  let productionSubmissions = 0;
+  const service = new AssistantService(repository, new AssistantOrchestrator(
+    { call: input => client.call(input) },
+    { listProjects: async () => [{ id: 'proj_1', title: '测试项目' }] },
+    { createQuote: (_sessionId, quote) => repository.createQuote(quote) },
+  ), { create: async () => { productionSubmissions++; throw new Error('must not submit'); } });
+  const session = await service.createSession({ label: '全局工作区' });
+  const events = await collect(service.send(session.id, { content: '列出项目' }));
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal(events.at(-1).message.content, '共有一个项目。');
+  assert.equal(requests.length, 2, 'both decide and finalize must pass parseCall');
+  for (const request of requests) {
+    assert.equal(request.stream, false);
+    assert.equal(request.max_tokens, 2200);
+    assert.deepEqual(request.response_format, { type: 'json_object' });
+    assert.ok(request.messages.some(message => message.role === 'user'));
+    assert.equal(Object.hasOwn(request, 'allowPaid'), false, 'local consent flag is not a provider parameter');
+  }
+  assert.equal(productionSubmissions, 0);
 });

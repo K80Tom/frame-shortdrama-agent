@@ -8,6 +8,7 @@
 
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
+| [AI 工作区调用契约修复](assistant-model-call-contract.md) | 2026-11-11 / 本 PR | `fix/assistant-model-call-contract`（基于 dev df976eb） | #175 离线契约/真实 ModelClient 桩传输回归；不代表真实供应商验收 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前工程/分支/安全与真人审批规范；本 PR 不修改它 |
 | [README.md](../README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
 | [packages/main/README.md](../packages/main/README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前 main 操作入口；命令存在不等于目标环境已部署 |
