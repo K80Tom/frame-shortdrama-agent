@@ -61,7 +61,7 @@ test('editing a selected native profile to a foreign protocol is atomic and reje
   const before = store.list();
   await assert.rejects(store.updateProfile(profile.id, edit(profile, {
     endpoint: 'https://api.openai.com/v1/videos', model: 'sora-2',
-  })), isBlocked);
+  })), error => error.code === 'MODEL_EXECUTION_INVALID');
   assert.deepEqual(store.list(), before);
   assert.equal(store.resolve('video').defaultModel, profile.model);
 });
@@ -79,6 +79,8 @@ test('legacy assigned foreign profiles are retained for repair but cannot resolv
   const profile = await store.createProfile({ presetCode: 'doubao-seedance-2-0', apiKey: 'test-only' });
   await store.assign('video', { profileId: profile.id, expectedRevision: store.public('video').revision });
   const legacy = JSON.parse(await readFile(file, 'utf8'));
+  legacy.schemaVersion = 2;
+  for (const row of legacy.profiles) delete row.executionBinding;
   const saved = legacy.profiles.find(p => p.id === profile.id);
   saved.endpoint = 'https://api.openai.com/v1/videos'; saved.model = 'sora-2';
   await writeFile(file, JSON.stringify(legacy));

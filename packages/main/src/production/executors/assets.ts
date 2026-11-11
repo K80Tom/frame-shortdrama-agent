@@ -12,9 +12,9 @@ import type { AppConfig } from '../../config';
 import type { PlanEntity, PlanRevisionRecord } from '../../breakdown/plan';
 import type { BreakdownServicePort } from '../../breakdown/service';
 import type { StoryboardRevision, StoryboardService } from '../../breakdown/storyboard';
+import { createImageModelClient } from '../../models/media-runtime';
 import { configForRole } from '../../models/connections';
 import {
-  DoubaoImageClient,
   type GeneratedImage,
   type MediaClientConfig,
 } from '../../models/media-client';
@@ -128,9 +128,11 @@ export function resolveProductionImageConnection(config: AppConfig): ProductionI
   if (!Number.isInteger(selected.timeoutMs) || selected.timeoutMs < 1_000 || selected.timeoutMs > 600_000) {
     return { state: 'missing', revision, model, reason: '生图连接的超时时间不正确。' };
   }
-  return { state: 'configured', revision, model,
-    clientConfig: { endpoint, model, apiKey, authType, timeoutMs: selected.timeoutMs,
-      allowIntranetMediaSources: config.mediaAllowIntranetSources ?? false } };
+  const clientConfig: MediaClientConfig = { executionBinding: selected.modelExecution, endpoint, model, apiKey, authType, timeoutMs: selected.timeoutMs,
+    allowIntranetMediaSources: config.mediaAllowIntranetSources ?? false };
+  try { createImageModelClient(clientConfig); }
+  catch { return { state: 'missing', revision, model, reason: '生图执行协议或能力配置无效；未预留生成费用，也未调用供应商。' }; }
+  return { state: 'configured', revision, model, clientConfig };
 }
 
 export class AssetsProductionExecutor implements ProductionExecutor {
@@ -140,7 +142,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
   private readonly retrieval: AssetRetriever;
 
   constructor(private readonly options: AssetsProductionExecutorOptions) {
-    this.clientFactory = options.imageClientFactory ?? (config => new DoubaoImageClient(config));
+    this.clientFactory = options.imageClientFactory ?? (config => createImageModelClient(config));
     this.retrieval = options.retrieval ?? STRUCTURED_RETRIEVER;
     this.imageCostMicros = options.imageCostMicros ?? DEFAULT_IMAGE_COST_MICROS;
     if (!Number.isSafeInteger(this.imageCostMicros) || this.imageCostMicros < 0) {
@@ -319,7 +321,7 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       }
     }
     const generated = await this.clientFactory(connection.clientConfig).generateImage({
-      prompt, size: '2K', responseFormat: 'b64_json', watermark: false,
+      prompt, responseFormat: 'b64_json', watermark: false,
     });
     const description = importDescription(ref, plan, context.run.visualStyle, connection.model);
     const saved = await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,

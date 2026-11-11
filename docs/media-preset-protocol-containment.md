@@ -1,25 +1,41 @@
-# 异构媒体预设协议拦截（#174 第一阶段）
+# 媒体预设执行协议与能力门禁（#174）
 
-日期：2026-11-11。Owner：@K80Tom / @255308153。适用分支：`fix/media-preset-protocol-guard`，基于 `dev df976eb`。
+日期：2026-11-11。Owner：@K80Tom / @255308153。适用：`fix/media-preset-protocol-guard`，基于 `dev df976eb`。本页更新了最初 `130b5ba` 仅拦截已知协议的切片；以当前 PR head 为准。
 
-## 已实现
+## 执行事实与边界
 
-- 现有媒体客户端只实现 Ark 图片/视频协议；目录中的其他媒体预设（包括未验证的即梦模板）不能被当作已经接通的适配器。
-- 按内置目录的模型标识与已知供应商主机进行保守拦截。已知不兼容模型换自定义 Endpoint 仍拒绝；已知非 Ark 供应商主机改模型名仍拒绝。
-- 这些 Profile 可保存供查看、修复或取消分配，但公开状态为 `execution: metadata-only`、`configured: false`。分配、兼容用途写入、修改已选 Profile 和运行时 resolve 均拒绝，不改变原用途和版本。
-- 重启后读取的旧 schemaVersion 2 配置无须覆盖或丢弃凭据：运行前重新检查；已有 Worker 文件刷新也不能把被禁止连接继续当作可执行。
-- `DoubaoImageClient` / `SeedanceVideoClient` 构造时也拦截，避免内部调用绕过 Profile 分配直接提交/轮询。错误不含密钥，拦截发生在 transport 前。
+- 公共 `ModelExecutionBinding` 明确 `providerId / adapter / protocol / presetCode / config`。参数 Schema 拒绝未知字段、密钥、类型/协议错配及不一致的默认配置。
+- 目录 API 明确返回每个预设的执行绑定；Profile 将其持久化到现有私有配置库 `schemaVersion:3`，不再丢弃媒体能力参数。
+- 当前选中 Profile 的运行路径注册 `openai-chat-v1`、`ark-image-v1`、`ark-video-v1`。所有内置文本预设和两个火山媒体预设进入各自匹配的客户端；其他预设为 `adapter:unavailable / protocol:metadata-only`，公开 Profile 为 `configured:false / execution:metadata-only`，不能分配用途或提交。
+- `models/video-providers/` 中已有独立 Kling/MiniMax/Jimeng 商业适配器类，但不能把“类存在”当作这条 Profile/自动制作路径已接通。MiniMax 额外凭据、持久预算拦截、请求能力与恢复对账尚需完整装配；本 PR 不用假账本、假 GroupId 或缺失授权去开启它们。OpenAI/DashScope 媒体等也未因此启用。
+- Main 的桌面资产、生产资产执行器、视频自动化通过绑定路由工厂，底层客户端再次校验，防止内部绕过 Profile。已知异构模型改 Endpoint、已知非 Ark 厂商主机改模型名也不能绕过旧配置拦截。
 
-## 范围限制
+## 不可变身份与参数
 
-这是对 #173 新增目录的紧急遏制，不是通用协议认证，也不是完整完成 #174 / #172。未知的手动配置与兼容网关仍遵循原契约，不能由未命中此拦截表推断其兼容、免费或已验真。未持久化 provider/adapter/protocol discriminator，未实现新的供应商路由和请求/轮询适配器，未接通分辨率、时长、首尾帧等预设高级参数。上述缺口仍需后续实现与非作者真人审批。
+- 显式预设 Profile 的 Endpoint、model、kind 不可通过编辑静默替换。名称、Key、超时等仍可正常维护。新模型需新建连接并重新选择/确认。
+- 复制同一模型身份的服务端凭据时，同时复制原绑定与能力，不会悄悄降级成无约束连接；不回显 Key。
+- 公共响应深拷贝，运行时绑定、能力对象及列表均冻结。HTTP 不接受客户端提供/弱化 `executionBinding`。
+- 图片默认尺寸来自预设 `defaultWidth/defaultHeight`；请求尺寸的已声明分辨率/画幅限制在 transport 前验证。
+- 视频消费声明的 `defaultDuration/defaultResolution/defaultAspectRatio`，校验时长范围/可选时长、分辨率、画幅及首尾帧开关。**支持列表不等于默认值**，不擅自取列表第一项。火山视频预设明确推荐 5 秒、720p、16:9；用户指定的合法值仍完整保留到请求体。
+- 运行输入不合法或路由/凭据缺失时，本地拒绝，零上游请求；生产图片规划在费用预留前检查路由。上游超时/响应不确定仍维持原有 unknown/不自动重发纪律，不把它说成“未计费”。
 
-## 验证
+## v1/v2 → v3 兼容升级与回退
 
-- `npm run build`：全包成功；Agent 44/44、Web 140/140。Vite 有既有 chunk 大小提示与测试服务关闭时的 dep-scan 警告，退出码 0。
-- `cd packages/main; node --test tests/media-protocol-guard.test.cjs tests/media-client.test.cjs tests/model-presets.test.cjs tests/model-connections.test.cjs`：83/83。
-- 新测试覆盖全部内置非 Ark 媒体预设、两种客户端、改 Endpoint / 改模型名、旧配置重启与 Worker 刷新、CAS 不变、HTTP 拒绝与密钥脱敏；原 Ark 请求体/轮询协议测试仍通过。transport 全部为本地模拟，禁止时请求数为 0，不等于供应商账单验真。
-- `npm --prefix packages/main test`：1023 项，1016 pass / 2 fail / 5 skipped。失败为既有 `governance-workflows.test.cjs:171` 路径分隔符和 `storage-driver.test.cjs:60` Windows 对象路径判断；不通过跳过/弱化断言掩盖。
-- 构建产物临时关闭拦截后，6 项负面测试均失败、1 项原生兼容测试仍通过；恢复产物后新测试 7/7，通过故障注入证明测试确实覆盖拦截行为。
+1. 在实际升级前，维护者停止 API/Worker，将旧私有配置单独备份到受限位置，按明文密钥文件保护；绝不提交 Git、浏览器或测试产物。
+2. API 初始化时原子写入 v3；保留角色分配、ID、revision、地址、模型、Key、清空状态及已有额度。只读 Worker 可以读取 v1/v2，但不写迁移文件，API 替换后正常刷新。
+3. 旧手工连接保留其既有文本/Ark-compatible 契约，显式持久化为 `providerId:custom` 的对应协议。对已知火山模型补上安全限制，但**不注入预设的新默认值**，避免改变已确认任务参数；对已知异构媒体仅保留元数据并阻断。
+4. v3 必须携带合法绑定；损坏协议、错配身份、未知版本均 fail closed，不覆写原文件、不回退到环境凭据。显式预设 Profile 保留冻结能力，不能从当前可变默认值重算替换。
+5. 回退必须协调停止全部 API/Worker，恢复受保护的旧配置备份及相配套代码，再核对所有用途。旧程序不能读 v3 时会拒绝启动；不要删字段/改版本号来绕过校验。回退代码也必须保留媒体协议拦截，不能重新放开已知错误协议。升级后新配置应人工核对，不无声覆盖。
 
-没有真实付费调用、新供应商验收、浏览器验收或本地数据库迁移。须非作者真人审批当前 head，不自动合并。
+这是现有私有连接文件格式升级，**无 SQL 迁移**；不等于完成全局配置 PostgreSQL 化或多租户供应商账本验收。
+
+## 实际离线证据
+
+- `npm --prefix packages/shared test`：23/23；全包 `npm run build` 成功。
+- `cd packages/main; node --test tests/model-execution-routing.test.cjs tests/media-protocol-guard.test.cjs tests/media-client.test.cjs tests/model-presets.test.cjs tests/model-connections.test.cjs tests/model-library.test.cjs`：114/114。
+- 新路由测试逐一验证全部 11 个可执行预设的 `目录 → Profile → 私有文件 → 重启 → 真实客户端/模拟 transport`，核验授权头、确切 endpoint、协议请求体、默认值和视频 GET 轮询；未知/错配协议、能力越界、缺凭据和客户端弱化配置均在 transport 前拒绝。
+- 另测 v1/v2 迁移、Worker 只读/刷新、旧异构配置阻断、CAS、深冻结、复制绑定及损坏文件不覆写。旧迁移断言升级为 schemaVersion 3，同时保留角色/凭据等行为断言，不删除安全测试。
+- Main 全套：1043 项，1036 pass / 2 fail / 5 skipped。两项仍为既有 Windows 路径失败：`governance-workflows.test.cjs:171` 的分隔符、`storage-driver.test.cjs:60` 的对象路径判断；没有跳过/弱化断言，不声称本地全绿。
+- Agent 44/44、Web 140/140。本 PR 不改界面布局/交互，只扩展前端响应类型；未进行浏览器人工验收。
+
+以上是离线协议/路由回归，不是供应商实际模型、可用性、收费结果、画面质量或云上验收。没有真实付费调用。#172 的跨厂商快速连通与新增适配器、配置 UI 完整体验仍 partial。需非作者真人批准当前 head，不批准、不自动合并。

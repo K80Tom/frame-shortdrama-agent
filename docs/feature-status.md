@@ -11,9 +11,9 @@
 
 源码入口、测试文件、实际执行、真实环境验证是不同字段。以下能力均未因此升级为 `verified`；本 PR 本地只做文档/治理静态校验，未重跑产品、数据库、模型或浏览器测试。引用合并 PR 的既有测试入口/记录时，只是证据导航，不冒称本轮独立复验。
 
-## #174 协议安全遏制增量（2026-11-11）
+## #174 执行协议与能力门禁增量（2026-11-11）
 
-Owner：@K80Tom / @255308153；适用 `fix/media-preset-protocol-guard`（基于 `dev df976eb`）。已知非 Ark 媒体预设的 Profile 标记 metadata-only，禁止分配/运行，并在底层客户端阻断；已有配置与 Worker 刷新同样校验。构建、相关 83、Agent 44、Web 140 通过；完整 #174/#172 仍 partial，尚无协议 discriminator 持久化、新适配器路由或高级参数消费。详见[验证和边界](media-preset-protocol-containment.md)。未验真实供应商，不据此宣称可执行所有目录模型。
+Owner：@K80Tom / @255308153；适用 `fix/media-preset-protocol-guard`（基于 `dev df976eb`）。新增 shared 执行绑定、私有库 v3 升级、Profile/运行时协议路由、冻结能力与调用前参数校验。11 个可执行预设已逐项通过真实客户端/模拟 transport 验证；其他预设明确 metadata-only，不把独立商业适配器类的存在当作 Profile 路径已经接通。Shared 23、Agent 44、Web 140 与构建通过；Main 1036 pass / 2 既有 Windows fail / 5 skipped。见[证据、迁移与限制](media-preset-protocol-containment.md)。未验真实模型/账单/浏览器/目标环境；#172 跨厂商完整连通仍 partial，当前 head 须真人审查。
 
 ## 当前 15 项 Issue 台账
 
