@@ -18,6 +18,7 @@ interface Props {
   onSaveScene?: (episodeId: string, sceneId: string) => void;
   savingSceneId?: string | null;
   disabled?: boolean;
+  preview?: boolean;
 }
 
 function sceneTitle(scene: ScriptScene) {
@@ -37,7 +38,7 @@ function ElementFields({ element, onPatch, disabled }: {
   </div>;
 }
 
-export default function StructuredScriptEditor({ structure, onChange, onSaveScene, savingSceneId, disabled }: Props) {
+export default function StructuredScriptEditor({ structure, onChange, onSaveScene, savingSceneId, disabled, preview }: Props) {
   const firstEpisode = structure.episodes[0];
   const [episodeId, setEpisodeId] = useState(firstEpisode?.id ?? '');
   const [sceneId, setSceneId] = useState(firstEpisode?.scenes[0]?.id ?? '');
@@ -77,7 +78,7 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
     <aside className="structured-directory">
       <div className="structured-directory-head">
         <span>剧本目录</span>
-        <small>{structure.episodes.length} 集</small>
+        <small>{preview ? 'AI 预览 · ' : ''}{structure.episodes.length} 集</small>
       </div>
       {structure.episodes.map((item, index) => <div key={item.id} className="structured-episode-nav">
         <button type="button" className={item.id === episode.id ? 'is-active' : ''}

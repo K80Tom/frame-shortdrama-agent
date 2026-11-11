@@ -23,6 +23,7 @@ import { parseCreateEntityEdits, parseCreateExtractFactsCandidate } from './brea
 import type { StoredScriptVersion } from './breakdown/repository';
 import type { ExtractFactsStageRunner } from './breakdown/execution';
 import type { StoryboardService } from './breakdown/storyboard';
+import type { ScriptParseService } from './breakdown/script-parse';
 import { type BreakdownServicePort, UnavailableBreakdownService } from './breakdown/service';
 import { ProjectWorkspaceReadModel } from './projects/read-model';
 import { NovelController, NOVEL_SERVICE } from './novel/controller';
@@ -99,6 +100,7 @@ const TRANSPORT = Symbol('MODEL_TRANSPORT');
 const BREAKDOWN_SERVICE = Symbol('BREAKDOWN_SERVICE');
 const STAGE_RUNNER = Symbol('STAGE_RUNNER');
 const STORYBOARD_SERVICE = Symbol('STORYBOARD_SERVICE');
+const SCRIPT_PARSE_SERVICE = Symbol('SCRIPT_PARSE_SERVICE');
 const AGENT_RUNTIME = Symbol('AGENT_RUNTIME');
 const AGENT_TOOL_KERNEL = Symbol('AGENT_TOOL_KERNEL');
 const PROJECT_WORKSPACE_READ_MODEL = Symbol('PROJECT_WORKSPACE_READ_MODEL');
@@ -130,6 +132,7 @@ export interface AppDependencies {
   breakdownService?: BreakdownServicePort;
   stageRunner?: ExtractFactsStageRunner;
   storyboardService?: StoryboardService;
+  scriptParseService?: ScriptParseService;
   novelService?: NovelService;
   assetService?: AssetService;
   desktopAssetService?: DesktopAssetService;
@@ -433,6 +436,65 @@ class PlanRevisionsController {
   }
 }
 
+
+@Controller('api')
+class ScriptParseController {
+  constructor(@Inject(SCRIPT_PARSE_SERVICE) private readonly parses: ScriptParseService | null) {}
+  private service() {
+    if (!this.parses) throw new BreakdownError(503, 'SCRIPT_PARSE_UNAVAILABLE', '剧本解析服务尚未就绪。');
+    return this.parses;
+  }
+  @Post('projects/:projectId/script-parses')
+  async parse(@Param('projectId') projectId: string, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).some(key => !['allowPaid', 'scriptVersionId', 'expectedModelConnectionRevision'].includes(key))
+      || (body as Record<string, unknown>).allowPaid !== true) {
+      throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', 'AI 解析前须明确传入 allowPaid: true。');
+    }
+    const record = body as Record<string, unknown>;
+    if (record.scriptVersionId !== undefined && typeof record.scriptVersionId !== 'string') {
+      throw new BreakdownError(400, 'INVALID_SCRIPT_VERSION', 'scriptVersionId 格式不正确。');
+    }
+    const scriptVersionId = record.scriptVersionId === undefined ? undefined : parseOpaqueId(record.scriptVersionId, 'scriptVersionId');
+    if (record.expectedModelConnectionRevision !== undefined && typeof record.expectedModelConnectionRevision !== 'string') {
+      throw new BreakdownError(400, 'MODEL_SELECTION_INVALID', '模型选择版本格式不正确。');
+    }
+    return this.service().parse(parseOpaqueId(projectId, 'projectId'), scriptVersionId,
+      record.expectedModelConnectionRevision as string | undefined);
+  }
+  @Post('projects/:projectId/script-character-candidates')
+  async createCharacterCandidate(@Param('projectId') projectId: string, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length !== 2 || !('scriptVersionId' in body) || !('characters' in body)) {
+      throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', '人物候选请求不完整。');
+    }
+    const record = body as Record<string, unknown>;
+    if (typeof record.scriptVersionId !== 'string') throw new BreakdownError(400, 'INVALID_SCRIPT_VERSION', 'scriptVersionId 格式不正确。');
+    const scriptVersionId = parseOpaqueId(record.scriptVersionId, 'scriptVersionId');
+    if (!Array.isArray(record.characters) || record.characters.length === 0 || record.characters.length > 200) {
+      throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', '人物候选数量不合法。');
+    }
+    const characters = record.characters.map((value, index) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `人物 ${index + 1} 格式不正确。`);
+      }
+      const item = value as Record<string, unknown>;
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name || name.length > 160) throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `人物 ${index + 1} 名称不合法。`);
+      const aliases = item.aliases === undefined ? [] : item.aliases;
+      if (!Array.isArray(aliases) || aliases.length > 32 || aliases.some(alias => typeof alias !== 'string' || !alias.trim())) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `人物 ${index + 1} 别名不合法。`);
+      }
+      const description = item.description === undefined || item.description === null ? null : item.description;
+      if (description !== null && (typeof description !== 'string' || description.length > 2000)) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `人物 ${index + 1} 说明不合法。`);
+      }
+      return { name, aliases: aliases.map(alias => alias.trim()), description: description?.trim() || null };
+    });
+    return this.service().createCharacterCandidate(parseOpaqueId(projectId, 'projectId'), scriptVersionId, characters);
+  }
+}
+
 @Controller('api')
 class StoryboardController {
   constructor(@Inject(STORYBOARD_SERVICE) private readonly storyboards: StoryboardService | null,
@@ -565,7 +627,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   }
   @Module({ controllers: [PlatformController, SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
-    StoryboardController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
+    StoryboardController, ScriptParseController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
     ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController, ToolRegistryController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evolutionGateService ? [EvolutionGateController] : []),
@@ -608,7 +670,8 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       useValue: dependencies.assetRetrievalGovernanceService ?? null },
     { provide: PROMPT_PACK_SERVICE, useValue: dependencies.promptPacksService ?? null },
     { provide: METHOD_PACK_SERVICE, useValue: dependencies.methodPacksService ?? null },
-    { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null }] })
+    { provide: STORYBOARD_SERVICE, useValue: dependencies.storyboardService ?? null },
+    { provide: SCRIPT_PARSE_SERVICE, useValue: dependencies.scriptParseService ?? null }] })
   class ModelsModule {}
   const adapter = new FastifyAdapter({ bodyLimit: MAX_REQUEST_BYTES, logger: false });
   adapter.getInstance().addHook('onRequest', async (request, reply) => {

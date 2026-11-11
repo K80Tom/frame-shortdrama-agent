@@ -38,14 +38,28 @@ test('createScriptVersion accepts a structured script and derives canonical rawT
   assert.equal(loaded.structure.episodes[0].scenes[0].dialogues[0].characterName, '林澈');
 });
 
-test('createScriptVersion accepts raw text and derives its structure', async () => {
+test('createScriptVersion preserves supplied raw text beside its structure', async () => {
+  const structure = emptyScriptStructure();
+  structure.episodes[0].scenes[0].location = '旧钟表店';
+  structure.episodes[0].scenes[0].dialogues.push({ id: 'element_1', type: 1, characterName: '老周', content: '十一年前的东西了。' });
+  const rawText = '深夜的旧钟表店，老周抬头看见推门进来的林澈。\n老周：十一年前的东西了。';
+  const parsed = parseCreateScriptVersion({ rawText, structure });
+  assert.equal(parsed.rawText, rawText);
+  assert.equal(parsed.structure.episodes[0].scenes[0].location, '旧钟表店');
+  const service = createService();
+  const project = await service.createProject({ title: '保留原文' });
+  const saved = await service.createScriptVersion(project.id, parsed);
+  assert.equal(saved.rawText, rawText);
+  assert.equal(saved.structure.episodes[0].scenes[0].dialogues[0].type, 1);
+});
+
+test('createScriptVersion keeps raw text pending AI parse', async () => {
   const parsed = parseCreateScriptVersion({ rawText: '第1集\n\n1-1 内景 客厅 日\n林澈：你好。' });
-  assert.equal(parsed.structure.schemaVersion, 'script-structure/1');
-  assert.equal(parsed.structure.episodes[0].scenes[0].dialogues[0].type, 1);
+  assert.equal(parsed.structure, undefined);
   const service = createService();
   const project = await service.createProject({ title: '旧原文' });
   const saved = await service.createScriptVersion(project.id, parsed);
-  assert.equal(saved.structure.episodes[0].scenes[0].location, '客厅');
+  assert.equal(saved.structure, null);
   assert.match(saved.rawText, /林澈：你好。/);
 });
 

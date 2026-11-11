@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, CircleDashed, CheckCircle2, Play, Save } from 'lucide-react';
+import { ArrowRight, CircleDashed, CheckCircle2, Play, Save, Sparkles, X } from 'lucide-react';
 import FactsEditor from './FactsEditor';
 import StructuredScriptEditor from './StructuredScriptEditor';
 import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
-import { emptyScriptStructure, parseScriptStructure, serializeScriptStructure, type ScriptStructure } from './script-structure';
+import type { ScriptParseCharacter } from '@lyra/shared';
+import { emptyScriptStructure, type ScriptStructure } from './script-structure';
 import {
   buildEntityEdits, createEntityDrafts, latestPlanForScript, synopsisChanged, synopsisDraftErrors,
   synopsisEditValue, validateEntityDrafts,
@@ -17,6 +18,7 @@ type Project = { id: string; title: string; currentScriptVersionId: string | nul
 type Run = { id: string; status: string; scriptVersionId: string; modelConfig: { provider: string; model: string; reasoningEffort: string; connectionRevision?: string } };
 type ModelCatalog = { provider: string; configured: boolean; defaultModel: string; maxOutputTokens?: number; connectionRevision?: string };
 type ScriptVersionDetail = { id: string; version: number; rawText: string; structure: ScriptStructure | null };
+type ScriptParseResponse = { structure: ScriptStructure; characters: ScriptParseCharacter[]; attemptId: string; model: string };
 type Check = { id: string; result: 'passed' | 'failed'; ruleVersion: string };
 const CURRENT_FACT_CHECK_RULE_VERSION = 'extract-facts-completeness/2';
 
@@ -68,7 +70,12 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const [script, setScript] = useState('');
   const [savedScript, setSavedScript] = useState('');
   const [scriptStructure, setScriptStructure] = useState<ScriptStructure>(emptyScriptStructure);
-  const [structuredMode, setStructuredMode] = useState(true);
+  const [structureReady, setStructureReady] = useState(false);
+  const [structuredMode, setStructuredMode] = useState(false);
+  const [parseCharacters, setParseCharacters] = useState<ScriptParseCharacter[]>([]);
+  const [parsePreview, setParsePreview] = useState(false);
+  const [parseConsent, setParseConsent] = useState(false);
+  const [structureDirty, setStructureDirty] = useState(false);
   const [synopsisDraft, setSynopsisDraft] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run | null>(null);
@@ -87,7 +94,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const drafts = plan ? draftBook[plan.id]?.drafts ?? createEntityDrafts(plan.content) : {};
   const edits = plan ? buildEntityEdits(plan.content, drafts) : [];
   const dirty = edits.length > 0 || synopsisChanged(plan, synopsisDraft);
-  const unsaved = dirty || script !== savedScript;
+  const unsaved = dirty || script !== savedScript || structureDirty;
   useEffect(() => {
     onUnsavedChange?.(unsaved);
     return () => onUnsavedChange?.(false);
@@ -118,14 +125,16 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
         const saved = selected.currentScriptVersionId
           ? await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions/${selected.currentScriptVersionId}`)
           : { id: '', version: 0, rawText: '', structure: null };
-        const savedStructure = saved.structure ?? parseScriptStructure(saved.rawText);
+        const savedStructure = saved.structure;
         const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
         const status = await readPlanStatus(current);
         if (epoch.current !== my) return;
         setProject(selected); setRuns(runHistory.items); setPlans(revisions.items);
         setRun(runHistory.items.find(item => item.id === current?.runId) ?? runHistory.items[0] ?? null);
         setSavedScript(saved.rawText); setScript(saved.rawText);
-        setScriptStructure(savedStructure);
+        setStructureReady(Boolean(savedStructure)); setStructuredMode(Boolean(savedStructure));
+        setScriptStructure(savedStructure ?? emptyScriptStructure());
+        setParseCharacters([]); setParsePreview(false); setParseConsent(false); setStructureDirty(false);
         setSynopsisDraft(current?.content.synopsis?.value ?? '');
         setPlan(current); setCheck(status.check); setIssues(status.issues); setModelCatalog(catalog);
       } catch (reason) {
@@ -165,7 +174,9 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       if (selected.currentScriptVersionId) {
         const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions/${selected.currentScriptVersionId}`);
         setSavedScript(detail.rawText); setScript(detail.rawText);
-        setScriptStructure(detail.structure ?? parseScriptStructure(detail.rawText));
+        setStructureReady(Boolean(detail.structure)); setStructuredMode(Boolean(detail.structure));
+        setScriptStructure(detail.structure ?? emptyScriptStructure());
+        setParseCharacters([]); setParsePreview(false); setStructureDirty(false);
       }
       const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
       const status = await readPlanStatus(current);
@@ -176,7 +187,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
 
   function syncStructure(next: ScriptStructure) {
     setScriptStructure(next);
-    setScript(serializeScriptStructure(next));
+    setStructureDirty(true);
   }
 
   function saveStructure(sceneId?: string) {
@@ -184,10 +195,11 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       if (sceneId) setSavingSceneId(sceneId);
       try {
         const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions`, {
-          structure: scriptStructure,
+          structure: scriptStructure, rawText: savedScript,
         });
         const nextStructure = detail.structure ?? scriptStructure;
         setSavedScript(detail.rawText); setScript(detail.rawText); setScriptStructure(nextStructure);
+        setStructureDirty(false);
         await refreshAfterSave();
         setMessage(sceneId ? '本场已保存为新剧本版本。' : '剧本已保存为新版本。');
       } finally {
@@ -195,6 +207,87 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
       }
     });
   }
+
+
+  function startParse() {
+    void mutate('AI解析', async () => {
+      if (!project?.currentScriptVersionId || script !== savedScript) return;
+      const result = await api<ScriptParseResponse>(`/api/projects/${projectId}/script-parses`, {
+        allowPaid: true,
+        scriptVersionId: project.currentScriptVersionId,
+        expectedModelConnectionRevision: modelCatalog?.connectionRevision,
+      });
+      setScriptStructure(result.structure);
+      setParseCharacters(result.characters); setStructureDirty(false);
+      setStructureReady(true); setStructuredMode(true); setParsePreview(true); setParseConsent(false);
+      setMessage(`AI 解析完成（${result.model}）：请核对自动拆出的场次和人物，确认后保存。`);
+    });
+  }
+
+  function renameInStructure(from: string, to: string) {
+    if (!from || from === to) return;
+    setScriptStructure(previous => ({ ...previous, episodes: previous.episodes.map(episode => ({
+      ...episode,
+      scenes: episode.scenes.map(scene => ({ ...scene, dialogues: scene.dialogues.map(element =>
+        element.characterName === from ? { ...element, characterName: to } : element) })),
+    })) }));
+  }
+
+  function patchParseCharacter(index: number, patch: Partial<ScriptParseCharacter>) {
+    const current = parseCharacters[index];
+    if (patch.name !== undefined && current) renameInStructure(current.name, patch.name);
+    setParseCharacters(previous => previous.map((character, itemIndex) =>
+      itemIndex === index ? { ...character, ...patch } : character));
+  }
+
+  function removeParseCharacter(index: number) {
+    const removed = parseCharacters[index];
+    if (removed) renameInStructure(removed.name, '');
+    setParseCharacters(previous => previous.filter((_, current) => current !== index));
+  }
+
+  function appendParseCharacter() {
+    setParseCharacters(previous => [...previous, { name: '', aliases: [], description: null }]);
+  }
+
+  function cancelParse() {
+    setParsePreview(false);
+    setParseCharacters([]);
+    setMessage('已取消本次 AI 解析预览，原文和当前剧本版本没有变化。');
+    reload();
+  }
+
+  function confirmParse() {
+    void mutate('确认解析', async () => {
+      const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions`, {
+        structure: scriptStructure, rawText: savedScript,
+      });
+      setSavedScript(detail.rawText); setScript(detail.rawText); setScriptStructure(detail.structure ?? scriptStructure);
+      setStructureDirty(false);
+      let candidateError = '';
+      if (parseCharacters.length > 0) {
+        try {
+          await api(`/api/projects/${projectId}/script-character-candidates`, {
+            scriptVersionId: detail.id,
+            characters: parseCharacters.map(character => ({
+              name: character.name.trim(),
+              aliases: character.aliases.map((alias: string) => alias.trim()).filter(Boolean),
+              description: character.description?.trim() || null,
+            })),
+          });
+        } catch (reason) {
+          candidateError = reason instanceof Error ? reason.message : '人物候选创建失败。';
+        }
+      }
+      setParsePreview(false); setParseCharacters([]); setParseConsent(false);
+      await refreshAfterSave();
+      setMessage(candidateError
+        ? `分集/场次已保存为新剧本版本，但人物候选没有创建：${candidateError}`
+        : '分集/场次已保存为新剧本版本，人物候选已创建；请继续核对事实。');
+    });
+  }
+
+  const previewSafeSave = parsePreview ? undefined : (_episodeId: string, sceneId: string) => saveStructure(sceneId);
 
   const activePlan = plans.find(item => item.id === project?.activePlanRevisionId) ?? null;
   const primary: ScriptPrimaryAction = deriveScriptState({
@@ -216,39 +309,76 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
     <section className="project-flow-card">
       <div className="project-flow-head">
         <h3>剧本内容</h3>
-        <button className="text-button" disabled={!!busy}
-          onClick={() => {
-            if (structuredMode) setScript(serializeScriptStructure(scriptStructure));
-            else setScriptStructure(parseScriptStructure(script));
-            setStructuredMode(!structuredMode);
-          }}>{structuredMode ? '切换到原文' : '切换到结构化编辑'}</button>
+        <button className="text-button" disabled={!!busy || parsePreview || !structureReady}
+          onClick={() => setStructuredMode(!structuredMode)}>{!structureReady ? 'AI 解析后可切换' : structuredMode ? '切换到原文' : '切换到结构化编辑'}</button>
       </div>
       {structuredMode
-        ? <StructuredScriptEditor structure={scriptStructure} disabled={!!busy || !project}
-            savingSceneId={savingSceneId} onSaveScene={(_episodeId, sceneId) => saveStructure(sceneId)}
+        ? <StructuredScriptEditor structure={scriptStructure} disabled={!!busy || !project || parsePreview}
+            preview={parsePreview}
+            savingSceneId={savingSceneId} onSaveScene={previewSafeSave}
             onChange={syncStructure} />
         : <textarea className="project-flow-script" aria-label="创作原文" disabled={!!busy || !project}
-            value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一章小说或一集中文剧本。保存后自动拆解为分集和场次；每次保存创建新版本，旧版本不被覆盖。" />}
-      <div className="project-flow-row">
+            value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一整段中文故事或剧本。保存原文后点「AI 解析分场与人物」，系统会自动拆场次并识别人物。" />}
+
+      {!structureReady && !parsePreview && <div className="script-parse-cta">
+        <div>
+          <h4><Sparkles size={15} />AI 解析分场与人物</h4>
+          <p>当前原文还没有场次结构。解析会把整段按 1 集处理，自动拆场、识别人物，并填入对白/动作/旁白/镜头/环境。解析结果先进入可编辑预览，不直接保存。</p>
+        </div>
+        <label className="production-consent"><input type="checkbox" checked={parseConsent}
+          disabled={!!busy || !modelReady || script !== savedScript || !project?.currentScriptVersionId}
+          onChange={event => setParseConsent(event.target.checked)} />我确认调用拆解模型 {modelCatalog?.defaultModel ?? ''}，可能产生费用</label>
+        <button className="production-primary" disabled={!!busy || !modelReady || !parseConsent
+          || script !== savedScript || !project?.currentScriptVersionId}
+          onClick={startParse}><Sparkles size={14} />{busy === 'AI解析' ? '正在解析…' : 'AI 解析分场与人物'}</button>
+        {script !== savedScript && <small>原文有未保存修改，请先点「保存剧本新版本」再解析。</small>}
+        {!modelReady && <small>拆解模型未配置，暂时不能解析。</small>}
+      </div>}
+
+      {parsePreview && <div className="script-character-preview">
+        <div className="project-flow-head"><h4>AI 识别人物（可编辑）</h4><span className="muted">确认后创建人物候选，不覆盖已采用事实</span></div>
+        <div><button type="button" className="text-button" disabled={!!busy} onClick={appendParseCharacter}>+ 添加人物</button></div>
+        {parseCharacters.length === 0 && <p className="muted">没有识别人物。你仍可以保存场次结构，或返回原文补充人物后重新解析。</p>}
+        {parseCharacters.map((character, index) => <div className="script-character-row" key={index}>
+          <label>姓名<input value={character.name} disabled={!!busy}
+            onChange={event => patchParseCharacter(index, { name: event.target.value })} /></label>
+          <label>别名<input value={character.aliases.join('、')} disabled={!!busy}
+            onChange={event => patchParseCharacter(index, { aliases: event.target.value.split(/[、,，]/).map(value => value.trim()).filter(Boolean) })} placeholder="用顿号分隔，可空" /></label>
+          <label className="wide">说明<input value={character.description ?? ''} disabled={!!busy}
+            onChange={event => patchParseCharacter(index, { description: event.target.value || null })} placeholder="简短人物说明，可空" /></label>
+          <button type="button" className="script-character-remove" aria-label={`删除人物 ${character.name}`}
+            disabled={!!busy} onClick={() => removeParseCharacter(index)}><X size={14} /></button>
+        </div>)}
+        <div className="project-flow-row">
+          <small>场次与元素也可以直接修改；确认后会生成新的剧本版本。</small>
+          <div className="production-actions">
+            <button disabled={!!busy} onClick={cancelParse}>取消预览</button>
+            <button className="production-primary" disabled={!!busy
+              || parseCharacters.some(character => !character.name.trim())}
+              onClick={confirmParse}>{busy === '确认解析' ? '保存中…' : '确认保存并创建人物候选'}</button>
+          </div>
+        </div>
+      </div>}
+
+      {!parsePreview && <div className="project-flow-row">
         <small>{script !== savedScript ? '剧本有未保存修改' : project?.currentScriptVersionId ? '剧本已保存' : '尚未保存剧本'}</small>
-        <button disabled={!!busy || !project || !script.trim() || script === savedScript}
+        <button disabled={!!busy || !project || (structuredMode ? !structureDirty : !script.trim() || script === savedScript)}
           onClick={() => {
             if (!structuredMode) {
               void mutate('保存原文', async () => {
                 const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions`, { rawText: script });
                 setSavedScript(detail.rawText); setScript(detail.rawText);
-                setScriptStructure(detail.structure ?? parseScriptStructure(detail.rawText));
+                setStructureReady(false); setStructuredMode(false);
+                setScriptStructure(emptyScriptStructure()); setParseCharacters([]); setParsePreview(false); setStructureDirty(false);
                 await refreshAfterSave();
-                setStructuredMode(true);
-                setMessage('原文已保存，并已自动拆解为分集和场次。');
+                setMessage('原文已保存；请点「AI 解析分场与人物」生成场次和人物。');
               });
               return;
             }
             saveStructure();
           }}><Save size={14} />{busy === '保存原文' || busy === '保存剧本' ? '保存中…' : '保存剧本新版本'}</button>
-      </div>
+      </div>}
     </section>
-
     <section className="project-flow-card">
       <h3>拆解运行</h3>
       <p className="muted">{modelReady ? `当前拆解模型：${modelCatalog!.defaultModel}` : '拆解模型未配置时，人工校对不受影响；模型调用前会再次确认。'}</p>
