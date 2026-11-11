@@ -26,6 +26,6 @@
 ## 未解决边界
 
 - `bindGate` 仍接收旧的客户端 metrics/results。HTTP owner/admin 限制不等于可信评测，授权用户仍可自造通过证据；必须继续改成权威 Evaluation/Gate ID，并核验租户、subject/result digest、有效期、费用、Baseline Registry。
-- Service/Tool 内部调用不经 HTTP，不应将 HTTP 角色测试解释为所有内部调用已经有 RBAC。进一步受控端口/服务授权仍待实现。
+- 2026-11-11 补充：服务层发布命令已增加同事务实时成员鉴权，证据见[服务层鉴权](evolution-service-publisher-auth.md)；本节原始 HTTP fixture 仍不能代表真实数据库权限验证。权威评测来源仍待实现。
 - 数据库测试使用受控评测 fixture，仅证明事务和隔离，不证明评测来源、真实评测器、模型质量或完整生产 E2E。
 - 未调用付费模型、真实云供应商、未自动合并。没有新增第二套 Outbox，也未变更现有生产事件契约；本切片处理既有候选治理事务，不宣称统一生产发布链路已接通。
