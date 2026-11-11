@@ -76,7 +76,7 @@ function nextFor(completed: Set<ProjectSection>): ProjectSection {
     .find(section => !completed.has(section)) ?? 'production';
 }
 
-function useWorkspaceView(projectId: string, draft: Draft) {
+function useWorkspaceView(projectId: string, draft: Draft): WorkspaceContextValue {
   const current = useContext(WorkspaceContext);
   if (current?.projectId === projectId) return current;
   const entry = fallbackEntry(projectId, draft);
@@ -134,7 +134,7 @@ export default function ProjectWorkspace({ projectId, section, draft, children }
 }
 
 export function ProjectOverview({ projectId, draft }: WorkspaceViewProps) {
-  const { entry, completed, nextSection } = useWorkspaceView(projectId, draft);
+  const { entry, completed, nextSection, summary } = useWorkspaceView(projectId, draft);
   const next = sectionMeta.find(item => item.id === nextSection)!;
   const NextIcon = next.icon;
   const completedCount = sectionMeta.filter(item => !['overview', 'history'].includes(item.id) && completed.has(item.id)).length;
@@ -145,7 +145,7 @@ export function ProjectOverview({ projectId, draft }: WorkspaceViewProps) {
         <span className="project-kicker"><Sparkles size={13} />下一步建议</span>
         <h2>让故事沿着一条清晰的制作路径向前。</h2>
         <p>原著、剧本、分镜、3D 预演与自动制作都归属于当前项目，切换步骤时不再丢失上下文。</p>
-        <a className="project-primary-action" href={projectWorkspaceHash(projectId, nextSection)}><Play size={14} fill="currentColor" />继续：{next.label}<ArrowRight size={15} /></a>
+        <a className="project-primary-action" href={projectWorkspaceHash(projectId, nextSection)}><Play size={14} fill="currentColor" />{summary && !summary.currentScriptVersionId ? '添加剧本' : `继续：${next.label}`}<ArrowRight size={15} /></a>
       </div>
       <div className="project-overview-art" aria-hidden="true">
         <span className="project-art-glow" />
