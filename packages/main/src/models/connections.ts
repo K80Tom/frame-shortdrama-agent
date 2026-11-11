@@ -3,8 +3,10 @@ import { readFileSync, statSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { AppConfig } from '../config';
-import { ModelError, type ModelKind as SharedModelKind } from '@lyra/shared';
+import { ModelError, parseModelExecutionBinding, type ModelExecutionBinding, type ModelKind as SharedModelKind } from '@lyra/shared';
 import { ModelPresetService } from './presets/service';
+import { bindingForConnection, assertExecutionBinding, freezeExecutionBinding } from './execution-binding';
+import { assertNativeMediaProtocol, mediaProtocolBlocked } from './media-protocol-guard';
 
 export const MODEL_ROLES = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof MODEL_ROLES[number];
@@ -19,6 +21,7 @@ export interface Connection {
 }
 export type ModelKind = SharedModelKind;
 export interface ModelProfile extends Connection {
+  executionBinding: ModelExecutionBinding;
   id: string;
   name: string;
   kind: ModelKind;
@@ -26,7 +29,7 @@ export interface ModelProfile extends Connection {
 }
 interface Assignment { profileId: string | null; revision: string }
 interface ConnectionLibrary {
-  schemaVersion: 2;
+  schemaVersion: 3;
   profiles: ModelProfile[];
   assignments: Record<ModelRole, Assignment>;
 }
@@ -158,7 +161,7 @@ export class ModelConnections {
   private decodeStored(raw: string): { state: ConnectionLibrary; needsInitialization: boolean } {
     if (Buffer.byteLength(raw) > 1024 * 1024) throw invalid('配置文件过大。');
     const saved = object(JSON.parse(raw));
-    if (saved.schemaVersion !== 1) return { state: this.readLibrary(saved), needsInitialization: false };
+    if (saved.schemaVersion !== 1) return { state: this.readLibrary(saved), needsInitialization: saved.schemaVersion === 2 };
     strict(saved, ['schemaVersion', 'connections']);
     const book = object(saved.connections);
     if (Object.keys(book).length !== MODEL_ROLES.length) throw invalid('配置用途不完整。');
@@ -223,23 +226,31 @@ export class ModelConnections {
           let unique = title;
           for (let n = 2; profiles.some(p => p.name === unique); n++) unique = `${title.slice(0, 74)} ${n}`;
           saved = { ...item, id: profileId(), name: unique, kind: kindForRole(role),
-            source: item.revision === 'environment-v1' ? 'environment' : 'local' };
+            source: item.revision === 'environment-v1' ? 'environment' : 'local',
+            executionBinding: bindingForConnection(kindForRole(role), item.endpoint, item.model) };
           profiles.push(saved);
         }
       }
       assignments[role] = { profileId: saved?.id ?? null, revision: item.revision };
     }
-    return { schemaVersion: 2, profiles, assignments };
+    return { schemaVersion: 3, profiles, assignments };
   }
   private readLibrary(value: unknown): ConnectionLibrary {
     const data = strict(value, ['schemaVersion', 'profiles', 'assignments']);
-    if (data.schemaVersion !== 2 || !Array.isArray(data.profiles) || data.profiles.length > 64) throw invalid('配置库版本或模型数量不正确。');
+    if (data.schemaVersion !== 2 && data.schemaVersion !== 3 || !Array.isArray(data.profiles) || data.profiles.length > 64) throw invalid('配置库版本或模型数量不正确。');
     const profiles = data.profiles.map(raw => {
-      const p = strict(raw, ['id', 'name', 'kind', 'source', 'endpoint', 'model', 'authType', 'apiKey', 'maxOutputTokens', 'timeoutMs', 'revision']);
+      const p = strict(raw, ['id', 'name', 'kind', 'source', 'endpoint', 'model', 'authType', 'apiKey', 'maxOutputTokens', 'timeoutMs', 'revision', ...(data.schemaVersion === 3 ? ['executionBinding'] : [])]);
       if (p.source !== 'local' && p.source !== 'environment') throw invalid('配置来源不正确。');
       return { ...profileFields(p, text(p.apiKey, 4096)), id: identifier(p.id), name: name(p.name),
-        kind: p.kind as ModelKind, source: p.source } as ModelProfile;
+        kind: p.kind as ModelKind, source: p.source,
+        executionBinding: data.schemaVersion === 3 ? parseModelExecutionBinding(p.executionBinding, p.kind as ModelKind)
+          : bindingForConnection(p.kind as ModelKind, String(p.endpoint), String(p.model)) } as ModelProfile;
     });
+    if (data.schemaVersion === 3) for (const profile of profiles) {
+      if (profile.executionBinding.adapter !== 'unavailable') {
+        assertExecutionBinding(profile.kind, profile.endpoint, profile.model, profile.executionBinding);
+      }
+    }
     if (new Set(profiles.map(p => p.id)).size !== profiles.length || new Set(profiles.map(p => p.name)).size !== profiles.length) throw invalid('连接标识或名称重复。');
     const rawAssignments = strict(data.assignments, [...MODEL_ROLES]);
     const assignments = {} as Record<ModelRole, Assignment>;
@@ -249,7 +260,7 @@ export class ModelConnections {
       if (id && !profiles.some(p => p.id === id && p.kind === kindForRole(role))) throw invalid('用途引用缺失或连接类型不符。');
       assignments[role] = { profileId: id, revision: revision(a.revision) };
     }
-    return { schemaVersion: 2, profiles, assignments };
+    return { schemaVersion: 3, profiles, assignments };
   }
   private selected(role: ModelRole) { return this.state.profiles.find(p => p.id === this.state.assignments[role].profileId); }
   private profile(id: string) {
@@ -259,16 +270,19 @@ export class ModelConnections {
   }
   private publicProfile(item: ModelProfile) {
     const { apiKey, ...safe } = item;
-    return { ...safe, hasApiKey: Boolean(apiKey), configured: Boolean(item.endpoint && item.model && apiKey),
-      execution: item.kind === 'text' ? 'text' : item.kind === 'image' ? 'asset-generation' : 'task-api-ready',
+    const blocked = item.executionBinding.adapter === 'unavailable' || mediaProtocolBlocked(item.kind, item.endpoint, item.model);
+    return { ...safe, executionBinding: structuredClone(item.executionBinding), hasApiKey: Boolean(apiKey), configured: Boolean(item.endpoint && item.model && apiKey) && !blocked,
+      execution: blocked ? 'metadata-only' : item.kind === 'text' ? 'text' : item.kind === 'image' ? 'asset-generation' : 'task-api-ready',
       roles: MODEL_ROLES.filter(role => this.state.assignments[role].profileId === item.id) };
   }
   public(role: ModelRole) {
     const item = this.selected(role);
     const { apiKey, ...safe } = item ?? this.blank();
-    return { ...safe, revision: this.state.assignments[role].revision, profileId: item?.id ?? null, profileName: item?.name ?? null,
-      role, hasApiKey: Boolean(apiKey), configured: Boolean(safe.endpoint && safe.model && apiKey),
-      execution: kindForRole(role) === 'text' ? 'text' : role === 'image' ? 'asset-generation' : 'task-api-ready', source: item?.source ?? 'local' };
+    const binding = item?.executionBinding ?? bindingForConnection(kindForRole(role), safe.endpoint, safe.model);
+    const blocked = binding.adapter === 'unavailable' || mediaProtocolBlocked(kindForRole(role), safe.endpoint, safe.model);
+    return { ...safe, executionBinding: structuredClone(binding), revision: this.state.assignments[role].revision, profileId: item?.id ?? null, profileName: item?.name ?? null,
+      role, hasApiKey: Boolean(apiKey), configured: Boolean(safe.endpoint && safe.model && apiKey) && !blocked,
+      execution: blocked ? 'metadata-only' : kindForRole(role) === 'text' ? 'text' : role === 'image' ? 'asset-generation' : 'task-api-ready', source: item?.source ?? 'local' };
   }
   list() { return { connections: MODEL_ROLES.map(role => this.public(role)), profiles: this.state.profiles.map(p => this.publicProfile(p)),
     legacyImportAvailable: Boolean(this.base.baseUrl && this.base.apiKey), legacyModel: this.base.defaultModel, secretsReturned: false }; }
@@ -277,12 +291,15 @@ export class ModelConnections {
     const cached = this.snapshots.get(role);
     if (cached) return cached;
     const item = this.selected(role) ?? this.blank();
+    const binding = 'executionBinding' in item ? item.executionBinding as ModelExecutionBinding
+      : bindingForConnection(kindForRole(role), item.endpoint, item.model);
+    assertExecutionBinding(kindForRole(role), item.endpoint, item.model, binding);
     // No cross-role fallback or mutable credentials in a running operation.
     const { modelConnections: _, ...base } = this.base;
     const snapshot = Object.freeze({ ...base, provider: item.authType === 'api-key' ? 'maas' as const : 'openai-compatible' as const,
       baseUrl: '', endpointUrl: item.endpoint, apiKey: item.apiKey, defaultModel: item.model,
       authType: item.authType, reasoningEffort: 'model-default', maxOutputTokens: item.maxOutputTokens,
-      timeoutMs: item.timeoutMs, connectionRevision: this.state.assignments[role].revision, callBudget: this.budget });
+      timeoutMs: item.timeoutMs, modelExecution: freezeExecutionBinding(binding), connectionRevision: this.state.assignments[role].revision, callBudget: this.budget });
     this.snapshots.set(role, snapshot);
     return snapshot;
   }
@@ -295,10 +312,11 @@ export class ModelConnections {
       const candidate = validate({ endpoint: data.endpoint, model: data.model, authType: data.authType,
         apiKey: secret(data, previous?.apiKey ?? ''), maxOutputTokens: data.maxOutputTokens,
         timeoutMs: data.timeoutMs, revision: randomUUID() }, role);
+      assertNativeMediaProtocol(kindForRole(role), candidate.endpoint, candidate.model);
       const shared = previous && MODEL_ROLES.filter(r => this.state.assignments[r].profileId === previous.id).length > 1;
       const profile: ModelProfile = { ...candidate, id: previous && !shared ? previous.id : profileId(),
         name: previous && !shared ? previous.name : this.uniqueName(prettyName(candidate.model) || `${labels[role]}连接`),
-        kind: kindForRole(role), source: 'local' };
+        kind: kindForRole(role), source: 'local', executionBinding: this.updatedBinding(previous, kindForRole(role), candidate.endpoint, candidate.model) };
       const profiles = previous && !shared ? this.state.profiles.map(p => p.id === previous.id ? profile : p) : [...this.state.profiles, profile];
       this.checkLimit(profiles.length);
       await this.commit({ ...this.state, profiles,
@@ -319,6 +337,7 @@ export class ModelConnections {
       this.checkName(title); this.checkLimit(this.state.profiles.length + 1);
       const source = preset ? { ...preset, name: title } : data;
       let copiedKey = '';
+      let copiedBinding: ModelExecutionBinding | undefined;
       if (data.copyCredentialsFrom !== undefined) {
         const copy = strict(data.copyCredentialsFrom, ['profileId', 'revision']);
         const credentialSource = this.profile(identifier(copy.profileId));
@@ -328,13 +347,17 @@ export class ModelConnections {
         }
         if (data.clearApiKey || (data.apiKey !== undefined && text(data.apiKey, 4096))) throw invalid('复用与替换／清除密钥不能同时操作。');
         copiedKey = credentialSource.apiKey;
+        if (source.kind === credentialSource.kind && source.model === credentialSource.model) {
+          copiedBinding = structuredClone(credentialSource.executionBinding);
+        }
       }
       const profile: ModelProfile = { ...profileFields({
         endpoint: source.endpoint, model: source.model, authType: source.authType, apiKey: data.apiKey,
         maxOutputTokens: source.maxOutputTokens, timeoutMs: source.timeoutMs, kind: source.kind,
         revision: randomUUID(),
       }, secret(data, copiedKey)),
-      id: profileId(), name: title, kind: source.kind as ModelKind, source: 'local' };
+      id: profileId(), name: title, kind: source.kind as ModelKind, source: 'local',
+        executionBinding: preset?.executionBinding ?? copiedBinding ?? bindingForConnection(source.kind as ModelKind, String(source.endpoint), String(source.model)) };
       await this.commit({ ...this.state, profiles: [...this.state.profiles, profile] });
       return this.publicProfile(profile);
     });
@@ -346,9 +369,11 @@ export class ModelConnections {
       this.checkVersion(data.expectedRevision, previous.revision);
       const title = name(data.name); this.checkName(title, id);
       const profile: ModelProfile = { ...profileFields({ ...data, revision: randomUUID() }, secret(data, previous.apiKey)),
-        id: previous.id, name: title, kind: data.kind as ModelKind, source: 'local' };
+        id: previous.id, name: title, kind: data.kind as ModelKind, source: 'local',
+        executionBinding: this.updatedBinding(previous, data.kind as ModelKind, String(data.endpoint), String(data.model)) };
       const assignments = { ...this.state.assignments };
       for (const role of MODEL_ROLES) if (assignments[role].profileId === id) {
+        assertExecutionBinding(profile.kind, profile.endpoint, profile.model, profile.executionBinding);
         if (kindForRole(role) !== profile.kind) throw invalid('此连接正在被用途引用，请先取消分配再修改连接类型。');
         assignments[role] = { profileId: id, revision: randomUUID() };
       }
@@ -362,6 +387,10 @@ export class ModelConnections {
       this.checkVersion(data.expectedRevision, this.state.assignments[role].revision);
       const id = data.profileId === null ? null : identifier(data.profileId);
       if (id && this.profile(id).kind !== kindForRole(role)) throw new ModelError(400, 'MODEL_PROFILE_INCOMPATIBLE', '连接类型与用途不符；文本模型不能分配为生图或生视频模型。');
+      if (id) {
+        const profile = this.profile(id);
+        assertExecutionBinding(profile.kind, profile.endpoint, profile.model, profile.executionBinding);
+      }
       if (this.state.assignments[role].profileId === id) return this.public(role);
       await this.commit({ ...this.state, assignments: { ...this.state.assignments,
         [role]: { profileId: id, revision: randomUUID() } } });
@@ -378,11 +407,21 @@ export class ModelConnections {
       if (existing) return this.publicProfile(existing);
       this.checkLimit(this.state.profiles.length + 1);
       const profile: ModelProfile = { ...validate({ ...env, revision: randomUUID() }, 'general'), id: profileId(),
-        kind: 'text', source: 'environment', name: this.uniqueName(prettyName(env.model)) };
+        kind: 'text', source: 'environment', name: this.uniqueName(prettyName(env.model)),
+        executionBinding: bindingForConnection('text', env.endpoint, env.model) };
       await this.commit({ ...this.state, profiles: [...this.state.profiles, profile] });
       return this.publicProfile(profile);
     });
   }
+  private updatedBinding(previous: ModelProfile | undefined, kind: ModelKind, endpoint: string, model: string): ModelExecutionBinding {
+    if (previous && previous.kind === kind && previous.endpoint === endpoint && previous.model === model) {
+      return structuredClone(previous.executionBinding);
+    }
+    if (previous?.executionBinding.presetCode) throw new ModelError(400, 'MODEL_EXECUTION_INVALID',
+      '预设连接的类型、模型和接口不可更换；请新建连接，避免静默改变已确认的执行协议。');
+    return bindingForConnection(kind, endpoint, model);
+  }
+
   private uniqueName(title: string) {
     let value = title;
     for (let n = 2; this.state.profiles.some(p => p.name === value); n++) value = `${title.slice(0, 74)} ${n}`;

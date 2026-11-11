@@ -3,11 +3,13 @@ import {
   parseModelPresetCatalog,
   parseProviderCatalog,
   type ModelKind,
+  type ModelExecutionBinding,
   type ModelPresetCatalogResponse,
   type ModelPresetEntry,
   type ProviderCatalogEntry,
   type ProviderCatalogResponse,
 } from '@lyra/shared';
+import { bindingForPreset } from '../execution-binding';
 import { MODEL_PRESETS, PROVIDER_CATALOG, PROVIDER_BY_ID } from './catalog';
 
 export interface ModelPresetListQuery {
@@ -49,7 +51,7 @@ export class ModelPresetService {
   constructor(providers: unknown = PROVIDER_CATALOG, presets: unknown = MODEL_PRESETS) {
     const providerList = parseProviderCatalog(providers);
     this.providers = providerList;
-    this.presets = parseModelPresetCatalog(presets, providerList);
+    this.presets = parseModelPresetCatalog(presets, providerList).map(preset => ({ ...preset, executionBinding: bindingForPreset(preset) }));
     this.byCode = new Map(this.presets.map(preset => [preset.code.toLowerCase(), preset]));
   }
 
@@ -96,10 +98,11 @@ export class ModelPresetService {
   /** 预设只补默认参数；apiKey 永远由调用方在 main 侧单独提交。 */
   profileDefaults(code: unknown): {
     name: string; kind: ModelKind; endpoint: string; model: string; authType: 'bearer';
-    maxOutputTokens: number; timeoutMs: number;
+    maxOutputTokens: number; timeoutMs: number; executionBinding: ModelExecutionBinding;
   } {
     const preset = this.requirePreset(code);
     return {
+      executionBinding: bindingForPreset(preset),
       name: preset.name,
       kind: preset.kind,
       endpoint: preset.defaultBaseUrl,

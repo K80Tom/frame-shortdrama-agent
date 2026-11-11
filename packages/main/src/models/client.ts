@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config';
 import { ModelError, parseCall } from '@lyra/shared';
+import { assertExecutionBinding } from './execution-binding';
 import { configuredModel } from './registry';
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -36,7 +37,9 @@ async function readJson(response: Response): Promise<unknown> {
 // Independent of Nest/HTTP: future task workers can call this same bounded adapter.
 export class ModelClient {
   private readonly localBudget = { active: 0 };
-  constructor(private readonly config: AppConfig, private readonly transport: typeof fetch = fetch) {}
+  constructor(private readonly config: AppConfig, private readonly transport: typeof fetch = fetch) {
+    if (config.modelExecution) assertExecutionBinding('text', config.endpointUrl ?? `${config.baseUrl}/chat/completions`, config.defaultModel, config.modelExecution);
+  }
 
   assertConfigured(): void {
     if (!(this.config.endpointUrl || this.config.baseUrl) || !this.config.apiKey || !this.config.defaultModel) {

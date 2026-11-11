@@ -185,6 +185,7 @@ export class EvolutionGateService {
     Promise<{ candidate: EvolutionCandidate; binding: EvolutionGateBinding }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).bindGate(workspaceId, candidateId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     const candidate = await this.loadCandidate(workspaceId, candidateId);
     this.assertFresh(candidate, input.expectedVersion);
     const verdict = arbitrateEvolutionGate({
@@ -242,6 +243,7 @@ export class EvolutionGateService {
   async approve(workspaceId: string, candidateId: string, input: EvolveInput): Promise<EvolutionCandidate> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).approve(workspaceId, candidateId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '批准必须提供非空人工理由。');
     }
@@ -266,6 +268,7 @@ export class EvolutionGateService {
   async reject(workspaceId: string, candidateId: string, input: EvolveInput): Promise<EvolutionCandidate> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).reject(workspaceId, candidateId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '拒绝必须提供非空人工理由。');
     }
@@ -278,6 +281,7 @@ export class EvolutionGateService {
     Promise<{ candidate: EvolutionCandidate; rollout: EvolutionRollout }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).startCanary(workspaceId, candidateId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     const candidate = await this.loadCandidate(workspaceId, candidateId);
     this.assertFresh(candidate, input.expectedVersion);
     const config: EvolutionRolloutConfig = {
@@ -334,6 +338,7 @@ export class EvolutionGateService {
     Promise<{ rollout: EvolutionRollout; candidate: EvolutionCandidate | null }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).observe(workspaceId, rolloutId, input));
+    await this.repository.authorizePublisher(workspaceId);
     const rollout = await this.loadRollout(workspaceId, rolloutId);
     if (rollout.stateVersion !== input.expectedVersion) {
       throw new EvolutionGateError(409, 'EVOLUTION_STALE_STATE', '灰度状态已变化（CAS），请刷新后重试。');
@@ -369,6 +374,7 @@ export class EvolutionGateService {
     Promise<{ rollout: EvolutionRollout; candidate: EvolutionCandidate | null }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).stopCanary(workspaceId, rolloutId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '人工停止必须提供非空理由。');
     }
@@ -411,6 +417,7 @@ export class EvolutionGateService {
     Promise<{ candidate: EvolutionCandidate; revision: EvolutionRegistryRevision }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).promote(workspaceId, rolloutId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', 'Promote 必须提供非空人工理由。');
     }
@@ -461,6 +468,7 @@ export class EvolutionGateService {
     Promise<{ candidate: EvolutionCandidate; revision: EvolutionRegistryRevision }> {
     if (!this.inTransaction) return this.repository.atomic(repository =>
       new EvolutionGateService(repository, this.now, true).rollback(workspaceId, candidateId, input));
+    await this.repository.authorizePublisher(workspaceId, input.actorId);
     if (!input.reason || !input.reason.trim()) {
       throw new EvolutionGateError(422, 'EVOLUTION_REASON_REQUIRED', '回滚必须提供非空人工理由。');
     }

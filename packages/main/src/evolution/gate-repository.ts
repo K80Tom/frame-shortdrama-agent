@@ -1,11 +1,14 @@
 // 候选门禁闭环仓储（#135）：接口 + InMemory 实现（测试与本地演示）。
 // Postgres 实现见 gate-postgres-repository.ts；两者行为一致（含 CAS 与 append-only 语义）。
 
+import { EvolutionGateError } from '@lyra/shared';
 import type {
   EvolutionAuditEvent, EvolutionCandidate, EvolutionGateBinding, EvolutionRollout,
 } from '@lyra/shared';
 
 export interface EvolutionGateRepository {
+  /** Verify the current trusted principal against live membership, within the command transaction. */
+  authorizePublisher(workspaceId: string, actorId?: string): Promise<void>;
   /** All writes in a service command commit or roll back together. */
   atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T>;
   insertCandidate(candidate: EvolutionCandidate): Promise<void>;
@@ -61,6 +64,14 @@ export class InMemoryEvolutionGateRepository implements EvolutionGateRepository 
   private readonly revisions: EvolutionRegistryRevision[] = [];
   private readonly audit: EvolutionAuditEvent[] = [];
 
+  constructor(private readonly publisherPolicy: (workspaceId: string, actorId?: string) => boolean = () => false) {}
+
+  async authorizePublisher(workspaceId: string, actorId?: string): Promise<void> {
+    if (!this.publisherPolicy(workspaceId, actorId)) {
+      throw new EvolutionGateError(403, 'EVOLUTION_PUBLISHER_REQUIRED', '当前主体没有工作区发布权限。');
+    }
+  }
+
   private pending: Promise<void> = Promise.resolve();
 
   async atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T> {
@@ -69,7 +80,7 @@ export class InMemoryEvolutionGateRepository implements EvolutionGateRepository 
     this.pending = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
-      const scoped = new InMemoryEvolutionGateRepository();
+      const scoped = new InMemoryEvolutionGateRepository(this.publisherPolicy);
       for (const [id, value] of this.candidates) scoped.candidates.set(id, structuredClone(value));
       for (const [id, value] of this.rollouts) scoped.rollouts.set(id, structuredClone(value));
       scoped.bindings.push(...structuredClone(this.bindings));

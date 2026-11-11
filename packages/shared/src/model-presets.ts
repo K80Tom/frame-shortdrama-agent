@@ -30,12 +30,23 @@ export interface ModelPresetConfig {
   minDuration?: number;
   maxDuration?: number;
   defaultDuration?: number;
+  defaultResolution?: string;
+  defaultAspectRatio?: string;
   supportFirstFrame?: boolean;
   supportLastFrame?: boolean;
   defaultTimeoutMs?: number;
   maxOutputTokens?: number;
   defaultWidth?: number;
   defaultHeight?: number;
+}
+
+/** Frozen public execution metadata; never credentials or an authorization token. */
+export interface ModelExecutionBinding {
+  providerId: string;
+  adapter: 'openai-chat' | 'ark-image' | 'ark-video' | 'unavailable';
+  protocol: 'openai-chat-v1' | 'ark-image-v1' | 'ark-video-v1' | 'metadata-only';
+  presetCode?: string;
+  config: ModelPresetConfig;
 }
 
 export interface ModelPresetEntry {
@@ -52,6 +63,7 @@ export interface ModelPresetEntry {
   /** 完整接口地址；服务商目录提供默认值时可由目录解析补齐。 */
   defaultBaseUrl: string;
   config?: ModelPresetConfig;
+  executionBinding?: ModelExecutionBinding;
 }
 
 export interface ModelPresetGroup {
@@ -108,12 +120,22 @@ export const ModelPresetConfigSchema = Type.Object({
   minDuration: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
   maxDuration: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
   defaultDuration: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
+  defaultResolution: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+  defaultAspectRatio: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
   supportFirstFrame: Type.Optional(Type.Boolean()),
   supportLastFrame: Type.Optional(Type.Boolean()),
   defaultTimeoutMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 600000 })),
   maxOutputTokens: Type.Optional(Type.Integer({ minimum: 256, maximum: 32768 })),
   defaultWidth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10000 })),
   defaultHeight: Type.Optional(Type.Integer({ minimum: 1, maximum: 10000 })),
+}, { additionalProperties: false });
+
+export const ModelExecutionBindingSchema = Type.Object({
+  providerId: ProviderId,
+  adapter: Type.Union(['openai-chat', 'ark-image', 'ark-video', 'unavailable'].map(value => Type.Literal(value))),
+  protocol: Type.Union(['openai-chat-v1', 'ark-image-v1', 'ark-video-v1', 'metadata-only'].map(value => Type.Literal(value))),
+  presetCode: Type.Optional(Identifier),
+  config: ModelPresetConfigSchema,
 }, { additionalProperties: false });
 
 export const ModelPresetEntrySchema = Type.Object({
@@ -127,6 +149,7 @@ export const ModelPresetEntrySchema = Type.Object({
   modelCode: Identifier,
   defaultBaseUrl: HttpsUrl,
   config: Type.Optional(ModelPresetConfigSchema),
+  executionBinding: Type.Optional(ModelExecutionBindingSchema),
 }, { additionalProperties: false });
 
 export const ModelPresetCatalogSchema = Type.Object({
@@ -149,6 +172,26 @@ export class ModelPresetContractError extends Error {
 const ajv = new Ajv({ allErrors: false, strict: false });
 const validateProvider = ajv.compile<ProviderCatalogEntryInput>(ProviderCatalogEntrySchema);
 const validatePreset = ajv.compile<ModelPresetEntryInput>(ModelPresetEntrySchema);
+const validateBinding = ajv.compile<ModelExecutionBinding>(ModelExecutionBindingSchema);
+
+export function parseModelExecutionBinding(value: unknown, kind: ModelKind): ModelExecutionBinding {
+  if (!isModelKind(kind)) contractError('模型类型不符合执行契约。');
+  if (!validateBinding(value)) contractError('模型执行协议不符合契约。');
+  const expected = { 'openai-chat': ['text', 'openai-chat-v1'], 'ark-image': ['image', 'ark-image-v1'],
+    'ark-video': ['video', 'ark-video-v1'], unavailable: [kind, 'metadata-only'] }[value.adapter];
+  if (expected[0] !== kind || expected[1] !== value.protocol) contractError('模型类型、适配器和协议不一致。');
+  const c = value.config;
+  if (c.minDuration !== undefined && c.maxDuration !== undefined && c.minDuration > c.maxDuration
+    || c.defaultDuration !== undefined && (c.minDuration !== undefined && c.defaultDuration < c.minDuration
+      || c.maxDuration !== undefined && c.defaultDuration > c.maxDuration)
+    || c.defaultDuration !== undefined && c.supportedDurations !== undefined && !c.supportedDurations.includes(c.defaultDuration)
+    || c.defaultResolution !== undefined && (!c.supportedResolutions || !c.supportedResolutions.includes(c.defaultResolution))
+    || c.defaultAspectRatio !== undefined && (!c.supportedAspectRatios || !c.supportedAspectRatios.includes(c.defaultAspectRatio))
+    || (c.defaultWidth === undefined) !== (c.defaultHeight === undefined)
+    || c.supportLastFrame && !c.supportFirstFrame) contractError('模型执行能力参数不一致。');
+  return structuredClone(value);
+}
+
 
 function contractError(message: string): never {
   throw new ModelPresetContractError(message);
@@ -212,8 +255,17 @@ export function parseModelPresetCatalog(value: unknown, providers: ProviderCatal
       if (!entry.config?.supportedResolutions?.length) contractError(`视频预设 ${entry.code} 必须声明支持分辨率。`);
       if (!entry.config.supportedAspectRatios?.length) contractError(`视频预设 ${entry.code} 必须声明支持画幅。`);
     }
+    if (entry.executionBinding) {
+      parseModelExecutionBinding(entry.executionBinding, entry.kind);
+      if (entry.executionBinding.providerId !== entry.providerId
+        || entry.executionBinding.presetCode !== entry.code) contractError(`预设 ${entry.code} 的执行来源不一致。`);
+    }
     const config = entry.config;
     if (config) {
+      if (config.defaultResolution !== undefined && !config.supportedResolutions?.includes(config.defaultResolution)
+        || config.defaultAspectRatio !== undefined && !config.supportedAspectRatios?.includes(config.defaultAspectRatio)) {
+        contractError(`预设 ${entry.code} 的默认分辨率或画幅不在支持范围。`);
+      }
       if (config.minDuration !== undefined && config.maxDuration !== undefined && config.minDuration > config.maxDuration) {
         contractError(`预设 ${entry.code} 的最小时长不能大于最大时长。`);
       }

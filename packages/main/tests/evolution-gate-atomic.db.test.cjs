@@ -79,6 +79,71 @@ test('evolution commands: real PostgreSQL rollback, CAS, revisions, RLS and conc
     assert.deepEqual(await snapshot(), before);
   };
 
+  await t.test('direct Service and Tool-style calls cannot bypass live publisher membership or forge actor', async () => {
+    const invalid = 'evocand_' + token(), rollout = 'evoroll_' + token();
+    const commands = [
+      () => gate.bindGate(ctx.workspaceId, invalid, { ...actor, expectedVersion: 1 }),
+      () => gate.approve(ctx.workspaceId, invalid, { ...actor, expectedVersion: 1 }),
+      () => gate.reject(ctx.workspaceId, invalid, { ...actor, expectedVersion: 1 }),
+      () => gate.startCanary(ctx.workspaceId, invalid, { ...actor, expectedVersion: 1 }),
+      () => gate.observe(ctx.workspaceId, rollout, { expectedVersion: 1, anomaly: false }),
+      () => gate.stopCanary(ctx.workspaceId, rollout, { ...actor, expectedVersion: 1, rolloutExpectedVersion: 1 }),
+      () => gate.promote(ctx.workspaceId, rollout, { ...actor, expectedVersion: 1, rolloutExpectedVersion: 1 }),
+      () => gate.rollback(ctx.workspaceId, invalid, { ...actor, expectedVersion: 1 }),
+    ];
+    for (const role of ['member', 'viewer']) {
+      await admin.query('UPDATE workspace_members SET role=$2 WHERE workspace_id=$1 AND user_id=$3',
+        [ctx.workspaceId, role, ctx.userId]);
+      // The scope still claims owner. Only the live database membership is authoritative.
+      for (const command of commands) await unchanged(() => scope(command), 'EVOLUTION_PUBLISHER_REQUIRED');
+    }
+    await admin.query("UPDATE workspace_members SET role='owner' WHERE workspace_id=$1 AND user_id=$2", [ctx.workspaceId, ctx.userId]);
+    await unchanged(commands[1], 'EVOLUTION_PUBLISHER_REQUIRED'); // no tenant context
+    await unchanged(() => db.runAsSystem('evolution.auth.test', commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED');
+    await unchanged(() => scope(() => gate.approve(ctx.workspaceId, invalid,
+      { ...actor, actorId: 'usr_' + token(), expectedVersion: 1 })), 'EVOLUTION_PUBLISHER_REQUIRED');
+    await unchanged(() => scope(() => gate.approve('ws_' + token(), invalid,
+      { ...actor, expectedVersion: 1 })), 'EVOLUTION_PUBLISHER_REQUIRED');
+    for (const role of ['admin', 'owner']) {
+      await admin.query('UPDATE workspace_members SET role=$2 WHERE workspace_id=$1 AND user_id=$3',
+        [ctx.workspaceId, role, ctx.userId]);
+      await scope(() => repo.atomic(scoped => scoped.authorizePublisher(ctx.workspaceId, ctx.userId)));
+    }
+    for (const kind of ['service', 'migration']) {
+      await admin.query('UPDATE users SET kind=$2 WHERE id=$1', [ctx.userId, kind]);
+      try { await unchanged(() => scope(commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED'); }
+      finally { await admin.query("UPDATE users SET kind='human' WHERE id=$1", [ctx.userId]); }
+    }
+    for (const [table, key, value, status] of [['workspace_members', 'user_id', ctx.userId, 'inactive'], ['users', 'id', ctx.userId, 'disabled'], ['workspaces', 'id', ctx.workspaceId, 'suspended']]) {
+      await admin.query(`UPDATE ${table} SET status=$2 WHERE ${key}=$1`, [value, status]);
+      try { await unchanged(() => scope(commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED'); }
+      finally { await admin.query(`UPDATE ${table} SET status='active' WHERE ${key}=$1`, [value]); }
+    }
+  });
+  await t.test('publisher authorization holds membership lock until the command commits', async () => {
+    let release, entered;
+    const hold = new Promise(resolve => { release = resolve; });
+    const authorized = new Promise(resolve => { entered = resolve; });
+    const command = scope(() => repo.atomic(async scoped => {
+      await scoped.authorizePublisher(ctx.workspaceId, ctx.userId); entered(); await hold;
+    }));
+    await authorized;
+    const revoker = new Client({ connectionString: adminUrl }); await revoker.connect();
+    const pid = (await revoker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const revoke = revoker.query("UPDATE workspace_members SET role='member' WHERE workspace_id=$1 AND user_id=$2", [ctx.workspaceId, ctx.userId]);
+    try {
+      let blocked = false;
+      for (let index = 0; index < 100; index++) {
+        const state = await admin.query('SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1', [pid]);
+        if (state.rows[0]?.wait_event_type === 'Lock') { blocked = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.equal(blocked, true, 'concurrent membership revocation must wait for the authorized command');
+    } finally { release(); await command; await revoke; await revoker.end(); }
+    await assert.rejects(scope(() => repo.atomic(scoped => scoped.authorizePublisher(ctx.workspaceId, ctx.userId))),
+      error => error.code === 'EVOLUTION_PUBLISHER_REQUIRED');
+    await admin.query("UPDATE workspace_members SET role='owner' WHERE workspace_id=$1 AND user_id=$2", [ctx.workspaceId, ctx.userId]);
+  });
   await t.test('startCanary insert failure rolls candidate and audit back', async () => {
     const c = await approved();
     await fault('evolution_gate_rollouts', 'INSERT', "RAISE EXCEPTION 'injected';", () =>
