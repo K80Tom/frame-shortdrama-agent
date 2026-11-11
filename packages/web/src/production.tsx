@@ -33,7 +33,7 @@ async function readPlanStatus(plan: Plan | null): Promise<{ check: Check | null;
   return { check, issues };
 }
 
-export default function ProductionPage({ onUnsavedChange, initialProjectId }: { onUnsavedChange?: (dirty: boolean) => void; initialProjectId?: string }) {
+export default function ProductionPage({ onUnsavedChange, initialProjectId, onProjectCreated }: { onUnsavedChange?: (dirty: boolean) => void; initialProjectId?: string; onProjectCreated?: (id: string) => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [title, setTitle] = useState('');
@@ -187,7 +187,9 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
     void action('创建项目', async isCurrent => {
       const created = await api<Project>('/api/projects', { title: title.trim(), ...(sourceUrl.trim() ? { source: { url: sourceUrl.trim() } } : {}) });
       if (!isCurrent()) return;
+      if (typeof created.id !== 'string' || !created.id || created.id.length > 128) throw new Error('项目创建结果无法核对，请先查看项目列表，不要重复创建。');
       setTitle(''); setSourceUrl(''); setProjects(items => [created, ...items]);
+      if (onProjectCreated) { onUnsavedChange?.(false); onProjectCreated(created.id); return; }
       await loadProject(created.id, isCurrent);
       if (isCurrent()) setMessage('项目已创建，请粘贴原文并保存新版本。');
     });
@@ -228,17 +230,18 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
   }
 
   return <div className="production-page">
-    <section className="production-create" aria-labelledby="create-project-title">
+    {(!initialProjectId || initialProjectId === 'new') && <section className="production-create" aria-labelledby="create-project-title">
       <div><span>NEW PROJECT / 开始创作</span><h1 id="create-project-title">新建项目</h1><p>给故事起名，创建后粘贴原文。来源链接可选，保存为出处，不会自动抓取网页。</p></div>
       <form onSubmit={event => { event.preventDefault(); if (!busy && title.trim()) createProject(); }}>
         <label htmlFor="new-project-title">项目名称</label><input id="new-project-title" aria-label="新项目名称" required disabled={!!busy} maxLength={160} placeholder="例如：诸天万界蹭车系统" value={title} onChange={event => setTitle(event.target.value)} />
         <label htmlFor="new-project-source">来源链接 <small>可选</small></label><input id="new-project-source" aria-label="来源链接" type="url" disabled={!!busy} placeholder="https://…" value={sourceUrl} onChange={event => setSourceUrl(event.target.value)} />
         <button className="production-primary" type="submit" disabled={!!busy || !title.trim()}>{busy === '创建项目' ? '正在创建…' : '创建项目'}</button>
       </form>
-    </section>
-    <header className="production-hero"><span>LOCAL PRODUCTION / 真实项目</span><h1>先把故事里的每一项，核对清楚。</h1><p>对照原文校对人物、场景和道具，保存为新的候选版本。保存不等于采用；检查通过并人工确认后，才更新正式拆解。</p></header>
+    </section>}
+    {initialProjectId === 'new' && message && <p className="production-message" role="status">{message}</p>}
+    {initialProjectId !== 'new' && <><header className="production-hero"><span>LOCAL PRODUCTION / 真实项目</span><h1>先把故事里的每一项，核对清楚。</h1><p>对照原文校对人物、场景和道具，保存为新的候选版本。保存不等于采用；检查通过并人工确认后，才更新正式拆解。</p></header>
     <div className="production-grid"><section className="production-card"><h2>01 · 项目与剧本</h2>
-      <div className="production-row"><select aria-label="选择项目" disabled={!!busy} value={project?.id ?? ''} onChange={event => { const id = event.target.value; if (id && id !== project?.id && confirmLeavingDraft('切换项目')) void action('选择项目', current => loadProject(id, current)); }}><option value="" disabled>选择已有项目</option>{projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>
+      {!initialProjectId && <div className="production-row"><select aria-label="选择项目" disabled={!!busy} value={project?.id ?? ''} onChange={event => { const id = event.target.value; if (id && id !== project?.id && confirmLeavingDraft('切换项目')) void action('选择项目', current => loadProject(id, current)); }}><option value="" disabled>选择已有项目</option>{projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
       {project?.source && <p className="production-source">来源：<a href={project.source.url} target="_blank" rel="noreferrer">{project.source.chapterTitle ?? project.source.title ?? project.source.url}</a>{project.source.author && ` · ${project.source.author}`}</p>}
       <label className="production-label" htmlFor="production-script">创作原文（小说或剧本）</label><textarea id="production-script" disabled={!!busy || !project} value={script} onChange={event => { const value = event.target.value; setScript(value); if (project) { if (value === savedScript) delete scriptDrafts.current[project.id]; else scriptDrafts.current[project.id] = value; } }} placeholder="粘贴一章小说或一集中文剧本。每次保存会创建新版本，已有版本不会被覆盖。" />
       <div className="production-actions"><button disabled={!!busy || !project || !script.trim() || script === savedScript} onClick={saveScript}>保存原文新版本</button><small>{script !== savedScript ? '原文有未保存修改' : project?.currentScriptVersionId ? '原文已保存' : '请先创建项目并保存剧本'}</small></div>
@@ -289,5 +292,6 @@ export default function ProductionPage({ onUnsavedChange, initialProjectId }: { 
           await refreshProjectMetadata(project.id, isCurrent); if (isCurrent()) setMessage('已采用这版分镜。');
         })}>核对后采用分镜</button></div></>}
     </section>}
+    </>}
   </div>;
 }

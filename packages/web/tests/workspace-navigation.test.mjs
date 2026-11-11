@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { commands, creationNavigation, projectWorkspaceHash, routeFromHash, screenplayProductionHash, workspaceNavigation } = await server.ssrLoadModule('/src/navigation.ts');
+const { advancedNavigation, commands, creationNavigation, navigationHash, projectWorkspaceHash, routeFromHash, screenplayProductionHash, workspaceNavigation } = await server.ssrLoadModule('/src/navigation.ts');
 const { applyHashNavigation } = await server.ssrLoadModule('/src/navigation-guard.ts');
 
 test('workspace routes preserve legacy flow links and safely decode project identities', () => {
@@ -41,12 +41,17 @@ test('project workspace links preserve the project identity and map sections ont
   assert.deepEqual(routeFromHash('#/projects/project_test/unknown'), { page: 'projects', step: 1 });
 });
 
-test('global navigation contains only workspace-level destinations while commands preserve creation tools', () => {
-  assert.deepEqual(workspaceNavigation.map(item => item.id), ['studio', 'projects', 'assets', 'methods', 'evolution']);
-  assert.deepEqual(creationNavigation.map(item => item.id), ['automation', 'novel', 'production', 'storyboard', 'canvas', 'director']);
-  for (const id of ['methods', 'evolution', 'automation', 'novel', 'production', 'storyboard', 'canvas', 'director']) {
-    assert.ok(commands.some(item => item.id === id));
+test('only five global destinations are primary, while advanced tools and legacy routes remain reachable', () => {
+  assert.deepEqual(workspaceNavigation.map(item => item.id), ['studio', 'projects', 'assets', 'automation', 'settings']);
+  assert.deepEqual(workspaceNavigation.map(item => item.label), ['工作台', '项目', '资产库', 'AI 视频', '设置']);
+  assert.equal(navigationHash(workspaceNavigation.find(item => item.id === 'automation')), '#/automation/video');
+  assert.deepEqual(advancedNavigation.map(item => item.id), ['methods', 'evolution', 'director', 'flow']);
+  for (const id of ['novel', 'production', 'storyboard', 'canvas', 'script']) {
+    assert.equal(commands.some(item => item.id === id), false, 'project creation is not another global tool menu');
+    assert.equal(routeFromHash(`#/${id}`).page, id, 'saved hashes and go() calls remain valid');
   }
+  assert.deepEqual(creationNavigation.map(item => item.id), ['automation', 'novel', 'production', 'storyboard', 'canvas', 'director']);
+  assert.deepEqual(routeFromHash('#/automation/video'), { page: 'automation', step: 1, resourceId: 'video' });
   assert.deepEqual(routeFromHash('#/canvas/prj_canvas'), { page: 'canvas', step: 1, resourceId: 'prj_canvas' });
   assert.deepEqual(routeFromHash('#/canvas'), { page: 'canvas', step: 1 });
 });

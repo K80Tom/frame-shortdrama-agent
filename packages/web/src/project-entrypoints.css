@@ -1,0 +1,22 @@
+.nav-more { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 10px 16px; margin: 16px 0; white-space: nowrap; color: #b4b4b4; font-size: 14px; text-align: left; }
+.nav-more:hover, .nav-more:focus-visible { color: #fff; }
+.advanced-tools { display: grid; gap: 8px; margin: 16px 0; }
+.advanced-tools a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px; color: #eee; background: #222; border-radius: 8px; }
+.advanced-tools a span { flex: 1; }
+.project-entry-picker { max-width: 760px; padding: 24px; margin: 0 auto; }
+.project-entry-picker h1 { font-size: 24px; }
+.project-entry-picker > p, .project-entry-picker [role="alert"] { color: #b4b4b4; }
+.project-entry-picker ul { list-style: none; padding: 0; display: grid; gap: 8px; margin: 24px 0; }
+.project-entry-picker li a { display: block; padding: 16px; color: #eee; background: #222; border-radius: 8px; }
+.guide-practice { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 24px; padding: 16px; background: #181818; border-radius: 8px; }
+.guide-practice span { flex: 1; color: #b4b4b4; font-size: 14px; }
+
+.nav-settings { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: #b4b4b4; text-align: left; font-size: 14px; min-height: 44px; }
+.nav-settings:hover, .nav-settings[aria-current="page"] { color: #fff; }
+.advanced-repository { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; color: #b4b4b4; font-size: 14px; }
+.advanced-repository a { min-height: 36px; display: inline-flex; align-items: center; }
+.project-entry-shell .sidebar :is(small, .brand-subtitle, .nav-mini), .project-entry-shell .topbar small, .project-entry-shell .topbar .session-copy strong { font-size: 11px !important; }
+.project-entry-shell button, .project-entry-shell a.button { box-shadow: none !important; }
+body:has(.project-entry-shell[data-home="true"]) .ambient-aurora { display: none; background-image: none !important; }
+
+.project-entry-shell .workspace-switcher strong, .workspace-options strong, .workspace-options small, .workspace-single, .start-options p, .modal-footnote, .command-footer { font-size: 12px !important; }

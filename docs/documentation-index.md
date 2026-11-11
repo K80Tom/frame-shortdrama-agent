@@ -8,6 +8,7 @@
 
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
+| [项目入口收敛](project-entrypoints.md) | 2026-11-11 / 本 PR | `feat/project-entrypoints`（基于 dev df976eb） | #181 导航/新建/旧路由；真实浏览器+模拟 HTTP，不代表 #180 整体闭环 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前工程/分支/安全与真人审批规范；本 PR 不修改它 |
 | [README.md](../README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
 | [packages/main/README.md](../packages/main/README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前 main 操作入口；命令存在不等于目标环境已部署 |
