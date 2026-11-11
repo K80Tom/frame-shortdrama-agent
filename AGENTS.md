@@ -31,8 +31,9 @@ packages/
   - 任何功能或修复都必须从最新 `origin/dev` 创建独立短分支和专属 worktree（`git worktree add ../lyra-<topic> -b feat/<topic> origin/dev`），一个 worktree 只开发一件事；不得在主工作区或其他任务的 worktree 中开发、暂存或提交。
   - 各 worktree 独立安装依赖、构建和测试并错开服务端口；数据库迁移只在约定环境执行。验证后通过 PR 合入 `dev`，合并完成后移除对应 worktree 与已合并分支。
 - **PR 创建与模板纪律**：
-  - 普通开发 PR 必须使用 `gh pr create --base dev` 创建；严禁把 base 设为 `main`。`main` 只接受版本负责人发起的 `dev → main` 发版 PR。
+  - 普通开发 PR 必须通过 CLI 创建，优先使用 `gh pr create --base dev`；环境没有 `gh` 时，使用 `curl` 调 GitHub REST API。严禁把 base 设为 `main`；`main` 只接受版本负责人发起的 `dev → main` 发版 PR。
   - 必须完整填写 `.github/PULL_REQUEST_TEMPLATE.md`，严禁原样提交空白模板：按实际改动把适用的 `[ ]` 改为 `[x]`；把 `Fixes # 或 Refs #` 替换为真实 Issue 号（如 `Fixes #76`）；改动概括必须列出具体的 1、2、3 点。
+  - 用户已明确授权创建或提交 PR 后，若连接器只渲染表单而未真正创建，直接改用上述 CLI 完成同一操作，不再把表单交给用户点击或要求重复确认。创建后必须回读 PR 编号、URL、base/head、正文与 diff；只有表单或“成功”提示不得宣称已创建。目标或范围改变、缺少必填信息、凭据或权限失败时才暂停并说明。
 - **审查与合并治理**：
   - GitHub Actions 仅作为只读 CI 门禁，严禁持有写入权限、模型密钥或自动合并能力。代码审查与合并由已连接的 GitHub App PR 管家或真人维护者执行。
   - 低风险 PR 只有在目标为 `dev`、当前 head 的 required checks 全绿、与最新 base 同步、无冲突、无未解决线程或有效 `CHANGES_REQUESTED`，且完整 diff 审查确认有明确项目收益时，才允许 PR 管家 squash 合并。
