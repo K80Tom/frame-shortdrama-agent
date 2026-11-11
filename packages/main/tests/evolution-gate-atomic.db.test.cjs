@@ -99,8 +99,21 @@ test('evolution commands: real PostgreSQL rollback, CAS, revisions, RLS and conc
     }
     await admin.query("UPDATE workspace_members SET role='owner' WHERE workspace_id=$1 AND user_id=$2", [ctx.workspaceId, ctx.userId]);
     await unchanged(commands[1], 'EVOLUTION_PUBLISHER_REQUIRED'); // no tenant context
+    await unchanged(() => db.runAsSystem('evolution.auth.test', commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED');
     await unchanged(() => scope(() => gate.approve(ctx.workspaceId, invalid,
       { ...actor, actorId: 'usr_' + token(), expectedVersion: 1 })), 'EVOLUTION_PUBLISHER_REQUIRED');
+    await unchanged(() => scope(() => gate.approve('ws_' + token(), invalid,
+      { ...actor, expectedVersion: 1 })), 'EVOLUTION_PUBLISHER_REQUIRED');
+    for (const role of ['admin', 'owner']) {
+      await admin.query('UPDATE workspace_members SET role=$2 WHERE workspace_id=$1 AND user_id=$3',
+        [ctx.workspaceId, role, ctx.userId]);
+      await scope(() => repo.atomic(scoped => scoped.authorizePublisher(ctx.workspaceId, ctx.userId)));
+    }
+    for (const kind of ['service', 'migration']) {
+      await admin.query('UPDATE users SET kind=$2 WHERE id=$1', [ctx.userId, kind]);
+      try { await unchanged(() => scope(commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED'); }
+      finally { await admin.query("UPDATE users SET kind='human' WHERE id=$1", [ctx.userId]); }
+    }
     for (const [table, key, value, status] of [['workspace_members', 'user_id', ctx.userId, 'inactive'], ['users', 'id', ctx.userId, 'disabled'], ['workspaces', 'id', ctx.workspaceId, 'suspended']]) {
       await admin.query(`UPDATE ${table} SET status=$2 WHERE ${key}=$1`, [value, status]);
       try { await unchanged(() => scope(commands[1]), 'EVOLUTION_PUBLISHER_REQUIRED'); }

@@ -70,7 +70,7 @@ export class PostgresEvolutionGateRepository implements EvolutionGateRepository 
         AND m.user_id = NULLIF(current_setting('lyra.user_id', true), '')
         AND ($2::text IS NULL OR m.user_id = $2)
         AND m.status = 'active' AND m.role IN ('owner', 'admin')
-        AND u.status = 'active' AND w.status = 'active'
+        AND u.status = 'active' AND u.kind = 'human' AND w.status = 'active'
       FOR SHARE OF m, u, w`, [workspaceId, actorId ?? null]);
     if (allowed.rowCount !== 1) {
       throw new EvolutionGateError(403, 'EVOLUTION_PUBLISHER_REQUIRED', '当前主体没有工作区发布权限。');
