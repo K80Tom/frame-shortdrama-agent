@@ -7,8 +7,8 @@ function reject(): never {
 
 export function imageInputWithCapabilities(config: ModelPresetConfig, input: GenerateImageInput): GenerateImageInput {
   if (input.watermark !== undefined && typeof input.watermark !== 'boolean') reject();
-  const size = input.size ?? (config.defaultWidth && config.defaultHeight
-    ? `${config.defaultWidth}x${config.defaultHeight}` : undefined);
+  const size = input.size === undefined ? (config.defaultWidth && config.defaultHeight
+    ? `${config.defaultWidth}x${config.defaultHeight}` : undefined) : input.size;
   if (size && config.supportedResolutions && !config.supportedResolutions.includes(size)) reject();
   if (size && config.supportedAspectRatios) {
     const dims = /^(\d+)x(\d+)$/.exec(size);
@@ -25,9 +25,9 @@ export function imageInputWithCapabilities(config: ModelPresetConfig, input: Gen
 export function videoInputWithCapabilities(config: ModelPresetConfig, input: SeedanceSubmitInput): SeedanceSubmitInput {
   if (input.watermark !== undefined && typeof input.watermark !== 'boolean'
     || input.generateAudio !== undefined && typeof input.generateAudio !== 'boolean') reject();
-  const duration = input.duration ?? config.defaultDuration;
-  const resolution = input.resolution ?? config.defaultResolution;
-  const ratio = input.ratio ?? config.defaultAspectRatio;
+  const duration = input.duration === undefined ? config.defaultDuration : input.duration;
+  const resolution = input.resolution === undefined ? config.defaultResolution : input.resolution;
+  const ratio = input.ratio === undefined ? config.defaultAspectRatio : input.ratio;
   if (duration !== undefined && (config.minDuration !== undefined && duration < config.minDuration
     || config.maxDuration !== undefined && duration > config.maxDuration
     || config.supportedDurations && !config.supportedDurations.includes(duration))) reject();

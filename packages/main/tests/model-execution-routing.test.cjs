@@ -126,7 +126,7 @@ test('frozen native capabilities validate before transport, while allowed overri
     requests++; body = JSON.parse(init.body); return json({ id: 'task_test' });
   } });
   for (const change of [{ duration: 3 }, { duration: 16 }, { duration: -1 }, { duration: 5.5 },
-    { resolution: '8k' }, { ratio: '5:4' }, { generateAudio: 'yes' }, { watermark: null }]) {
+    { resolution: '8k' }, { ratio: '5:4' }, { generateAudio: 'yes' }, { watermark: null }, { duration: null }, { resolution: null }, { ratio: null }]) {
     await assert.rejects(client.submit({ prompt: 'test', ...change }), error => error.code === 'INVALID_MEDIA_REQUEST');
   }
   assert.equal(requests, 0);
@@ -145,7 +145,7 @@ test('frozen native capabilities validate before transport, while allowed overri
   }
   const image = await selectedPreset('doubao-seedream-4-5');
   const imageClient = createImageModelClient({ ...asMedia(image.config), fetch: async () => { throw new Error('must not call'); } });
-  for (const change of [{ size: '2000x1000' }, { size: '0K' }, { watermark: 'no' }]) {
+  for (const change of [{ size: '2000x1000' }, { size: '0K' }, { watermark: 'no' }, { size: null }]) {
     await assert.rejects(imageClient.generateImage({ prompt: 'test', ...change }), error => error.code === 'INVALID_MEDIA_REQUEST');
   }
 });
