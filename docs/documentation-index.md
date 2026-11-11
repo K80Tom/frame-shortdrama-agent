@@ -11,6 +11,7 @@
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
 | [PROJECT_INDEX.md](../PROJECT_INDEX.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 条件路由，不是必读清单；共享文件保存项目事实，个人状态保存在被忽略的本地补充文件 |
+| [异构媒体预设协议拦截](media-preset-protocol-containment.md) | 2026-11-11 / 本 PR | `fix/media-preset-protocol-guard`（基于 dev df976eb） | #174 执行绑定/v3 升级/匹配路由及冻结能力校验；未验真实供应商，其他预设仍不可执行 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前工程、分支、安全、按需读写与真人审批规范 |
 | [README.md](../README.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
 | [NOW.md](../NOW.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前里程碑、项目级阻塞和待验收事项；个人接续使用本地补充文件 |
@@ -25,6 +26,7 @@
 | [docs/ai-assisted-engineering-workflow.md](ai-assisted-engineering-workflow.md) | 2026-11-10 / 本 PR 新增 | `feat/ai-spec-workflow` + 本 PR 文档增量 | AI 辅助工程化 4 拍流水线指南、跨包硬约束与测试门禁规范 |
 | [docs/director-scene-versions.md](director-scene-versions.md) | 2026-11-09 / bc9cc42 | dev b264844 + 本 PR 文档增量 | 已合并切片的进度/边界记录；文中测试/fixture 需按其适用提交理解，本轮未重跑 |
 | [docs/documentation-index.md](documentation-index.md) | 2026-11-09 / 本 PR 新增 | dev b264844 + 本 PR 文档增量 | 本文档有效性与 Git 元数据目录；日期不是验收日期 |
+| [docs/evolution-service-publisher-auth.md](evolution-service-publisher-auth.md) | 2026-11-11 / 本修复新增 | `fix/evolution-service-publisher-auth`，dev 53ea988 | 服务层实时成员鉴权与撤权锁实测；不替代权威评测来源 |
 | [docs/evolution-publication-atomicity.md](evolution-publication-atomicity.md) | 2026-11-10 / 本修复新增 | `fix/evolution-authoritative-gates`，dev cc837c7 | #164 局部事务/HTTP权限修复；PG故障注入证据，权威评测及内部RBAC仍未完成 |
 | [docs/evaluation-data-governance.md](evaluation-data-governance.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [docs/evaluation-run-contract.md](evaluation-run-contract.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
@@ -51,7 +53,7 @@
 | [packages/main/docs/模型接入.md](../packages/main/docs/模型接入.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [packages/main/docs/模型接入验证.md](../packages/main/docs/模型接入验证.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [packages/main/docs/流程问题诊断与重构-v0.1.md](../packages/main/docs/流程问题诊断与重构-v0.1.md) | 2026-11-02 / 299be52 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
-| [packages/main/docs/独立模型配置.md](../packages/main/docs/独立模型配置.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
+| [packages/main/docs/独立模型配置.md](../packages/main/docs/独立模型配置.md) | 2026-11-11 / 本 PR 增量 | `fix/media-preset-protocol-guard`（基于 dev df976eb） | 更新 v3 执行绑定/旧文件迁移与回退入口；未验真实供应商，其余历史段落不构成新验收 |
 | [packages/main/docs/豆包桌面一键资产.md](../packages/main/docs/豆包桌面一键资产.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [packages/main/docs/豆包桌面资产验证.md](../packages/main/docs/豆包桌面资产验证.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [packages/main/docs/首个里程碑实现.md](../packages/main/docs/首个里程碑实现.md) | 2026-11-01 / 8501454 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |

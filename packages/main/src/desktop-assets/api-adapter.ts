@@ -3,6 +3,8 @@ import { constants } from 'node:fs';
 import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { AppConfig } from '../config';
+import { ModelError } from '@lyra/shared';
+import { createImageModelClient } from '../models/media-runtime';
 import { DoubaoImageClient } from '../models/media-client';
 import type { DesktopAssetAdapter, DesktopBridgeHealth, DesktopSubmitInput, DesktopSubmitResult } from './adapter';
 
@@ -32,6 +34,7 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
   private snapshot() {
     const config = this.resolveConfig();
     return {
+      executionBinding: config.modelExecution,
       endpoint: config.endpointUrl ?? '',
       model: config.defaultModel,
       authType: config.authType ?? 'api-key' as const,
@@ -50,7 +53,7 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
     }
     try {
       // Construction performs local-only validation; health never spends quota.
-      new DoubaoImageClient({ ...config, fetch: this.transport });
+      createImageModelClient({ ...config, fetch: this.transport });
     } catch {
       return unavailable('IMAGE_MODEL_CONFIG_INVALID', '生图模型的接口、鉴权或超时配置无效。', config.model, config.connectionRevision);
     }
@@ -80,9 +83,12 @@ export class DoubaoImageApiAdapter implements DesktopAssetAdapter {
 
     let generated: Awaited<ReturnType<DoubaoImageClient['generateImage']>>;
     try {
-      const client = new DoubaoImageClient({ ...config, fetch: this.transport });
-      generated = await client.generateImage({ prompt: input.prompt, size: '2K', responseFormat: 'b64_json', watermark: false });
-    } catch {
+      const client = createImageModelClient({ ...config, fetch: this.transport });
+      generated = await client.generateImage({ prompt: input.prompt, responseFormat: 'b64_json', watermark: false });
+    } catch (error) {
+      if (error instanceof ModelError && ['INVALID_MEDIA_REQUEST', 'MEDIA_PROTOCOL_UNSUPPORTED', 'MODEL_EXECUTION_INVALID', 'MEDIA_NOT_CONFIGURED'].includes(error.code)) {
+        return { state: 'blocked', code: error.code, message: error.message };
+      }
       // Once transport begins, even a timeout or malformed reply may have spent
       // quota. Persist uncertainty and never turn it into an automatic retry.
       return { state: 'unknown', code: 'IMAGE_SUBMISSION_UNCERTAIN',

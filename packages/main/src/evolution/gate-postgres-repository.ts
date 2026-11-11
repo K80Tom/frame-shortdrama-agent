@@ -8,7 +8,7 @@ import type { PostgresDatabase } from '../db/client';
 import type {
   EvolutionAuditEvent, EvolutionCandidate, EvolutionGateBinding, EvolutionRollout,
 } from '@lyra/shared';
-import { ProductionError } from '@lyra/shared';
+import { ProductionError, EvolutionGateError } from '@lyra/shared';
 import type { EvolutionGateRepository, EvolutionRegistryRevision } from './gate-repository';
 
 const WS = "COALESCE(lyra_current_workspace_id(), 'ws_00000000000000000000000000000000')";
@@ -60,6 +60,22 @@ function mapCandidate(row: CandidateRow): EvolutionCandidate {
 
 export class PostgresEvolutionGateRepository implements EvolutionGateRepository {
   constructor(private readonly database: Pick<PostgresDatabase, 'query' | 'transaction'>) {}
+
+  async authorizePublisher(workspaceId: string, actorId?: string): Promise<void> {
+    const allowed = await this.database.query(`
+      SELECT m.user_id FROM workspace_members m
+      JOIN users u ON u.id = m.user_id
+      JOIN workspaces w ON w.id = m.workspace_id
+      WHERE m.workspace_id = $1 AND m.workspace_id = lyra_current_workspace_id()
+        AND m.user_id = NULLIF(current_setting('lyra.user_id', true), '')
+        AND ($2::text IS NULL OR m.user_id = $2)
+        AND m.status = 'active' AND m.role IN ('owner', 'admin')
+        AND u.status = 'active' AND u.kind = 'human' AND w.status = 'active'
+      FOR SHARE OF m, u, w`, [workspaceId, actorId ?? null]);
+    if (allowed.rowCount !== 1) {
+      throw new EvolutionGateError(403, 'EVOLUTION_PUBLISHER_REQUIRED', '当前主体没有工作区发布权限。');
+    }
+  }
 
   async atomic<T>(work: (repository: EvolutionGateRepository) => Promise<T>): Promise<T> {
     return this.database.transaction(client => work(new PostgresEvolutionGateRepository({

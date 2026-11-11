@@ -343,6 +343,8 @@ export const MODEL_PRESETS: readonly ModelPresetEntry[] = [
       minDuration: 4,
       maxDuration: 15,
       defaultDuration: 5,
+      defaultResolution: '720p',
+      defaultAspectRatio: '16:9',
       supportFirstFrame: true,
       supportLastFrame: true,
       defaultTimeoutMs: 300000,
