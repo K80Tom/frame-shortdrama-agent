@@ -251,8 +251,9 @@ function parseElement(line: string, index: number): ScriptElement | null {
 }
 
 /**
- * 把已有原文解析成可编辑结构，只用于旧版本首次进入编辑器或用户切回原文时。
- * 解析结果不替代原文；用户保存后，结构会成为正式数据，rawText 由结构派生。
+ * 把原始剧本文本解析成可编辑结构：导入原文时由服务端自动调用，
+ * 也用于旧版本首次进入编辑器或用户切回原文时。解析结果不替代原文，
+ * 用户保存后，结构会成为正式数据，rawText 由结构派生。
  */
 export function parseScriptStructure(rawText: string): ScriptStructure {
   const lines = rawText.replace(/\r\n?/g, '\n').split('\n');
