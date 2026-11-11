@@ -1,6 +1,6 @@
 # Lyra 项目索引
 
-> 初版：2026-11-11。当前产品基线为 `v0.2.0 / Stage 1 单受信 workspace 试运行`。本文件只做定位、摘要与路由，不替代工程规则、功能证据或验收记录；项目状态未变化时不机械更新日期。
+> 核验日期：2026-11-11；范围：基础文档与直接导航。本文件是条件路由，不是必读清单；先确认 [AGENTS.md](AGENTS.md) 规则，再读取命中条目。状态未变化时不机械更新日期。
 
 ## 项目定位
 
@@ -18,7 +18,7 @@ Lyra 是面向中文短剧生产的 TypeScript monorepo，把小说/剧本拆解
 | 安装、运行、构建、测试、交付 | [RUNBOOK.md](RUNBOOK.md) | 先满足前置条件；机器差异可用被忽略的 `RUNBOOK.local.md` 补充 |
 | 做架构取舍或解决设计冲突 | [DECISIONS.md](DECISIONS.md) | 先读现行决定；变更时新增/取代，不改写历史结论 |
 | 迁移、付费、公开发布等高风险操作 | [RISKS.md](RISKS.md) | 按触发器读取风险与动作，不用测试绿灯替代安全验收 |
-| 查过程与历史背景 | [history/](history/) | 先搜索再读命中上下文；不回填个人状态 |
+| 查过程与历史背景 | [history/README.md](history/README.md) | 先搜索再读命中上下文；不回填个人状态 |
 
 ## 权威事实与规则
 
@@ -31,7 +31,7 @@ Lyra 是面向中文短剧生产的 TypeScript monorepo，把小说/剧本拆解
 | Stage 1–3 目标架构 | [docs/production-architecture-roadmap.md](docs/production-architecture-roadmap.md) | 目标不得反写成现状 |
 | Stage 1 部署操作 | [deploy/README.md](deploy/README.md) | 公网、密钥、备份和恢复需独立验收 |
 
-Git 是分支与 HEAD 的事实源，Issue/PR 是任务与评审状态的事实源；共享文档不复制个人高频状态。
+Git 是分支与 HEAD 的事实源，Issue/PR 是任务与评审状态的事实源；共享文档不复制个人高频状态。当前分支/PR、目标环境和真实供应商结果待实时核实，不从历史文档推断。
 
 ## 代码速查
 
