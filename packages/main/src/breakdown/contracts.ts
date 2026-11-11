@@ -1,5 +1,10 @@
 import Ajv from "ajv";
 import { Type, type Static } from "@sinclair/typebox";
+import {
+  serializeScriptStructure,
+  validateScriptStructure,
+  type ScriptStructure,
+} from "@lyra/shared";
 import { BreakdownError } from "./errors";
 
 const ajv = new Ajv({ allErrors: false });
@@ -37,9 +42,14 @@ const CreateProjectSchema = Type.Object({
 export type CreateProjectRequest = Static<typeof CreateProjectSchema>;
 
 const CreateScriptVersionSchema = Type.Object({
-  rawText: NonblankText(2_000_000),
+  rawText: Type.Optional(NonblankText(2_000_000)),
+  structure: Type.Optional(Type.Unknown()),
 }, { additionalProperties: false });
-export type CreateScriptVersionRequest = Static<typeof CreateScriptVersionSchema>;
+export interface CreateScriptVersionRequest {
+  rawText: string;
+  /** 正式结构；与 rawText 同时提供时以结构派生文本为准。 */
+  structure?: ScriptStructure;
+}
 
 const ReasoningEffortSchema = Type.Literal("model-default");
 
@@ -96,11 +106,28 @@ export function parseCreateProject(value: unknown): CreateProjectRequest {
 }
 
 export function parseCreateScriptVersion(value: unknown): CreateScriptVersionRequest {
-  const parsed = parse<CreateScriptVersionRequest>(validateScript, value, "剧本文本请求不符合约定。");
-  if (Buffer.byteLength(parsed.rawText, "utf8") > 2 * 1024 * 1024) {
+  const parsed = parse<{ rawText?: string; structure?: unknown }>(validateScript, value, "剧本文本请求不符合约定。");
+  let rawText: string;
+  let structure: ScriptStructure | undefined;
+  if (parsed.structure !== undefined) {
+    try {
+      structure = validateScriptStructure(parsed.structure);
+    } catch (reason) {
+      throw new BreakdownError(400, "INVALID_SCRIPT_STRUCTURE",
+        reason instanceof Error ? reason.message : "结构化剧本不符合约定。");
+    }
+    rawText = serializeScriptStructure(structure);
+    if (!rawText.trim()) throw new BreakdownError(400, "INVALID_SCRIPT_STRUCTURE", "结构化剧本不能为空。");
+  } else {
+    if (typeof parsed.rawText !== "string" || !parsed.rawText.trim()) {
+      throw new BreakdownError(400, "INVALID_BREAKDOWN_REQUEST", "剧本文本或结构化剧本至少提供一项。");
+    }
+    rawText = parsed.rawText;
+  }
+  if (Buffer.byteLength(rawText, "utf8") > 2 * 1024 * 1024) {
     throw new BreakdownError(413, "SCRIPT_TOO_LARGE", "剧本文本超过当前 P0.2 的 2 MiB 上限。");
   }
-  return parsed;
+  return { rawText, ...(structure ? { structure } : {}) };
 }
 
 export function parseCreateBreakdownRun(value: unknown): CreateBreakdownRunRequest {

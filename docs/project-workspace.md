@@ -58,6 +58,20 @@
 - 人工梗概的 `origin` 记为 `user`，`sourceRefs` 优先复用原有梗概引用，其次首个场次、首个实体，最后回退到剧本前 20 万字符；不伪造模型来源。
 - 有未保存校对（含梗概）时禁用程序校验与采用；先保存新候选，再点「重新运行程序校验」。校验失败时页面给出同样指引，不会把“需要先保存”误读成按钮永久变灰。
 
+### 结构化剧本（分集 / 场次 / 五类元素）
+
+`script` 区段不再把分集、场次和元素只当成一段 `rawText`。正式数据模型对齐融光项目的 `ScriptEpisode → SceneItem → DialogueElement`：
+
+- 分集：`episodeNumber`、`title`、`synopsis`、`scenes[]`
+- 场次：`sceneNumber`、`intExt`、`location`、`timeOfDay`、`sceneDescription`、`dialogues[]`
+- 元素：`type` 固定 `1=对白 / 2=动作 / 3=旁白 / 4=镜头 / 5=环境`；对白和旁白有 `characterName`、`parenthetical`
+- 结构保存在 `script_versions.structure_json`（迁移 `055_script_structure.sql`），`rawText` 由服务端从结构派生，既有拆解和源索引链路继续读取派生文本
+- `POST /api/projects/:projectId/script-versions` 同时接受 `{ rawText }` 或 `{ structure }`；`{ structure }` 优先，服务端重新派生 `rawText`，不接受客户端同时提交两份互相矛盾的内容
+- 场景卡提供「保存本场」；每次保存仍产生一个新的不可变 `script_versions` 版本，旧版本不被覆盖。这是 Lyra 版本模型与融光按场 `version` 语义的对齐方式
+- 切换到「原文」后仍可直接编辑文本；保存原文会生成没有 `structure_json` 的旧式版本，下一次进入结构化编辑器会重新解析
+
+分镜仍然独立于剧本：正式 `StoryboardItem` 不是剧本元素类型 4 的替代；按集生成、`scriptEpisodeId` 绑定和分镜场次/镜头结构属于下一步，不在本切片中冒称完成。
+
 ## 3. 边界
 
 - 正式项目不再渲染本地 `StoryboardPage`、`ProductionPage` 或 `DirectorWorkspace`；本地练习页仍保留，并明确标注「练习用，不用于正式制作」。
@@ -70,11 +84,13 @@
 本轮实际运行：
 
 - `npm --prefix packages/shared run build`：通过
+- `npm --prefix packages/shared test`：28/28 通过
 - `npm --prefix packages/main run build`：通过
-- `npm --prefix packages/main test`：1057 项 / 1055 通过 / 0 失败 / 2 跳过（桩模型）
+- `npm --prefix packages/main test`：1060 项 / 1057 通过 / 0 失败 / 3 跳过（桩模型；其中结构化契约 3/3）
 - `npm --prefix packages/web run build`：通过
-- `npm --prefix packages/web test`：154/154 通过
-- 真实 PostgreSQL + 真实后端 + 浏览器：在隔离演示库中把缺失梗概补成人工候选，校验由 `SYNOPSIS_MISSING` 失败转为通过，随后采用并出现「进入分镜」
+- `npm --prefix packages/web test`：159/159 通过（含结构化剧本解析、增删与保存适配 5 项）
+- 迁移 `055_script_structure.sql`：在隔离演示库实际执行成功
+- 真实 PostgreSQL + 真实后端 + 浏览器：在 5203 打开剧本区，解析出 2 集 3 场和动作/对白/旁白/镜头/环境；点「保存本场」生成 version 4（`structure_json` 非空）；新增对白「老周：这块表，你还留着。」再保存生成 version 5，数据库确认结构末元素为 `type=1` 且派生 `raw_text` 含该对白
 
 未运行/未验证：
 

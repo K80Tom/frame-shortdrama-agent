@@ -483,6 +483,8 @@ function scriptVersionResponse(script: StoredScriptVersion) {
     version: script.version,
     contentSha256: script.contentSha256,
     createdAt: script.createdAt,
+    rawText: script.rawText,
+    structure: script.structure,
     sourceIndex: {
       schemaVersion: script.sourceIndex.schemaVersion,
       unitCount: script.sourceIndex.units.length,

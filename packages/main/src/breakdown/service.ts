@@ -116,6 +116,7 @@ export class BreakdownService implements BreakdownServicePort {
       id,
       projectId,
       rawText: input.rawText,
+      structure: input.structure ?? null,
       contentSha256: sha256Utf8(input.rawText),
       createdAt,
       buildIndex: (version) => buildScriptSourceIndex(createCanonicalScriptVersion({

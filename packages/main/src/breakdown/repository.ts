@@ -1,5 +1,6 @@
 import type { PoolClient, QueryResultRow } from "pg";
-import type { NovelAdaptationPreview, NovelAdaptationResult, NovelAdaptationSource } from '@lyra/shared';
+import type { NovelAdaptationPreview, NovelAdaptationResult, NovelAdaptationSource, ScriptStructure } from '@lyra/shared';
+import { validateScriptStructure } from '@lyra/shared';
 import {
   SOURCE_INDEX_SCHEMA_VERSION,
   buildScriptSourceIndex,
@@ -43,6 +44,8 @@ export interface ScriptVersionSummary {
 
 export interface StoredScriptVersion extends ScriptVersion {
   sourceIndex: ScriptSourceIndex;
+  /** 正式结构化剧本；旧版本为 null，首次从原文解析后才会写入。 */
+  structure: ScriptStructure | null;
 }
 
 export interface RunScope {
@@ -114,6 +117,7 @@ export interface CreateStoredScriptVersionInput {
   id: string;
   projectId: string;
   rawText: string;
+  structure?: ScriptStructure | null;
   contentSha256: string;
   createdAt: string;
   buildIndex: (version: number) => ScriptSourceIndex;
@@ -250,6 +254,7 @@ interface ScriptRow extends QueryResultRow {
   raw_text: string;
   content_sha256: string;
   source_index_json: unknown;
+  structure_json: unknown;
   created_at: Date | string;
 }
 
@@ -408,10 +413,11 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
 
       const saved = await client.query<ScriptRow>(`
         INSERT INTO script_versions
-          (id, project_id, version, raw_text, content_sha256, source_index_json, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-        RETURNING id, project_id, version, raw_text, content_sha256, source_index_json, created_at
-      `, [input.id, input.projectId, version, input.rawText, input.contentSha256, JSON.stringify(index), input.createdAt]);
+          (id, project_id, version, raw_text, content_sha256, source_index_json, structure_json, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)
+        RETURNING id, project_id, version, raw_text, content_sha256, source_index_json, structure_json, created_at
+      `, [input.id, input.projectId, version, input.rawText, input.contentSha256, JSON.stringify(index),
+        input.structure ? JSON.stringify(input.structure) : null, input.createdAt]);
       await client.query("UPDATE projects SET current_script_version_id = $1, active_plan_revision_id = NULL, active_storyboard_revision_id = NULL WHERE id = $2", [input.id, input.projectId]);
       return toStoredScript(saved.rows[0]!);
     });
@@ -419,7 +425,7 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
 
   async getScriptVersion(projectId: string, scriptVersionId: string): Promise<StoredScriptVersion | null> {
     const result = await this.database.query<ScriptRow>(`
-      SELECT id, project_id, version, raw_text, content_sha256, source_index_json, created_at
+      SELECT id, project_id, version, raw_text, content_sha256, source_index_json, structure_json, created_at
       FROM script_versions WHERE project_id = $1 AND id = $2
     `, [projectId, scriptVersionId]);
     return result.rows[0] ? toStoredScript(result.rows[0]) : null;
@@ -427,7 +433,7 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
 
   async listScriptVersions(projectId: string): Promise<ScriptVersionSummary[]> {
     const result = await this.database.query<ScriptRow>(`
-      SELECT id, project_id, version, raw_text, content_sha256, source_index_json, created_at
+      SELECT id, project_id, version, raw_text, content_sha256, source_index_json, structure_json, created_at
       FROM script_versions WHERE project_id = $1 ORDER BY version DESC
     `, [projectId]);
     return result.rows.map((row) => toSummary(toStoredScript(row)));
@@ -868,7 +874,7 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
     if (existing) { requireCurrentAdaptation(existing.currentScriptVersionId, ids); return ids; }
     const createdAt = new Date().toISOString();
     const script = createScriptVersion({ id: ids.scriptVersionId, projectId: ids.projectId, version: 1, rawText: draft.rawText, createdAt });
-    this.scripts.set(script.id, { ...script, sourceIndex: buildScriptSourceIndex(script) });
+    this.scripts.set(script.id, { ...script, sourceIndex: buildScriptSourceIndex(script), structure: null });
     this.projects.set(ids.projectId, { id: ids.projectId, title: draft.title, source: clone(draft.source),
       currentScriptVersionId: script.id, activePlanRevisionId: null, activeStoryboardRevisionId: null, createdAt });
     return ids;
@@ -903,6 +909,7 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
     assertIndexMatchesStoredScript(index, input, version);
     const script: StoredScriptVersion = {
       id: input.id, projectId: input.projectId, version, rawText: input.rawText,
+      structure: input.structure ? clone(input.structure) : null,
       contentSha256: input.contentSha256, createdAt: input.createdAt, sourceIndex: index,
     };
     this.scripts.set(script.id, clone(script));
@@ -1311,6 +1318,9 @@ function toStoredScript(row: ScriptRow): StoredScriptVersion {
     contentSha256: row.content_sha256,
     createdAt,
     sourceIndex,
+    structure: row.structure_json == null
+      ? null
+      : validateScriptStructure(decodeJson<unknown>(row.structure_json, "stored script structure")),
   };
 }
 

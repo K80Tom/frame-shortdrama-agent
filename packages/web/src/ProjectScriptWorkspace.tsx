@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, CircleDashed, CheckCircle2, Play, Save } from 'lucide-react';
 import FactsEditor from './FactsEditor';
+import StructuredScriptEditor from './StructuredScriptEditor';
 import { PlanIssueList, type PlanCheckIssue } from './plan-issue-list';
+import { emptyScriptStructure, parseScriptStructure, serializeScriptStructure, type ScriptStructure } from './script-structure';
 import {
   buildEntityEdits, createEntityDrafts, latestPlanForScript, synopsisChanged, synopsisDraftErrors,
   synopsisEditValue, validateEntityDrafts,
@@ -14,6 +16,7 @@ import './project-workspace.css';
 type Project = { id: string; title: string; currentScriptVersionId: string | null; activePlanRevisionId: string | null };
 type Run = { id: string; status: string; scriptVersionId: string; modelConfig: { provider: string; model: string; reasoningEffort: string; connectionRevision?: string } };
 type ModelCatalog = { provider: string; configured: boolean; defaultModel: string; maxOutputTokens?: number; connectionRevision?: string };
+type ScriptVersionDetail = { id: string; version: number; rawText: string; structure: ScriptStructure | null };
 type Check = { id: string; result: 'passed' | 'failed'; ruleVersion: string };
 const CURRENT_FACT_CHECK_RULE_VERSION = 'extract-facts-completeness/2';
 
@@ -64,6 +67,8 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const [project, setProject] = useState<Project | null>(null);
   const [script, setScript] = useState('');
   const [savedScript, setSavedScript] = useState('');
+  const [scriptStructure, setScriptStructure] = useState<ScriptStructure>(emptyScriptStructure);
+  const [structuredMode, setStructuredMode] = useState(true);
   const [synopsisDraft, setSynopsisDraft] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run | null>(null);
@@ -75,6 +80,7 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
   const [allowPaid, setAllowPaid] = useState(false);
   const [draftBook, setDraftBook] = useState<Record<string, { basePlan: FactPlan; drafts: EntityDrafts }>>({});
   const [busy, setBusy] = useState('');
+  const [savingSceneId, setSavingSceneId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const epoch = useRef(0);
 
@@ -110,14 +116,16 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
           api<ModelCatalog>('/api/models?role=breakdown'),
         ]);
         const saved = selected.currentScriptVersionId
-          ? await api<{ rawText: string }>(`/api/projects/${projectId}/script-versions/${selected.currentScriptVersionId}`)
-          : { rawText: '' };
+          ? await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions/${selected.currentScriptVersionId}`)
+          : { id: '', version: 0, rawText: '', structure: null };
+        const savedStructure = saved.structure ?? parseScriptStructure(saved.rawText);
         const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
         const status = await readPlanStatus(current);
         if (epoch.current !== my) return;
         setProject(selected); setRuns(runHistory.items); setPlans(revisions.items);
         setRun(runHistory.items.find(item => item.id === current?.runId) ?? runHistory.items[0] ?? null);
         setSavedScript(saved.rawText); setScript(saved.rawText);
+        setScriptStructure(savedStructure);
         setSynopsisDraft(current?.content.synopsis?.value ?? '');
         setPlan(current); setCheck(status.check); setIssues(status.issues); setModelCatalog(catalog);
       } catch (reason) {
@@ -137,16 +145,54 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
     finally { setBusy(''); }
   }
 
+  async function refreshAfterSave() {
+    const [selected, revisions] = await Promise.all([
+      api<Project>(`/api/projects/${projectId}`),
+      api<{ items: FactPlan[] }>(`/api/projects/${projectId}/plan-revisions`),
+    ]);
+    const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
+    const status = await readPlanStatus(current);
+    setProject(selected); setPlans(revisions.items); setPlan(current); setCheck(status.check); setIssues(status.issues);
+    setSynopsisDraft(current?.content.synopsis?.value ?? '');
+  }
+
   function reload() {
     void mutate('刷新', async () => {
       const [selected, revisions] = await Promise.all([
         api<Project>(`/api/projects/${projectId}`),
         api<{ items: FactPlan[] }>(`/api/projects/${projectId}/plan-revisions`),
       ]);
+      if (selected.currentScriptVersionId) {
+        const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions/${selected.currentScriptVersionId}`);
+        setSavedScript(detail.rawText); setScript(detail.rawText);
+        setScriptStructure(detail.structure ?? parseScriptStructure(detail.rawText));
+      }
       const current = latestPlanForScript(revisions.items, selected.currentScriptVersionId) ?? revisions.items.at(-1) ?? null;
       const status = await readPlanStatus(current);
       setProject(selected); setPlans(revisions.items); setPlan(current); setCheck(status.check); setIssues(status.issues);
       setSynopsisDraft(current?.content.synopsis?.value ?? '');
+    });
+  }
+
+  function syncStructure(next: ScriptStructure) {
+    setScriptStructure(next);
+    setScript(serializeScriptStructure(next));
+  }
+
+  function saveStructure(sceneId?: string) {
+    void mutate(sceneId ? '保存本场' : '保存剧本', async () => {
+      if (sceneId) setSavingSceneId(sceneId);
+      try {
+        const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions`, {
+          structure: scriptStructure,
+        });
+        const nextStructure = detail.structure ?? scriptStructure;
+        setSavedScript(detail.rawText); setScript(detail.rawText); setScriptStructure(nextStructure);
+        await refreshAfterSave();
+        setMessage(sceneId ? '本场已保存为新剧本版本。' : '剧本已保存为新版本。');
+      } finally {
+        if (sceneId) setSavingSceneId(null);
+      }
     });
   }
 
@@ -168,16 +214,36 @@ export default function ProjectScriptWorkspace({ projectId, onUnsavedChange }: {
     </div>
 
     <section className="project-flow-card">
-      <h3>原文版本</h3>
-      <textarea className="project-flow-script" aria-label="创作原文" disabled={!!busy || !project}
-        value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一章小说或一集中文剧本。每次保存创建新版本，旧版本不被覆盖。" />
+      <div className="project-flow-head">
+        <h3>剧本内容</h3>
+        <button className="text-button" disabled={!!busy}
+          onClick={() => {
+            if (structuredMode) setScript(serializeScriptStructure(scriptStructure));
+            else setScriptStructure(parseScriptStructure(script));
+            setStructuredMode(!structuredMode);
+          }}>{structuredMode ? '切换到原文' : '切换到结构化编辑'}</button>
+      </div>
+      {structuredMode
+        ? <StructuredScriptEditor structure={scriptStructure} disabled={!!busy || !project}
+            savingSceneId={savingSceneId} onSaveScene={(_episodeId, sceneId) => saveStructure(sceneId)}
+            onChange={syncStructure} />
+        : <textarea className="project-flow-script" aria-label="创作原文" disabled={!!busy || !project}
+            value={script} onChange={event => setScript(event.target.value)} placeholder="粘贴一章小说或一集中文剧本。每次保存创建新版本，旧版本不被覆盖。" />}
       <div className="project-flow-row">
-        <small>{script !== savedScript ? '原文有未保存修改' : project?.currentScriptVersionId ? '原文已保存' : '尚未保存原文'}</small>
+        <small>{script !== savedScript ? '剧本有未保存修改' : project?.currentScriptVersionId ? '剧本已保存' : '尚未保存剧本'}</small>
         <button disabled={!!busy || !project || !script.trim() || script === savedScript}
-          onClick={() => void mutate('保存原文', async () => {
-            await api(`/api/projects/${projectId}/script-versions`, { rawText: script });
-            setSavedScript(script); reload();
-          })}><Save size={14} />{busy === '保存原文' ? '保存中…' : '保存原文新版本'}</button>
+          onClick={() => {
+            if (!structuredMode) {
+              void mutate('保存原文', async () => {
+                const detail = await api<ScriptVersionDetail>(`/api/projects/${projectId}/script-versions`, { rawText: script });
+                setSavedScript(detail.rawText); setScript(detail.rawText);
+                setScriptStructure(detail.structure ?? parseScriptStructure(detail.rawText));
+                await refreshAfterSave();
+              });
+              return;
+            }
+            saveStructure();
+          }}><Save size={14} />{busy === '保存原文' || busy === '保存剧本' ? '保存中…' : '保存剧本新版本'}</button>
       </div>
     </section>
 
