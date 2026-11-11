@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import type { AppConfig } from '../config';
 import { ModelError, type ModelKind as SharedModelKind } from '@lyra/shared';
 import { ModelPresetService } from './presets/service';
+import { assertNativeMediaProtocol, mediaProtocolBlocked } from './media-protocol-guard';
 
 export const MODEL_ROLES = ['breakdown', 'image', 'video', 'general'] as const;
 export type ModelRole = typeof MODEL_ROLES[number];
@@ -259,16 +260,18 @@ export class ModelConnections {
   }
   private publicProfile(item: ModelProfile) {
     const { apiKey, ...safe } = item;
-    return { ...safe, hasApiKey: Boolean(apiKey), configured: Boolean(item.endpoint && item.model && apiKey),
-      execution: item.kind === 'text' ? 'text' : item.kind === 'image' ? 'asset-generation' : 'task-api-ready',
+    const blocked = mediaProtocolBlocked(item.kind, item.endpoint, item.model);
+    return { ...safe, hasApiKey: Boolean(apiKey), configured: Boolean(item.endpoint && item.model && apiKey) && !blocked,
+      execution: blocked ? 'metadata-only' : item.kind === 'text' ? 'text' : item.kind === 'image' ? 'asset-generation' : 'task-api-ready',
       roles: MODEL_ROLES.filter(role => this.state.assignments[role].profileId === item.id) };
   }
   public(role: ModelRole) {
     const item = this.selected(role);
     const { apiKey, ...safe } = item ?? this.blank();
+    const blocked = mediaProtocolBlocked(kindForRole(role), safe.endpoint, safe.model);
     return { ...safe, revision: this.state.assignments[role].revision, profileId: item?.id ?? null, profileName: item?.name ?? null,
-      role, hasApiKey: Boolean(apiKey), configured: Boolean(safe.endpoint && safe.model && apiKey),
-      execution: kindForRole(role) === 'text' ? 'text' : role === 'image' ? 'asset-generation' : 'task-api-ready', source: item?.source ?? 'local' };
+      role, hasApiKey: Boolean(apiKey), configured: Boolean(safe.endpoint && safe.model && apiKey) && !blocked,
+      execution: blocked ? 'metadata-only' : kindForRole(role) === 'text' ? 'text' : role === 'image' ? 'asset-generation' : 'task-api-ready', source: item?.source ?? 'local' };
   }
   list() { return { connections: MODEL_ROLES.map(role => this.public(role)), profiles: this.state.profiles.map(p => this.publicProfile(p)),
     legacyImportAvailable: Boolean(this.base.baseUrl && this.base.apiKey), legacyModel: this.base.defaultModel, secretsReturned: false }; }
@@ -277,6 +280,7 @@ export class ModelConnections {
     const cached = this.snapshots.get(role);
     if (cached) return cached;
     const item = this.selected(role) ?? this.blank();
+    assertNativeMediaProtocol(kindForRole(role), item.endpoint, item.model);
     // No cross-role fallback or mutable credentials in a running operation.
     const { modelConnections: _, ...base } = this.base;
     const snapshot = Object.freeze({ ...base, provider: item.authType === 'api-key' ? 'maas' as const : 'openai-compatible' as const,
@@ -295,6 +299,7 @@ export class ModelConnections {
       const candidate = validate({ endpoint: data.endpoint, model: data.model, authType: data.authType,
         apiKey: secret(data, previous?.apiKey ?? ''), maxOutputTokens: data.maxOutputTokens,
         timeoutMs: data.timeoutMs, revision: randomUUID() }, role);
+      assertNativeMediaProtocol(kindForRole(role), candidate.endpoint, candidate.model);
       const shared = previous && MODEL_ROLES.filter(r => this.state.assignments[r].profileId === previous.id).length > 1;
       const profile: ModelProfile = { ...candidate, id: previous && !shared ? previous.id : profileId(),
         name: previous && !shared ? previous.name : this.uniqueName(prettyName(candidate.model) || `${labels[role]}连接`),
@@ -349,6 +354,7 @@ export class ModelConnections {
         id: previous.id, name: title, kind: data.kind as ModelKind, source: 'local' };
       const assignments = { ...this.state.assignments };
       for (const role of MODEL_ROLES) if (assignments[role].profileId === id) {
+        assertNativeMediaProtocol(profile.kind, profile.endpoint, profile.model);
         if (kindForRole(role) !== profile.kind) throw invalid('此连接正在被用途引用，请先取消分配再修改连接类型。');
         assignments[role] = { profileId: id, revision: randomUUID() };
       }
@@ -362,6 +368,10 @@ export class ModelConnections {
       this.checkVersion(data.expectedRevision, this.state.assignments[role].revision);
       const id = data.profileId === null ? null : identifier(data.profileId);
       if (id && this.profile(id).kind !== kindForRole(role)) throw new ModelError(400, 'MODEL_PROFILE_INCOMPATIBLE', '连接类型与用途不符；文本模型不能分配为生图或生视频模型。');
+      if (id) {
+        const profile = this.profile(id);
+        assertNativeMediaProtocol(profile.kind, profile.endpoint, profile.model);
+      }
       if (this.state.assignments[role].profileId === id) return this.public(role);
       await this.commit({ ...this.state, assignments: { ...this.state.assignments,
         [role]: { profileId: id, revision: randomUUID() } } });

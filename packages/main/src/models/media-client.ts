@@ -2,6 +2,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { MAX_ASSET_BYTES, inspectAssetImage, type AssetMedia } from '../assets/media';
 import { ModelError } from '@lyra/shared';
+import { assertNativeMediaProtocol } from './media-protocol-guard';
 
 export type MediaAuthType = 'api-key' | 'bearer';
 
@@ -384,7 +385,10 @@ function inputImageSource(value: unknown, label: string): string {
 /** OpenAI-compatible/Doubao image-generation adapter with bounded, verified image output. */
 export class DoubaoImageClient {
   private readonly config: ResolvedConfig;
-  constructor(config: MediaClientConfig) { this.config = resolveConfig(config); }
+  constructor(config: MediaClientConfig) {
+    assertNativeMediaProtocol('image', config.endpoint, config.model);
+    this.config = resolveConfig(config);
+  }
 
   async generateImage(input: GenerateImageInput): Promise<GeneratedImage> {
     const prompt = cleanText(input.prompt, '生图提示词', MAX_PROMPT_CHARS);
@@ -453,7 +457,10 @@ function safeProviderMessage(value: unknown, config: ResolvedConfig): string | n
 /** Seedance asynchronous task adapter. The configured endpoint is the complete task-collection URL. */
 export class SeedanceVideoClient {
   private readonly config: ResolvedConfig;
-  constructor(config: MediaClientConfig) { this.config = resolveConfig(config); }
+  constructor(config: MediaClientConfig) {
+    assertNativeMediaProtocol('video', config.endpoint, config.model);
+    this.config = resolveConfig(config);
+  }
 
   async submit(input: SeedanceSubmitInput): Promise<SeedanceTask> {
     const prompt = cleanText(input.prompt, '生视频提示词', MAX_PROMPT_CHARS);
