@@ -475,8 +475,9 @@ class StoryboardController {
 }
 
 function scriptVersionResponse(script: StoredScriptVersion) {
-  // SourceIndex is persisted and verified internally.  This creation response
-  // returns only counts so a large script is not immediately echoed back.
+  // Creation returns the canonical rawText and structured snapshot so the
+  // editor can stay on the version just saved without a second detail request.
+  // SourceIndex itself stays server-side; only its counts are echoed.
   return {
     id: script.id,
     projectId: script.projectId,
