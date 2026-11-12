@@ -183,9 +183,10 @@ test('text request size caps and text-only messages apply to direct calls too', 
 });
 
 test('upstream failures are sanitized and never retried', async () => {
+  const events = [];
   for (const status of [400, 401, 403, 404, 429, 500]) {
     let calls = 0;
-    const client = new ModelClient(config, async () => { calls++; return new Response('secret-token-private-url', { status }); });
+    const client = new ModelClient(config, async () => { calls++; return new Response('secret-token-private-url', { status }); }, event => events.push(event));
     await assert.rejects(client.call(input()), error => {
       assert.equal(error.code, 'UPSTREAM_ERROR');
       assert.equal(error.details.upstreamStatus, status);
@@ -194,12 +195,36 @@ test('upstream failures are sanitized and never retried', async () => {
     });
     assert.equal(calls, 1);
   }
+  assert.equal(events.length, 0);
 });
 
-test('network failure does not retry', async () => {
-  let calls = 0;
-  await rejectsCode(new ModelClient(config, async () => { calls++; throw new Error('secret'); }).call(input()), 'PROXY_UNAVAILABLE');
-  assert.equal(calls, 1);
+test('network failure logs only allowlisted diagnostic codes and does not retry', async () => {
+  const cases = [
+    [Object.assign(new Error('secret-direct'), { code: 'ECONNRESET' }), 'ECONNRESET'],
+    [new TypeError('secret outer https://user:password@example.test', { cause: Object.assign(new Error('secret-cause'), { code: 'ENOTFOUND' }) }), 'ENOTFOUND'],
+    [new AggregateError([Object.assign(new Error('secret-aggregate'), { code: 'ECONNREFUSED' })], 'secret-aggregate-message'), 'ECONNREFUSED'],
+    [Object.assign(new Error('secret-unknown'), { code: 'PRIVATE_CODE', cause: Object.assign(new Error('secret-nested'), { code: 'ALSO_PRIVATE' }) }), 'UNKNOWN_NETWORK_ERROR'],
+  ];
+  for (const [failure, networkCode] of cases) {
+    let calls = 0;
+    const events = [];
+    const client = new ModelClient(config, async () => { calls++; throw failure; }, event => events.push(event));
+    await assert.rejects(client.call(input()), error => {
+      assert.equal(error.code, 'PROXY_UNAVAILABLE');
+      assert.equal(JSON.stringify(error).includes('secret'), false);
+      return true;
+    });
+    assert.equal(calls, 1);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].event, 'model_network_failure');
+    assert.equal(events[0].networkCode, networkCode);
+    assert.equal(events[0].provider, config.provider);
+    assert.equal(events[0].model, modelId);
+    assert.equal(typeof events[0].callId, 'string');
+    assert.equal(JSON.stringify(events).includes('secret'), false);
+    assert.equal(JSON.stringify(events).includes(config.apiKey), false);
+    assert.equal(JSON.stringify(events).includes(config.baseUrl), false);
+  }
 });
 
 test('invalid/empty output fails; truncation stays incomplete; usage is normalized', async () => {
@@ -227,6 +252,7 @@ test('bounded concurrency rejects excess calls and releases capacity', async () 
 test('timeout also covers reading body, cancels fetch, no automatic retry', async () => {
   let calls = 0;
   let sawAbort = false;
+  const events = [];
   const client = new ModelClient({ ...config, timeoutMs: 80 }, async (_, options) => {
     calls++;
     const stream = new ReadableStream({
@@ -239,7 +265,7 @@ test('timeout also covers reading body, cancels fetch, no automatic retry', asyn
       },
     });
     return new Response(stream, { headers: { 'content-type': 'application/json' } });
-  });
+  }, event => events.push(event));
   // AbortSignal.timeout() intentionally uses an unref'ed timer in Node.  Keep
   // this deterministic in the test while the response body is stalled.
   const keepAlive = setInterval(() => {}, 1_000);
@@ -247,6 +273,7 @@ test('timeout also covers reading body, cancels fetch, no automatic retry', asyn
     await rejectsCode(client.call(input()), 'UPSTREAM_TIMEOUT');
     assert.equal(calls, 1);
     assert.equal(sawAbort, true);
+    assert.equal(events.length, 0);
   } finally {
     clearInterval(keepAlive);
   }
