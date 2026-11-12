@@ -8,7 +8,7 @@ const server = await createServer({ server: { middlewareMode: true, hmr: false, 
 after(() => server.close());
 const {
   addElement, addElementAfter, addEpisode, addScene, applySelectedDiffs, countScriptCharacters,
-  diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, planCharacterImport,
+  buildStructureFactCandidate, diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, planCharacterImport,
   removeElement, removeScene, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
 const {
@@ -367,4 +367,13 @@ test('角色导入总控渲染总开关、单角色勾选与已有角色/龙套�
   }));
   assert.doesNotMatch(disabledHtml, /character-import-count/);
   assert.match(disabledHtml, /关闭后不会创建任何新角色/);
+});
+
+test('推进分镜前可从当前结构补齐角色与地点候选', () => {
+  const structure = parseScriptStructure(raw);
+  const facts = buildStructureFactCandidate(structure);
+  assert.deepEqual(facts.characters.map(item => item.name).sort(), ['林澈', '老周']);
+  assert.ok(facts.characters.every(item => item.name !== '旁白'));
+  assert.ok(facts.locations.some(item => item.name === '旧钟表店'));
+  assert.deepEqual(facts.props, []);
 });

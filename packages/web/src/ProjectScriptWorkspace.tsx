@@ -11,13 +11,13 @@ import {
 } from '@lyra/shared';
 import * as api from './project-workspace-api';
 import StructuredScriptEditor, { collectCharacterNames } from './StructuredScriptEditor';
-import type { FactPlan } from './facts-editor';
+import { latestPlanForScript, type FactPlan } from './facts-editor';
 import type { PlanCheckIssue } from './plan-issue-list';
 import { projectFlowHash, type ScriptWorkspacePanel } from './project-flow';
 import {
   clearScriptParsePreview, draftFromParseAttempt, readScriptParsePreview, writeScriptParsePreview,
 } from './script-parse-preview';
-import { countScriptCharacters, estimateSceneCount, summarizeScriptStructure } from './script-structure';
+import { buildStructureFactCandidate, countScriptCharacters, estimateSceneCount, summarizeScriptStructure } from './script-structure';
 
 type PreviewResult = ScriptParseResult & { attemptId: string; model: string; promptVersion: string };
 
@@ -499,12 +499,12 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     });
   }
 
-  /** 保存场次结构为新的不可变版本；返回是否真正保存成功，供“推进至分镜”串联。 */
-  async function saveStructure(): Promise<boolean> {
-    if (!savedScript) return false;
+  /** 保存场次结构为新的不可变版本；返回保存成功的版本，供“推进至分镜”串联。 */
+  async function saveStructure(): Promise<api.ScriptVersionRecord | null> {
+    if (!savedScript) return null;
     try { validateScriptStructure(scriptStructure); } catch (reason) {
       setError(reason instanceof Error ? reason.message : '剧本结构不完整，请检查场次编号和元素。');
-      return false;
+      return null;
     }
     setBusy(true); setError(''); setMessage('');
     try {
@@ -516,13 +516,41 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       setStructureDirty(false);
       setMessage(`场次与角色已保存为剧本 V${saved.version}。`);
       await Promise.all([refreshAttempts(), refreshVersions()]);
-      return true;
+      return saved;
     } catch (reason) {
       setMessage('');
       setError(reason instanceof Error ? reason.message : '保存剧本结构失败，请稍后重试。');
-      return false;
+      return null;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * 复用既有「校验 + 采用」接口把角色与事实写入项目正式库：
+   * 通过则直接入库；有警告必须用户显式确认，不自动放行。
+   */
+  async function adoptFactsForPlan(planId: string): Promise<{ status: 'adopted' | 'warnings' | 'error'; issues: number; message?: string }> {
+    try {
+      const checked = await api.request<{ check: { id: string; result: 'passed' | 'failed' }; issues: PlanCheckIssue[] }>(
+        `/plan-revisions/${planId}/checks`, { method: 'POST', body: {} });
+      const warningCount = checked.issues.length;
+      if (checked.check.result !== 'passed') {
+        const accepted = window.confirm(
+          `角色入库前仍有 ${warningCount} 项校验警告（例如场次缺对白）。入库不会自动修复这些问题，确定仍要把当前角色与事实入库吗？`);
+        if (!accepted) return { status: 'warnings', issues: warningCount };
+      }
+      await api.request(`/projects/${projectId}/adoptions`, {
+        method: 'POST', body: {
+          planRevisionId: planId, checkId: checked.check.id,
+          expectedActivePlanRevisionId: project?.activePlanRevisionId ?? null,
+          ...(checked.check.result === 'failed' ? { allowCheckWarnings: true } : {}),
+        },
+      });
+      setProject(current => current ? { ...current, activePlanRevisionId: planId } : current);
+      return { status: 'adopted', issues: warningCount };
+    } catch (reason) {
+      return { status: 'error', issues: 0, message: reason instanceof Error ? reason.message : '角色入库失败' };
     }
   }
 
@@ -664,6 +692,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       const rawText = script;
       const saved = await api.saveScriptVersion(projectId, { rawText, structure: merged });
       let candidateError = '';
+      let candidateId = '';
       let recheckError = '';
       let recheckMessage = '';
       const hasParseEntities = charactersToImport.length + parseLocations.length + parseProps.length > 0;
@@ -678,6 +707,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
               })) } : {}),
             },
           });
+          candidateId = candidate.id;
           if (repairing) {
             try {
               const checked = await api.request<{ check: { result: 'passed' | 'failed' }; issues: PlanCheckIssue[] }>(
@@ -693,6 +723,15 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           candidateError = reason instanceof Error ? reason.message : '创建事实候选失败';
         }
       }
+      let adoptionMessage = '';
+      if (candidateId) {
+        const adoption = await adoptFactsForPlan(candidateId);
+        adoptionMessage = adoption.status === 'adopted'
+          ? '，角色已自动匹配并进入项目角色库'
+          : adoption.status === 'warnings'
+            ? '；校验警告未确认，角色暂未入库（推进分镜时可再次确认）'
+            : `；角色入库失败：${adoption.message}`;
+      }
       clearScriptParsePreview(window.localStorage, projectId, savedScript.id);
       setSavedScript(saved);
       setProject(current => current ? { ...current, currentScriptVersionId: saved.id } : current);
@@ -706,7 +745,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           ? `剧本与角色已保存为 V${saved.version}，但自动重跑校验失败：${recheckError}`
           : repairing
             ? `修复已保存为剧本 V${saved.version}。${recheckMessage}`
-            : `已采纳 ${adoptedCount} 项修改，导入 ${charactersToImport.length} 位角色，保存为剧本 V${saved.version}；已进入场次工作台。`);
+            : `已采纳 ${adoptedCount} 项修改，导入 ${charactersToImport.length} 位角色，保存为剧本 V${saved.version}${adoptionMessage}；已进入场次工作台。`);
       await Promise.all([refreshAttempts(), refreshVersions()]);
       // 先同步清掉父级未保存标记，再跳转，避免 hash 守卫把刚保存的版本当成脏数据。
       onUnsavedChange?.(false);
@@ -716,13 +755,43 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
 
   async function confirmScenes() {
     if (!savedScript?.structure) return;
+    let currentVersion = savedScript;
     if (structureDirty) {
       const downstream = Boolean(project?.activePlanRevisionId || project?.activeStoryboardRevisionId);
       const hint = downstream
         ? '保存新场次版本会重置已采用的事实与分镜，需要重新拆解与采用。确认保存并推进至分镜？'
         : '确认把当前场次保存为新的正式版本，然后进入分镜设计？';
       if (!window.confirm(hint)) { setMessage('已取消推进，场次修改尚未保存。'); return; }
-      if (!await saveStructure()) return;
+      const saved = await saveStructure();
+      if (!saved) return;
+      currentVersion = saved;
+    }
+    setBusy(true); setError('');
+    try {
+      // 推进分镜前，正式场次与角色一并落库；已有角色按名称匹配，不重复创建。
+      const plans = await api.listPlanRevisions(projectId);
+      let plan = latestPlanForScript(plans, currentVersion.id);
+      if (!plan) {
+        const facts = buildStructureFactCandidate(scriptStructure);
+        if (facts.characters.length + facts.locations.length > 0) {
+          plan = await api.request<FactPlan>(`/projects/${projectId}/script-character-candidates`, {
+            method: 'POST', body: { scriptVersionId: currentVersion.id, ...facts },
+          });
+        }
+      }
+      if (plan && project?.activePlanRevisionId !== plan.id) {
+        const adoption = await adoptFactsForPlan(plan.id);
+        if (adoption.status === 'error') {
+          setError(`角色入库失败：${adoption.message}。尚未进入分镜，可重试。`);
+          return;
+        }
+        if (adoption.status === 'warnings') setMessage('已保留校验警告，本次未入库角色；仍继续前往分镜。');
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? `角色入库失败：${reason.message}` : '角色入库失败，请稍后重试。');
+      return;
+    } finally {
+      setBusy(false);
     }
     onUnsavedChange?.(false);
     location.hash = projectFlowHash(projectId, 'storyboard');

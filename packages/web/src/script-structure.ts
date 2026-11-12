@@ -217,3 +217,30 @@ export function estimateSceneCount(rawText: string): number {
   }
   return count;
 }
+
+/** 没有解析候选时，从当前正式结构提取角色与地点，供推进分镜前入库。 */
+export function buildStructureFactCandidate(structure: ScriptStructure): {
+  characters: Array<{ name: string; aliases: string[]; description: null }>;
+  locations: Array<{ name: string; aliases: string[]; description: null }>;
+  props: Array<{ name: string; aliases: string[]; description: null }>;
+} {
+  const characters = new Map<string, { name: string; aliases: string[]; description: null }>();
+  const locations = new Map<string, { name: string; aliases: string[]; description: null }>();
+  for (const episode of structure.episodes) {
+    for (const scene of episode.scenes) {
+      const location = scene.location?.trim();
+      if (location) {
+        const key = normalizeScriptCharacterName(location);
+        if (!locations.has(key)) locations.set(key, { name: location, aliases: [], description: null });
+      }
+      for (const element of scene.dialogues) {
+        const name = element.characterName?.trim();
+        if (!name || (element.type !== 1 && element.type !== 3)) continue;
+        const key = normalizeScriptCharacterName(name);
+        if (key === normalizeScriptCharacterName('旁白') || characters.has(key)) continue;
+        characters.set(key, { name, aliases: [], description: null });
+      }
+    }
+  }
+  return { characters: [...characters.values()], locations: [...locations.values()], props: [] };
+}
