@@ -68,8 +68,8 @@
 - 结构保存在 `script_versions.structure_json`（迁移 `055_script_structure.sql`）；原文与结构同时提交时保留用户原文，结构只是对原文的可编辑解释，拆解和源索引继续读取原文；只提交 `{ structure }` 时才由服务端派生 canonical `rawText`
 - `POST /api/projects/:projectId/script-versions` 接受 `{ rawText }`、`{ structure }` 或 `{ rawText, structure }`。只提交 `{ rawText }` 时停在原文模式，不自动用正则假装拆分，等待用户点按钮做 AI 解析
 - 页面保存原文后仍停在原文视图，出现「AI 解析分场与实体」入口；解析使用现有 `breakdown` 角色模型，按 1 集自动分场并识别对白/动作/旁白/镜头/环境，以及人物、地点和道具，结果先进入可编辑预览，确认后才生成新剧本版本和事实候选
-- `script-parse` 与 `script-structure` 是两个独立 URL；旧 `script` 入口默认进入 AI 解析中心。解析成功、失败和确认保存都不自动跳转，用户通过页签或「前往剧本结构 / 返回 AI 解析中心」显式切换；结构页刷新后仍停留在结构页
-- AI 解析中心负责原文、费用确认、人物/地点/道具预览、事实候选与解析记录；剧本结构页只编辑已保存的分集、场次和五类元素。属于旧原文版本的成功记录只读，不覆盖当前版本
+- `script-parse` 与 `script-structure` 是两个独立 URL；旧 `script` 入口默认进入 AI 解析中心。解析成功或失败不自动跳转；只有用户勾选差异项并点「确认保存并导入剧本场次」后，受控网关才落库并自动进入场次工作台。两个子页仍各自保留 URL，且共享同一工作区实例（`App` 动画 key 同为 `script`），导入跳转不会卸载组件、草稿与勾选状态可延续；结构页刷新后仍停留在结构页
+- AI 解析中心负责原文、字数/预估场次、模型计价确认、AI 解析草稿、选择性差异比对、事实候选与解析记录；剧本结构页（场次工作台）只编辑已保存的分集、场次和五类元素。属于旧原文版本的成功记录只读，不覆盖当前版本
 - `GET /api/projects/:projectId/script-parse-attempts` 返回项目最近 50 次成功/失败记录，包含原文版本、模型、提示词版本、错误码、usage 和原始输出；成功记录可重新打开，失败记录展示原始错误码
 - 当前原文的未确认预览按 `projectId + scriptVersionId` 保存在浏览器 `localStorage` 的 `lyra.script-parse-preview.v1` 命名空间，刷新后恢复；确认或关闭时清理对应草稿。PostgreSQL `output_json` 始终保留不可变模型原始输出，不保存人工编辑中的预览，也不需要新增迁移
 - 模型连接版本与提示词版本分别跟踪：连续解析的请求始终发送 `expectedModelConnectionRevision`，不能把上一条结果的 `script-parse/2` 当作模型连接版本
@@ -79,6 +79,16 @@
 - 上方「剧本结构」与下方「事实候选与采用」是两类数据而非两次解析：前者维护分集、场次和元素，后者维护供资产与分镜采用的人物、地点、道具等事实
 - AI 解析保留 `ModelError` 的原始错误码、HTTP 状态和脱敏提示，并把同一错误码写入 `script_parse_attempts.error_code`；鉴权、额度与空输出不再被统一吞成 `SCRIPT_PARSE_MODEL_FAILED`，未知异常仍使用通用错误
 - 场景卡提供「保存本场」；每次保存仍产生一个新的不可变 `script_versions` 版本，旧版本不被覆盖。这是 Lyra 版本模型与融光按场 `version` 语义的对齐方式
+
+### 受控导入与场次工作台（#191）
+
+- 差异与合并是 `shared` 的纯函数：`diffScriptStructures(base, draft)` 只输出真正变动的分集/场次/元素项，`applySelectedDiffs(base, draft, selectedIds)` 只合并勾选项，未勾选项严格取原版。差异 ID 稳定（`kind|episode:N|scene:anchor|element:anchor`），草稿重新编辑后勾选不会错位。
+- 对齐按内容相似度而非 `sceneNumber`：`script-parse` 固定返回单集且场次号由服务端生成，场次用「对白内容集合 Jaccard + 地点/时间/内外景/场次号加权」，元素用「内容相等或长内容包含」；`n*m > 250000` 时退化为按序对齐，避免大剧本的 DP 开销。
+- 合并结果强制走 `validateScriptStructure`，空结果抛 `ScriptStructureError('EMPTY_MERGE')`；存在场次增删时按 `${episodeNumber}-${index+1}` 重排场次号，插入对象生成新的 `${idPrefix}_merged_N` ID。
+- 面板只展示变动项并给出新增/修改/删除统计、逐项复选和「全部采纳修改 / 全部保留原版」，默认全选；相同内容隐藏。未确认前草稿仍只存在浏览器 `localStorage`，不写正式版本。
+- 受控网关一次只提交已勾选合并结果，创建一个新的不可变 `script_versions` 版本并保留 attempt 与版本历史。请求里的 `rawText` 保持原版本不变：解析记录与 `dialogueExclusions.sourceRef` 的偏移绑定原文，重新序列化会让既有证据错位。
+- 场次工作台按顺序垂直展开场次卡片，展示「第 N 场 · 内/外景 · 地点 · 日/夜」、出场角色标签和对白气泡；支持就地修改场次编号、内外景、地点、时间和场景描述，支持相邻场次一键合并（保留当前场时空、拼接元素与场景描述、重排后续编号），对白说话人可从已有角色下拉纠正。
+- 唯一流转主行动是「确认场次，推进至分镜」：结构有未保存修改时先保存新版本再跳转；已有已采用事实或分镜时明确提示保存会重置下游，需要用户确认后才继续。
 
 ### 校验警告、定向修复与人工放行
 
@@ -127,6 +137,28 @@
 - 全量 RLS 与跨租户数据库回归未在本轮重跑；本轮警告放行已在隔离真实 PostgreSQL 做定向验证
 - 真实付费模型、付费任务、部署未执行；DeepSeek 空输出缺陷只有请求体与全量回归证据，未再次调用真实上游复验
 
+### #191 增量验证（2026-11-12）
+
+上节浏览器证据属于 #182 剧本解析切片，本增量没有重跑真实浏览器、真实后端或真实模型。本轮实际运行：
+
+- 根目录 `npm run build`：通过（shared → agent → main → cli → web）
+- 根目录 `npm test`：通过；Agent 44/44；Main 1075 项 / 1073 通过 / 0 失败 / 2 跳过；Web 175/175
+- `npm run docs:check`：通过（13 份文档、173 个本地链接）
+- `node --test packages/shared/tests/script-diff.test.cjs`：9/9 通过（只输出变动项、ID 稳定、全选=草稿、全不选=原版、只采纳说话人、场次切分重排、空合并拒绝、整集删除默认保留）
+- `node --test packages/web/tests/script-structure.test.mjs`：15/15 通过（含字数/预估场次、相邻场次合并、差异统计与选择性合并、差异面板渲染、付费门禁、两步门禁、场次卡片徽标/角色标签/说话人下拉/合并入口）
+
+真实浏览器与隔离 PostgreSQL 验收（未调用付费模型）：
+
+- 用独立 PostgreSQL 15 库应用 001–056 迁移，main 以 `PORT=8791`、`LYRA_AUTH_MODE=disabled` 启动；另起 Vite `5211` 代理 `/api` 到 8791，并把写请求的 `Origin` 重写为 8791 以通过本机写守卫
+- 通过 `/api/projects`、`/api/projects/:id/script-versions` 造 1 个项目与 V1（1 集 2 场），再用一条手工构造的 `script_parse_attempts` 成功记录 + `localStorage` 草稿（未调用模型、无费用）恢复未确认预览；页面显示「已恢复上次未确认的解析预览」
+- 差异面板实际渲染 5 项（修改 4、新增 1）：第 2 场的场次标题、内/外景、地点、时间，以及第 3 场新增；取消「场次标题」后计数变为 4/5；点「确认保存并导入剧本场次」生成 V2 并跳到 `script-structure`
+- 数据库核对 V2：1 集 3 场，第 2 场 `intExt=内`、`location=咖啡馆`、`timeOfDay=日`，而 `sceneHeading` 仍是原版「外景 街道 夜」——未勾选项确实完全保留
+- 场次工作台实际渲染 3 张卡片、出场角色标签、4 个对白气泡和 3 个说话人候选；点「与下一场合并」后目录变 2 场且元素合并；点「确认场次，推进至分镜」接受重置提示后保存 V3 并跳转 `storyboard`，数据库 V3 为 1 集 2 场
+
+未验证：真实付费模型的解析草稿质量与真实供应商错误路径；本次单租户演示库未覆盖全量 RLS。
+
 ## 5. 回退
 
 本切片新增迁移 `055_script_structure.sql` 与 `056_script_parse_attempts.sql`；解析审计表只追加、不改既有业务表。梗概人工保存复用既有人工校对写链路。按 commit 逆序 `git revert` 即可回退；`ProjectWorkspace` 的 6 区段导航、两个只读接口与梗概编辑可独立撤回，不影响 #186 的入口收敛。
+
+#191 增量不新增迁移、不改后端契约：回退 `shared` 的差异纯函数、`ProjectScriptWorkspace` 的两阶段向导、`StructuredScriptEditor` 的场次卡片增强与对应 CSS 即可；已导入的剧本版本仍按既有不可变版本链保留。

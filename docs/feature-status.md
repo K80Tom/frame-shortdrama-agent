@@ -33,6 +33,10 @@ Owner：@K80Tom / @255308153；适用 `fix/model-network-diagnostics`（基于 `
 
 新增回归在旧实现因没有诊断日志而失败；修复后 `packages/main/tests/models.test.cjs` 25/25 通过，覆盖 `ECONNRESET`、嵌套 `ENOTFOUND`、聚合 `ECONNREFUSED`、未知代码、敏感文本/API key/URL 防泄露、上游错误与超时日志隔离。根目录 `npm run build && npm test` 通过：Agent 44/44；Main 1075 项 / 1073 通过 / 0 失败 / 2 跳过；Web 168/168。`npm run docs:check` 通过：13 份文档、173 个本地链接。未调用真实付费供应商，未部署或重启本机服务，原故障的历史底层错误码无法由本补丁追溯补全。
 
+## #191 剧本受控导入与场次工作台重构（2026-11-12）
+
+Owner：@K80Tom / @255308153；适用 `feat/script-diff-191`（基于 `dev b8d19ad`，含 #188/#189）。把剧本解析与场次编辑收敛为两阶段：①录入（字数/预估场次、模型计价确认）→ AI 解析草稿 → 仅展示变动项的选择性差异比对（逐项勾选与「全部采纳修改 / 全部保留原版」）→ 受控导入为新的不可变剧本版本；②场次工作台（场次卡片、时空就地编辑、出场角色标签、相邻场次合并、说话人下拉纠正、保存新版本、唯一主行动「确认场次，推进至分镜」）。差异与合并由 `shared` 纯函数 `diffScriptStructures` / `applySelectedDiffs` 承担，按内容相似度对齐，不依赖服务端生成的场次号；导入时 `rawText` 保持原版本，避免 `dialogueExclusions.sourceRef` 偏移失效。`npm run build`、`npm test`（Agent 44/44；Main 1073/1075，2 skipped；Web 175/175）、`npm run docs:check` 与 Shared 定向 9/9 通过。见[受控导入与场次工作台](project-workspace.md)。另在独立 PostgreSQL 15 库 + 隔离 main/Vite 页面完成真实浏览器验收：手工构造成功解析记录与草稿后恢复预览，差异面板 5 项（4 修改 + 1 新增）中取消一项后按 4/5 导入 V2 并跳转场次工作台，数据库确认未勾选的 `sceneHeading` 保持原版；场次卡片、角色标签、说话人候选、相邻合并与「确认场次，推进至分镜」保存 V3 后跳分镜均实际点通。未调用付费模型，未验真实供应商解析质量与全量 RLS。
+
 ## 当前 15 项 Issue 台账
 
 各行适用上述快照；源码是已合入入口，待审代码另列。默认 owner 同上。无独立执行记录的项目写“本轮未重跑”，不代表失败，也不是通过。

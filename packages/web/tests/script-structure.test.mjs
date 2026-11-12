@@ -7,10 +7,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const {
-  addElement, addElementAfter, addEpisode, addScene, parseScriptStructure, patchScene, removeElement, removeScene,
+  addElement, addElementAfter, addEpisode, addScene, applySelectedDiffs, countScriptCharacters,
+  diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, removeElement, removeScene,
   serializeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
-const { ScriptParseEntityFields, repairSceneTarget, default: ProjectScriptWorkspace } = await server.ssrLoadModule('/src/ProjectScriptWorkspace.tsx');
+const {
+  ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, groupScriptDiffs, repairSceneTarget,
+  scriptDiffCounts, default: ProjectScriptWorkspace,
+} = await server.ssrLoadModule('/src/ProjectScriptWorkspace.tsx');
 const { default: StructuredScriptEditor } = await server.ssrLoadModule('/src/StructuredScriptEditor.tsx');
 
 const raw = `第1集
@@ -172,4 +176,111 @@ test('校验问题可定位到独立结构页场次并显示手动修复入口',
   assert.match(html, /is-repair-target/);
   assert.match(html, /上方补对白/);
   assert.match(html, /\+ 添加对白/);
+});
+
+test('录入区统计字数并按场次标题预估场次数量', () => {
+  assert.equal(countScriptCharacters('第1集\n\n1-1 内景 客厅 日\n林澈：你好。'), '第1集1-1内景客厅日林澈：你好。'.length);
+  assert.equal(estimateSceneCount(raw), 2);
+  assert.equal(estimateSceneCount('普通一行\n没有场次编号'), 0);
+});
+
+test('相邻场次合并后拼接元素并按顺序重排编号', () => {
+  const structure = parseScriptStructure(`第1集
+
+1-1 内景 客厅 日
+林澈：第一场。
+
+1-2 外景 街道 夜
+老周：第二场。
+
+1-3 内景 走廊 晨
+旁白：第三场。`);
+  const episode = structure.episodes[0];
+  const merged = mergeScenes(structure, episode.id, episode.scenes[0].id);
+  const scene = merged.episodes[0].scenes[0];
+  assert.equal(merged.episodes[0].scenes.length, 2);
+  assert.equal(scene.sceneNumber, '1-1');
+  assert.equal(scene.dialogues.length, episode.scenes[0].dialogues.length + episode.scenes[1].dialogues.length);
+  assert.equal(scene.location, '客厅');
+  assert.deepEqual(merged.episodes[0].scenes.map(item => item.sceneNumber), ['1-1', '1-2']);
+});
+
+test('差异比对只保留变动项，统计可区分新增/修改/删除', () => {
+  const base = parseScriptStructure(raw);
+  const draft = structuredClone(base);
+  draft.episodes[0].scenes[0].location = '旧钟表店 · 柜台前';
+  draft.episodes[0].scenes[0].dialogues[1].characterName = '周叔';
+  const items = diffScriptStructures(base, draft);
+  const summary = scriptDiffCounts(items);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.modified, 2);
+  assert.equal(summary.inserted, 0);
+  assert.deepEqual(groupScriptDiffs(items).length, 1);
+  const merged = applySelectedDiffs(base, draft, [items.find(item => item.kind === 'dialogue-speaker').id]);
+  assert.equal(merged.episodes[0].scenes[0].dialogues[1].characterName, '周叔');
+  assert.equal(merged.episodes[0].scenes[0].location, '旧钟表店');
+});
+
+test('差异比对面板提供全选/全消与逐项勾选，并展示采纳或保留状态', () => {
+  const base = parseScriptStructure(raw);
+  const draft = structuredClone(base);
+  draft.episodes[0].scenes[0].location = '旧钟表店 · 柜台前';
+  draft.episodes[0].scenes[0].dialogues[1].characterName = '周叔';
+  const items = diffScriptStructures(base, draft);
+  const speaker = items.find(item => item.kind === 'dialogue-speaker');
+  const html = renderToStaticMarkup(createElement(ScriptDiffReviewPanel, {
+    base,
+    draft,
+    selectedIds: new Set([speaker.id]),
+    onToggle: () => undefined,
+    onSelectAll: () => undefined,
+    onSelectNone: () => undefined,
+  }));
+  assert.match(html, /选择性差异比对/);
+  assert.match(html, /全部采纳修改/);
+  assert.match(html, /全部保留原版/);
+  assert.match(html, /data-testid="script-diff-selected-count">1</);
+  assert.match(html, /采纳 AI 修改/);
+  assert.match(html, /保留原版内容/);
+  assert.match(html, /<del>旧钟表店<\/del>/);
+  assert.match(html, /<ins>旧钟表店 · 柜台前<\/ins>/);
+  assert.match(html, /<del>老周<\/del>/);
+  assert.match(html, /<ins>周叔<\/ins>/);
+  assert.match(html, /第1集 · 第1场 1-1/);
+  assert.match(html, /type="checkbox"/);
+  assert.match(html, /aria-label="采纳对白说话人（第1集 1-1 第/);
+});
+
+test('未勾选模型确认时禁止发起 AI 解析', () => {
+  const saved = { rawText: '剧本原文' };
+  assert.equal(canStartParse({ approved: false, busy: false, modelRevision: 'rev-1', savedScript: saved, script: saved.rawText, dirty: false }), false);
+  assert.equal(canStartParse({ approved: true, busy: false, modelRevision: 'rev-1', savedScript: saved, script: saved.rawText, dirty: false }), true);
+  assert.equal(canStartParse({ approved: true, busy: false, modelRevision: '', savedScript: saved, script: saved.rawText, dirty: false }), false);
+  assert.equal(canStartParse({ approved: true, busy: false, modelRevision: 'rev-1', savedScript: saved, script: '改过的原文', dirty: true }), false);
+  assert.equal(canStartParse({ approved: true, busy: false, modelRevision: 'rev-1', savedScript: null, script: '', dirty: false }), false);
+});
+
+test('阶段向导展示两步门禁与录入统计', () => {
+  const parseHtml = renderToStaticMarkup(createElement(ProjectScriptWorkspace, { projectId: 'project_demo', panel: 'parse' }));
+  assert.match(parseHtml, /剧本录入与 AI 解析/);
+  assert.match(parseHtml, /剧本场次工作台/);
+  assert.match(parseHtml, /data-stage="1"/);
+  assert.match(parseHtml, /data-stage="2"/);
+  assert.match(parseHtml, /data-testid="script-source-stats"/);
+  assert.match(parseHtml, /预估 1 场/);
+});
+
+test('场次工作台卡片展示时空徽标、角色标签、说话人下拉与合并入口', () => {
+  const structure = parseScriptStructure(raw);
+  const html = renderToStaticMarkup(createElement(StructuredScriptEditor, {
+    structure, onChange: () => undefined,
+  }));
+  assert.match(html, /第 1 场/);
+  assert.match(html, /1-1 · 内景 · 旧钟表店 · 日/);
+  assert.match(html, /出场角色/);
+  assert.match(html, /structured-character-tag">老周/);
+  assert.match(html, /list="structured-character-options"/);
+  assert.match(html, /<option value="老周"/);
+  assert.match(html, /与下一场合并/);
+  assert.match(html, /is-bubble/);
 });

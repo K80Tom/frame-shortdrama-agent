@@ -1,7 +1,15 @@
 import {
+  applySelectedDiffs,
+  diffScriptStructures,
   emptyScriptStructure,
+  episodeDiffId,
+  elementDiffId,
+  isSceneHeadingLine,
   parseScriptStructure,
+  sceneDiffId,
   serializeScriptStructure,
+  type ScriptDiffItem,
+  type ScriptDiffKind,
   type ScriptElement,
   type ScriptElementType,
   type ScriptEpisode,
@@ -10,7 +18,9 @@ import {
 } from '@lyra/shared/dist/script-structure';
 
 export {
-  emptyScriptStructure, parseScriptStructure, serializeScriptStructure,
+  applySelectedDiffs, diffScriptStructures, emptyScriptStructure, episodeDiffId, elementDiffId,
+  isSceneHeadingLine, parseScriptStructure, sceneDiffId, serializeScriptStructure,
+  type ScriptDiffItem, type ScriptDiffKind,
   type ScriptElement, type ScriptElementType, type ScriptEpisode, type ScriptScene, type ScriptStructure,
 };
 
@@ -110,4 +120,49 @@ export function patchEpisode(structure: ScriptStructure, episodeId: string,
 export function patchScene(structure: ScriptStructure, episodeId: string, sceneId: string,
   patch: Partial<Pick<ScriptScene, 'sceneNumber' | 'sceneHeading' | 'location' | 'timeOfDay' | 'intExt' | 'sceneDescription'>>): ScriptStructure {
   return updateScene(structure, episodeId, sceneId, scene => ({ ...scene, ...patch }));
+}
+
+/** 合并相邻两场：保留当前场次时空，拼接元素与场景描述，并按顺序重排场次编号。 */
+export function mergeScenes(structure: ScriptStructure, episodeId: string, sceneId: string): ScriptStructure {
+  return updateEpisode(structure, episodeId, episode => {
+    const index = episode.scenes.findIndex(scene => scene.id === sceneId);
+    const current = episode.scenes[index];
+    const next = episode.scenes[index + 1];
+    if (!current || !next) return episode;
+    const merged: ScriptScene = {
+      ...current,
+      sceneHeading: current.sceneHeading.trim() || next.sceneHeading,
+      location: current.location.trim() || next.location,
+      timeOfDay: current.timeOfDay.trim() || next.timeOfDay,
+      intExt: current.intExt || next.intExt,
+      sceneDescription: [current.sceneDescription.trim(), next.sceneDescription.trim()].filter(Boolean).join('\n'),
+      dialogues: [...current.dialogues, ...next.dialogues],
+    };
+    return {
+      ...episode,
+      scenes: episode.scenes
+        .filter(scene => scene.id !== next.id)
+        .map((scene, sceneIndex) => ({
+          ...(scene.id === current.id ? merged : scene),
+          sceneNumber: `${episode.episodeNumber}-${sceneIndex + 1}`,
+        })),
+    };
+  });
+}
+
+/** 录入区展示用：不含空白的字符数。 */
+export function countScriptCharacters(rawText: string): number {
+  return rawText.replace(/\s+/g, '').length;
+}
+
+/**
+ * 录入区展示用：按行预估场次数量。
+ * 直接复用 parseScriptStructure 的场次标题判定，避免两套规则漂移。
+ */
+export function estimateSceneCount(rawText: string): number {
+  let count = 0;
+  for (const line of rawText.replace(/\r\n?/g, '\n').split('\n')) {
+    if (isSceneHeadingLine(line)) count += 1;
+  }
+  return count;
 }
