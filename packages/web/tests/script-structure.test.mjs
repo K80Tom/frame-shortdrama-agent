@@ -12,7 +12,7 @@ const {
   removeElement, removeScene, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
 const {
-  ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, groupScriptDiffs, repairSceneTarget,
+  ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, groupScriptDiffs, parseStartBlockReason, repairSceneTarget,
   scriptDiffCounts, default: ProjectScriptWorkspace,
 } = await server.ssrLoadModule('/src/ProjectScriptWorkspace.tsx');
 const { default: StructuredScriptEditor } = await server.ssrLoadModule('/src/StructuredScriptEditor.tsx');
@@ -251,6 +251,16 @@ test('未勾选模型确认时禁止发起 AI 解析', () => {
   assert.equal(canStartParse({ approved: true, busy: false, modelRevision: '', savedScript: saved, script: saved.rawText, dirty: false }), false);
   assert.equal(canStartParse({ approved: true, busy: false, modelRevision: 'rev-1', savedScript: saved, script: '改过的原文', dirty: true }), false);
   assert.equal(canStartParse({ approved: true, busy: false, modelRevision: 'rev-1', savedScript: null, script: '', dirty: false }), false);
+});
+
+test('解析按钮禁用时给出具体的门禁原因', () => {
+  const saved = { rawText: '剧本原文' };
+  const base = { approved: true, modelRevision: 'rev-1', savedScript: saved, script: saved.rawText, dirty: false };
+  assert.equal(parseStartBlockReason(base), '');
+  assert.match(parseStartBlockReason({ ...base, approved: false }), /请先勾选/);
+  assert.match(parseStartBlockReason({ ...base, modelRevision: '' }), /未检测到可用解析模型/);
+  assert.match(parseStartBlockReason({ ...base, dirty: true }), /保存原文/);
+  assert.match(parseStartBlockReason({ ...base, savedScript: null }), /请先保存剧本原文/);
 });
 
 test('阶段向导展示两步门禁与录入统计', () => {

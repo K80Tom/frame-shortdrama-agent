@@ -56,6 +56,21 @@ export function canStartParse(input: {
   return true;
 }
 
+/** 解析按钮被禁用时给出可操作的明确原因，避免“点击没有反应”。 */
+export function parseStartBlockReason(input: {
+  approved: boolean;
+  modelRevision: string;
+  savedScript: { rawText: string } | null;
+  script: string;
+  dirty: boolean;
+}): string {
+  if (!input.savedScript) return '请先保存剧本原文，再开始智能解析。';
+  if (!input.modelRevision) return '未检测到可用解析模型，请先在模型设置中配置后再试。';
+  if (input.dirty || input.script !== input.savedScript.rawText) return '原文有未保存修改，请先点击「保存原文」。';
+  if (!input.approved) return '请先勾选上方「我确认调用模型解析」；勾选后「开始智能解析」按钮才会变为可点击。';
+  return '';
+}
+
 export function repairSceneTarget(plan: FactPlan, issue: PlanCheckIssue, structure: ScriptStructure) {
   const sourceScenes = plan.content.scenes;
   const direct = issue.scope?.kind === 'scene'
@@ -329,6 +344,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     return new Set(characterImportPlan.filter(item => item.suggested).map(item => item.key));
   }, [characterImportCustomized, characterImportSelected, characterImportPlan]);
   const structureSummary = useMemo(() => summarizeScriptStructure(scriptStructure), [scriptStructure]);
+  const parseGateHint = parseStartBlockReason({ approved, modelRevision, savedScript, script, dirty });
 
   const diffItems = useMemo(() => (
     parsePreview && parseStructure ? diffScriptStructures(baseStructure, parseStructure) : []
@@ -813,6 +829,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           <button className="button-primary" disabled={!canStartParse({ approved, busy, modelRevision, savedScript, script, dirty })} onClick={startParse}>
             <Sparkles size={16} />{busy ? '正在解析…' : parsePreview && !parseReadOnly ? '重新解析并替换草稿' : '开始智能解析'}<ArrowRight size={15} />
           </button>
+          {parseGateHint && !busy && <p className="script-parse-gate-hint" data-testid="script-parse-gate-hint" role="note">{parseGateHint}</p>}
         </div>}
       </section>
 

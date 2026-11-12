@@ -454,3 +454,12 @@
 @media (max-width: 900px) {
   .script-character-row:has(.script-character-check) { grid-template-columns: 22px 1fr 1fr 32px; }
 }
+
+/* 解析门禁原因：按钮禁用时必须说明还差哪一步 */
+.script-parse-gate-hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b45309;
+}
