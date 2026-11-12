@@ -32,6 +32,7 @@ export * from './production-input-snapshot';
 export * from './director-scene';
 export * from './object-version';
 export * from './project-workspace';
+export * from './script-structure';
 export * from './video-control';
 export * from './audio-production';
 export * from './agent/contracts';
@@ -39,3 +40,5 @@ export * from './agent/runtime';
 export * from './agent/skills';
 export * from './agent/mcp';
 export * from './evolution-gate';
+
+export * from './script-parse';

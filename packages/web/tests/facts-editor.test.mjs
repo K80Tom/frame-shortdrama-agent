@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { buildEntityEdits, changedEntityFields, createEntityDrafts, entityDraftKey, entityEvidence, latestPlanForScript, validateEntityDrafts } = await server.ssrLoadModule('/src/facts-editor.ts');
+const { buildEntityEdits, changedEntityFields, createEntityDrafts, entityDraftKey, entityEvidence, latestPlanForScript, synopsisChanged, synopsisDraftErrors, synopsisEditValue, validateEntityDrafts } = await server.ssrLoadModule('/src/facts-editor.ts');
 const ref = { scriptVersionId: 'script_1', start: 3, end: 10, quote: '林晚握着钥匙。' };
 const value = (text, refs = [ref]) => ({ value: text, origin: 'source', sourceRefs: refs, answerIds: [] });
 const entity = (id, name) => ({ id, name: value(name), aliases: [], description: null, sourceRefs: [ref] });
@@ -130,4 +130,19 @@ test('entity cards expose all groups, read-only evidence, and saved user provena
   assert.match(html, /人工修改 · 已记录/);
   assert.match(html, /disabled=""/);
   assert.equal((html.match(/<blockquote>/gu) ?? []).length, 3);
+});
+
+
+test('synopsis can be manually added, trimmed, and validated before saving', () => {
+  const plan = { content: { ...content(), synopsis: null } };
+  assert.equal(synopsisChanged(plan, ''), false);
+  assert.equal(synopsisEditValue(plan, ''), undefined);
+  assert.equal(synopsisChanged(plan, '  林晚进入医院走廊。  '), true);
+  assert.equal(synopsisEditValue(plan, '  林晚进入医院走廊。  '), '林晚进入医院走廊。');
+  assert.deepEqual(synopsisDraftErrors(plan, ''), []);
+  assert.deepEqual(synopsisDraftErrors(plan, '林晚进入医院走廊。'), []);
+  plan.content.synopsis = value('已提取的梗概');
+  assert.equal(synopsisChanged(plan, '已提取的梗概'), false);
+  assert.equal(synopsisChanged(plan, '人工改写后的梗概'), true);
+  assert.ok(synopsisDraftErrors(plan, '   ').includes('剧情梗概不能为空。'));
 });

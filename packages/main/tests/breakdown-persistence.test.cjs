@@ -136,7 +136,9 @@ test('P0.2 local HTTP routes create drafts without calling a model and reject ma
     });
     assert.equal(scriptResponse.statusCode, 201);
     const script = scriptResponse.json();
-    assert.equal(typeof script.rawText, 'undefined');
+    assert.equal(typeof script.rawText, 'string');
+    assert.equal(script.rawText, '第1场 天台 夜 外\n林晚：现在就结束。');
+    assert.equal(script.structure, null);
     assert.equal(script.sourceIndex.schemaVersion, 'script-source-index/1');
 
     const listResponse = await server.inject({

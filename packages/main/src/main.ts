@@ -19,6 +19,7 @@ import { ExtractFactsStageRunner } from './breakdown/execution';
 import { PiExtractFactsStageExecutor } from './breakdown/pi-executor';
 import { MaasStageModelAdapter } from './breakdown/model-adapter';
 import { StoryboardService } from './breakdown/storyboard';
+import { ScriptParseService } from './breakdown/script-parse';
 import { NovelService } from './novel/service';
 import { PostgresNovelRepository } from './novel/repository';
 import { AssetService } from './assets/service';
@@ -210,6 +211,7 @@ async function main() {
   let breakdownService: BreakdownService | UnavailableBreakdownService | undefined;
   let stageRunner: ExtractFactsStageRunner | undefined;
   let storyboardService: StoryboardService | undefined;
+  let scriptParseService: ScriptParseService | undefined;
   let novelService: NovelService | undefined;
   let assetService: AssetService | undefined;
   let desktopAssetService: DesktopAssetService | undefined;
@@ -350,6 +352,9 @@ async function main() {
             new PiExtractFactsStageExecutor(), new MaasStageModelAdapter(config));
         }
         storyboardService = new StoryboardService(database, breakdownService, config);
+        if (await database.hasMigrations(['056'])) {
+          scriptParseService = new ScriptParseService(database, breakdownService, config);
+        }
       } else {
         breakdownService = new UnavailableBreakdownService(
           'PERSISTENCE_MIGRATION_REQUIRED',
@@ -788,6 +793,7 @@ async function main() {
     breakdownService,
     stageRunner,
     storyboardService,
+    scriptParseService,
     novelService,
     assetService,
     desktopAssetService,

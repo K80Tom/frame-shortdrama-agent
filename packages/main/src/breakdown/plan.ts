@@ -48,6 +48,13 @@ const CandidateDialogueSchema = Type.Object({
   sourceRef: SourceRefSchema,
 }, { additionalProperties: false });
 
+const DialogueExclusionSchema = Type.Object({
+  sourceRef: SourceRefSchema,
+  reason: Nonblank(500),
+}, { additionalProperties: false });
+const DialogueExclusionsSchema = Type.Array(DialogueExclusionSchema, { maxItems: 1_000 });
+export type DialogueExclusion = Static<typeof DialogueExclusionSchema>;
+
 export const CreateExtractFactsCandidateSchema = Type.Object({
   synopsis: Type.Union([Type.Null(), SourcedTextSchema]),
   characters: Type.Array(CandidateEntitySchema, { maxItems: 2_000 }),
@@ -55,6 +62,7 @@ export const CreateExtractFactsCandidateSchema = Type.Object({
   props: Type.Array(CandidateEntitySchema, { maxItems: 2_000 }),
   scenes: Type.Array(CandidateSceneSchema, { maxItems: 2_000 }),
   dialogues: Type.Array(CandidateDialogueSchema, { maxItems: 20_000 }),
+  dialogueExclusions: Type.Optional(DialogueExclusionsSchema),
 }, { additionalProperties: false });
 
 export type CreateExtractFactsCandidateRequest = Static<typeof CreateExtractFactsCandidateSchema>;
@@ -90,12 +98,13 @@ export interface PlanDialogue extends Omit<Static<typeof CandidateDialogueSchema
 }
 export interface ExtractFactsPlanContent {
   schemaVersion: typeof PLAN_CONTENT_SCHEMA_VERSION;
-  synopsis: SourcedText | null;
+  synopsis: PlanText | null;
   characters: PlanEntity[];
   locations: PlanEntity[];
   props: PlanEntity[];
   dialogues: PlanDialogue[];
   scenes: PlanScene[];
+  dialogueExclusions?: DialogueExclusion[];
   assetRequirements: [];
   manualLocks: EntityManualLock[];
 }
@@ -130,13 +139,14 @@ const EntityEditSchema = Type.Object({
 }, { additionalProperties: false });
 export const CreateEntityEditsSchema = Type.Object({
   expectedActivePlanRevisionId: Type.Union([Type.Null(), OpaqueId]),
-  edits: Type.Array(EntityEditSchema, { minItems: 1, maxItems: 6_000 }),
+  edits: Type.Array(EntityEditSchema, { minItems: 0, maxItems: 6_000 }),
+  synopsis: Type.Optional(Type.Union([Type.Null(), Nonblank(20_000)])),
 }, { additionalProperties: false });
 export type CreateEntityEditsRequest = Static<typeof CreateEntityEditsSchema>;
 
 const StoredContentSchema = Type.Object({
   schemaVersion: Type.Literal(PLAN_CONTENT_SCHEMA_VERSION),
-  synopsis: Type.Union([Type.Null(), SourcedTextSchema]),
+  synopsis: Type.Union([Type.Null(), PlanTextSchema]),
   characters: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
   locations: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
   props: Type.Array(PlanEntitySchema, { maxItems: 2_000 }),
@@ -152,6 +162,7 @@ const StoredContentSchema = Type.Object({
   }, { additionalProperties: false }), { maxItems: 20_000 }),
   assetRequirements: Type.Array(Type.Unknown(), { maxItems: 0 }),
   manualLocks: Type.Array(EntityManualLockSchema, { maxItems: 18_000 }),
+  dialogueExclusions: Type.Optional(DialogueExclusionsSchema),
 }, { additionalProperties: false });
 const ajv = new Ajv({ allErrors: false });
 const validateRequest = ajv.compile<CreateExtractFactsCandidateRequest>(CreateExtractFactsCandidateSchema);
@@ -166,15 +177,40 @@ export function parseCreateEntityEdits(value: unknown): CreateEntityEditsRequest
 }
 
 /** A local user correction, never a model call or an in-place rewrite. */
-export function materializeEntityEdits(base: ExtractFactsPlanContent, edits: CreateEntityEditsRequest["edits"], context: {
+function synopsisSourceRefs(base: ExtractFactsPlanContent, script: ScriptForPlanValidation): SourceRef[] {
+  const existing = base.synopsis?.sourceRefs;
+  if (existing?.length) return existing;
+  const sceneRef = base.scenes.find((scene) => scene.sourceRefs.length > 0)?.sourceRefs[0];
+  if (sceneRef) return [sceneRef];
+  const entityRef = [...base.characters, ...base.locations, ...base.props]
+    .find((entity) => entity.sourceRefs.length > 0)?.sourceRefs[0];
+  if (entityRef) return [entityRef];
+  const chars = Array.from(script.rawText);
+  const end = Math.min(chars.length, 200_000);
+  if (end < 1) invalid("剧本为空，无法保存梗概。");
+  return [{ scriptVersionId: script.id, start: 0, end, quote: chars.slice(0, end).join("") }];
+}
+
+export function materializeEntityEdits(base: ExtractFactsPlanContent, request: CreateEntityEditsRequest, context: {
   script: ScriptForPlanValidation; revisionId: string;
 }): ExtractFactsPlanContent {
-  parseCreateEntityEdits({ expectedActivePlanRevisionId: null, edits });
+  const { edits } = request;
+  parseCreateEntityEdits({ expectedActivePlanRevisionId: null, edits,
+    ...(request.synopsis === undefined ? {} : { synopsis: request.synopsis }) });
   validateStoredPlanContent(base, context.script);
   const content = structuredClone(base);
   const groups = { character: content.characters, location: content.locations, prop: content.props };
   const seen = new Set<string>();
   let changed = false;
+  if (request.synopsis !== undefined) {
+    const next = request.synopsis === null ? null : request.synopsis.trim();
+    if ((base.synopsis?.value ?? null) !== next) {
+      content.synopsis = next === null ? null : {
+        value: next, origin: "user", sourceRefs: cloneRefs(synopsisSourceRefs(base, context.script)), answerIds: [],
+      };
+      changed = true;
+    }
+  }
   for (const edit of edits) {
     if (seen.has(edit.entityId)) invalid("同一实体不能在一次校对中重复提交。");
     seen.add(edit.entityId);
@@ -295,6 +331,9 @@ export function materializeExtractFactsCandidate(input: CreateExtractFactsCandid
     scenes,
     assetRequirements: [],
     manualLocks: [],
+    dialogueExclusions: (input.dialogueExclusions ?? []).map((entry) => ({
+      sourceRef: { ...entry.sourceRef }, reason: entry.reason,
+    })),
   };
 }
 
@@ -331,7 +370,7 @@ export function validateStoredPlanContent(content: ExtractFactsPlanContent, scri
     description: entry.description ? { ...entry.description, origin: "source" } : null,
   });
   const candidate: CreateExtractFactsCandidateRequest = {
-    synopsis: content.synopsis,
+    synopsis: content.synopsis ? { ...content.synopsis, origin: "source" } : null,
     characters: content.characters.map(sourceEntity),
     locations: content.locations.map(sourceEntity),
     props: content.props.map(sourceEntity),
@@ -340,6 +379,9 @@ export function validateStoredPlanContent(content: ExtractFactsPlanContent, scri
     })),
     dialogues: content.dialogues.map(({ id, sceneId, speakerId, ...entry }) => ({
       tempId: id, sceneTempId: sceneId, speakerTempId: speakerId, ...entry,
+    })),
+    dialogueExclusions: (content.dialogueExclusions ?? []).map((entry) => ({
+      sourceRef: { ...entry.sourceRef }, reason: entry.reason,
     })),
   };
   if (!validateRequest(candidate)) invalid("已保存的候选计划结构无效。");
@@ -366,6 +408,13 @@ function validateCandidateSourceRefs(input: CreateExtractFactsCandidateRequest, 
     addValue(scene.title); addValue(scene.timeOfDay); refs.push(...scene.sourceRefs);
   }
   for (const dialogue of input.dialogues) refs.push(dialogue.sourceRef, ...dialogue.speakerSourceRefs);
+  for (const exclusion of input.dialogueExclusions ?? []) refs.push(exclusion.sourceRef);
+  const exclusionKeys = new Set<string>();
+  for (const exclusion of input.dialogueExclusions ?? []) {
+    const key = `${exclusion.sourceRef.start}:${exclusion.sourceRef.end}`;
+    if (exclusionKeys.has(key)) invalid("同一原文范围不能重复标记为非对白。");
+    exclusionKeys.add(key);
+  }
   for (const ref of refs) {
     if (ref.scriptVersionId !== script.id || ref.end <= ref.start) invalid("原文引用没有绑定当前剧本版本或范围无效。");
     let quote: string;

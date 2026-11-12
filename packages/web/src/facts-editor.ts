@@ -13,6 +13,7 @@ export type FactPlan = {
     synopsis: FactValue | null;
     scenes: Array<{ id: string; order: number; title: FactValue; sourceRefs: SourceRef[] }>;
     dialogues: Array<{ id: string; sceneId: string; speakerId: string | null; sourceRef: SourceRef }>;
+    dialogueExclusions?: Array<{ sourceRef: SourceRef; reason: string }>;
     manualLocks: Array<{ targetType: string; targetId: string | null; fields: string[]; introducedInRevisionId: string }>;
   };
 };
@@ -118,4 +119,22 @@ export function entityEvidence(entity: FactEntity): Array<{ ref: SourceRef; labe
 
 export function latestPlanForScript(plans: FactPlan[], scriptVersionId: string | null): FactPlan | null {
   return plans.filter(item => item.scriptVersionId === scriptVersionId).at(-1) ?? null;
+}
+
+/** 梗概是用户可直接补写的正式字段；比较时忽略首尾空白，保存前统一 trim。 */
+export function synopsisChanged(plan: Pick<FactPlan, 'content'> | null, draft: string): boolean {
+  if (!plan) return false;
+  return draft.trim() !== (plan.content.synopsis?.value ?? '');
+}
+
+export function synopsisDraftErrors(plan: Pick<FactPlan, 'content'> | null, draft: string): string[] {
+  if (!synopsisChanged(plan, draft)) return [];
+  const trimmed = draft.trim();
+  if (!trimmed) return ['剧情梗概不能为空。'];
+  if (Array.from(trimmed).length > 20_000) return ['剧情梗概不能超过 20,000 字。'];
+  return [];
+}
+
+export function synopsisEditValue(plan: Pick<FactPlan, 'content'> | null, draft: string): string | undefined {
+  return synopsisChanged(plan, draft) ? draft.trim() : undefined;
 }

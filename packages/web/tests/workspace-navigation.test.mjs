@@ -40,6 +40,11 @@ test('project workspace links preserve the project identity and normalize flow s
   assert.deepEqual(routeFromHash('#/projects/project_test/assets'), {
     page: 'projects', step: 1, projectId: 'project_test', projectSection: 'assets',
   });
+  for (const panel of ['script-parse', 'script-structure']) {
+    assert.deepEqual(routeFromHash(`#/projects/project_test/${panel}`), {
+      page: 'projects', step: 1, projectId: 'project_test', projectSection: panel,
+    });
+  }
   assert.deepEqual(routeFromHash('#/projects/%broken/overview'), { page: 'projects', step: 1 });
   assert.deepEqual(routeFromHash('#/projects/project_test/unknown'), {
     page: 'projects', step: 1, projectId: 'project_test', projectSection: 'overview',
@@ -89,6 +94,21 @@ test('a clean item switch is committed and an identical editor location does not
   assert.equal(applyHashNavigation(current, next, options), next);
   assert.equal(committed, next.route);
   assert.equal(applyHashNavigation(current, current, { ...options, hasUnsavedNovel: true }), current);
+});
+
+test('dirty saved structure is protected when switching back to parse center', () => {
+  const current = { route: routeFromHash('#/projects/project_one/script-structure'), hash: '#/projects/project_one/script-structure' };
+  const hash = '#/projects/project_one/script-parse';
+  const next = { route: routeFromHash(hash), hash };
+  const restored = [];
+  const result = applyHashNavigation(current, next, {
+    hasUnsavedProduction: true,
+    confirmLeave: () => false,
+    restoreHash: value => restored.push(value),
+    commitRoute: () => assert.fail('dirty structure must not be unmounted without confirmation'),
+  });
+  assert.equal(result, current);
+  assert.deepEqual(restored, [current.hash]);
 });
 
 test('switching project workspace section or project protects a dirty mapped editor', () => {
