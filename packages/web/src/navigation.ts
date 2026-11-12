@@ -1,7 +1,7 @@
 import { BookOpen, Box, Clapperboard, FileText, Film, FolderOpen, House, Images, Network, Settings2, Sparkles, Wand2, Workflow } from 'lucide-react';
 import type { Page } from './model';
 import type { NovelAdaptationResult } from '@lyra/shared';
-import { parseProjectFlowSection, type ProjectFlowSection } from './project-flow';
+import { parseProjectWorkspaceSection, type ProjectWorkspaceSection } from './project-flow';
 
 export const workspaceNavigation = [
   { id: 'studio' as Page, label: '工作台', en: 'Workspace', icon: House },
@@ -36,9 +36,9 @@ export type WorkspaceRoute = {
   resourceId?: string;
   screenplay?: NovelAdaptationResult;
   projectId?: string;
-  projectSection?: ProjectSection | ProjectFlowSection;
+  projectSection?: ProjectSection | ProjectWorkspaceSection;
 };
-export function projectWorkspaceHash(projectId: string, section: ProjectSection): string {
+export function projectWorkspaceHash(projectId: string, section: ProjectSection | ProjectWorkspaceSection): string {
   return `#/projects/${encodeURIComponent(projectId)}/${section}`;
 }
 export function screenplayProductionHash(value: NovelAdaptationResult): string {
@@ -54,7 +54,7 @@ export function routeFromHash(hash: string): WorkspaceRoute {
   if (project) {
     try {
       const projectId = decodeURIComponent(project[1]!);
-      const projectSection = parseProjectFlowSection(project[2]) ?? 'overview';
+      const projectSection = parseProjectWorkspaceSection(project[2]) ?? 'overview';
       return { page: 'projects', step: 1, projectId, projectSection };
     } catch { return { page: 'projects', step: 1 }; }
   }

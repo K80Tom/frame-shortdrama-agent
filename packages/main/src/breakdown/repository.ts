@@ -192,7 +192,7 @@ export interface BreakdownRepository {
   savePlanCheck(check: PlanCheckRecord, issues: PlanIssueRecord[]): Promise<PlanCheckRecord>;
   listPlanChecks(planRevisionId: string): Promise<PlanCheckRecord[]>;
   listPlanIssues(checkId: string): Promise<PlanIssueRecord[]>;
-  adoptPlan(input: PlanAdoptionRecord): Promise<PlanAdoptionRecord>;
+  adoptPlan(input: PlanAdoptionRecord, options?: { allowCheckWarnings?: boolean }): Promise<PlanAdoptionRecord>;
   beginAttempt(input: {
     id: string; runId: string; taskId: string; promptVersion: string;
     executorVersion: string; inputDigest: string; startedAt: string;
@@ -643,7 +643,7 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
     return result.rows.map(toIssue);
   }
 
-  async adoptPlan(input: PlanAdoptionRecord): Promise<PlanAdoptionRecord> {
+  async adoptPlan(input: PlanAdoptionRecord, options?: { allowCheckWarnings?: boolean }): Promise<PlanAdoptionRecord> {
     return this.database.transaction(async (client) => {
       const project = await client.query<ProjectRow>(`
         SELECT ${projectColumns} FROM projects WHERE id = $1 FOR UPDATE
@@ -657,13 +657,18 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
         SELECT p.id FROM plan_revisions p
         JOIN plan_checks c ON c.plan_revision_id = p.id
         WHERE p.id = $1 AND p.project_id = $2 AND p.script_version_id = $3
-          AND c.id = $4 AND c.result = 'passed' AND c.rule_version = $5
+          AND c.id = $4 AND c.rule_version = $5
           AND p.id = (SELECT latest.id FROM plan_revisions latest
             WHERE latest.project_id = p.project_id AND latest.script_version_id = p.script_version_id
             ORDER BY latest.revision_order DESC LIMIT 1)
-          AND NOT EXISTS (SELECT 1 FROM plan_issues i WHERE i.check_id = c.id AND i.blocking)
+          AND (
+            (c.result = 'passed' AND NOT EXISTS (
+              SELECT 1 FROM plan_issues i WHERE i.check_id = c.id AND i.blocking
+            ))
+            OR ($6::boolean AND c.result = 'failed')
+          )
       `, [input.toRevisionId, input.projectId, current.current_script_version_id,
-        input.checkId, FACT_CHECK_RULE_VERSION]);
+        input.checkId, FACT_CHECK_RULE_VERSION, options?.allowCheckWarnings === true]);
       if (!eligibility.rows[0]) {
         throw conflict("PLAN_NOT_ADOPTABLE", "候选计划未通过当前检查、与当前剧本不一致，或已有更新候选；请刷新后重新检查。");
       }
@@ -1019,7 +1024,7 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
       .sort((a, b) => a.id.localeCompare(b.id)).map(clone);
   }
 
-  async adoptPlan(input: PlanAdoptionRecord): Promise<PlanAdoptionRecord> {
+  async adoptPlan(input: PlanAdoptionRecord, options?: { allowCheckWarnings?: boolean }): Promise<PlanAdoptionRecord> {
     const project = this.projects.get(input.projectId);
     if (!project) throw notFound("PROJECT_NOT_FOUND", "项目不存在。");
     if (project.activePlanRevisionId !== input.fromRevisionId) {
@@ -1031,10 +1036,12 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
       && entry.scriptVersionId === project.currentScriptVersionId).at(-1);
     if (!plan || plan.projectId !== project.id || plan.scriptVersionId !== project.currentScriptVersionId
       || latest?.id !== plan.id
-      || !check || check.planRevisionId !== plan.id || check.result !== "passed"
+      || !check || check.planRevisionId !== plan.id
+      || !(check.result === "passed" || (check.result === "failed" && options?.allowCheckWarnings === true))
       || check.ruleVersion !== FACT_CHECK_RULE_VERSION
-      || [...this.issues.values()].some((issue) => issue.checkId === check.id && issue.blocking)) {
-      throw conflict("PLAN_NOT_ADOPTABLE", "候选计划未通过当前检查、与当前剧本不一致，或已有更新候选；请刷新后重新检查。");
+      || (check.result === "passed"
+        && [...this.issues.values()].some((issue) => issue.checkId === check.id && issue.blocking))) {
+      throw conflict("PLAN_NOT_ADOPTABLE", "候选计划检查状态无效、与当前剧本不一致，或已有更新候选；请刷新后重新检查。");
     }
     this.adoptions.set(input.id, clone(input));
     project.activePlanRevisionId = plan.id;

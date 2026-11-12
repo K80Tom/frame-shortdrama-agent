@@ -192,6 +192,49 @@ if (!process.env.DATABASE_URL) {
       await database.close();
     }
   });
+
+  test('PostgreSQL adopts a failed-check candidate only after explicit user warning acknowledgement', async () => {
+    const database = new PostgresDatabase(readDatabaseConfig());
+    let projectId;
+    try {
+      const service = new BreakdownService(new PostgresBreakdownRepository(database), modelConfig);
+      const project = await service.createProject({ title: `db-warning-adoption-${randomUUID()}` });
+      projectId = project.id;
+      const script = await service.createScriptVersion(project.id, { rawText: '第1场 走廊 夜 内\n林晚：你终于来了。' });
+      const run = await service.createDraftRun(project.id, {
+        maxModelCalls: 1, maxOutputTokens: 4096, requirements: { language: '中文' },
+      });
+      const heading = ref(script.id, script.rawText, '第1场 走廊 夜 内');
+      const dialogue = ref(script.id, script.rawText, '林晚：你终于来了。');
+      const plan = await service.createExtractFactsCandidate(run.id, {
+        synopsis: sourced('林晚在走廊说话。', [dialogue]),
+        characters: [{ tempId: 'tmp_lin', name: sourced('林晚', [dialogue]), aliases: [], description: null, sourceRefs: [dialogue] }],
+        locations: [], props: [],
+        scenes: [{ tempId: 'tmp_scene', order: 1, title: sourced('走廊', [heading, dialogue]),
+          locationTempId: null, characterTempIds: ['tmp_lin'], sourceRefs: [heading, dialogue], timeOfDay: null }],
+        dialogues: [],
+      });
+      const failed = await service.checkPlan(plan.id);
+      assert.equal(failed.check.result, 'failed');
+      await assert.rejects(service.adoptPlan(project.id, {
+        planRevisionId: plan.id, checkId: failed.check.id, expectedActivePlanRevisionId: null,
+      }), error => error.code === 'PLAN_NOT_ADOPTABLE');
+      await assert.rejects(service.adoptPlan(project.id, {
+        planRevisionId: plan.id, checkId: failed.check.id, expectedActivePlanRevisionId: null,
+        allowCheckWarnings: true, actor: 'agent',
+      }), error => error.code === 'PLAN_NOT_ADOPTABLE');
+      const adopted = await service.adoptPlan(project.id, {
+        planRevisionId: plan.id, checkId: failed.check.id, expectedActivePlanRevisionId: null,
+        allowCheckWarnings: true, actor: 'user',
+      });
+      assert.equal(adopted.checkId, failed.check.id);
+      assert.equal((await service.getProject(project.id)).activePlanRevisionId, plan.id);
+      assert.ok((await service.listPlanIssues(failed.check.id)).length > 0, 'warning acknowledgement must not rewrite the audit issues');
+    } finally {
+      if (projectId) await database.query('DELETE FROM projects WHERE id = $1', [projectId]);
+      await database.close();
+    }
+  });
 }
 
 function ref(scriptVersionId, rawText, quote) {

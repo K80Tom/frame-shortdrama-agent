@@ -4,6 +4,8 @@
  * 归一到主链区段，不出现 404；App.tsx 的接线由 TL 在集成 worktree 完成。
  */
 export type ProjectFlowSection = 'overview' | 'script' | 'assets' | 'storyboard' | 'canvas' | 'production';
+export type ScriptWorkspacePanel = 'parse' | 'structure';
+export type ProjectWorkspaceSection = ProjectFlowSection | 'script-parse' | 'script-structure';
 
 export interface ProjectFlowSectionMeta {
   id: ProjectFlowSection;
@@ -28,11 +30,13 @@ export const LEGACY_SECTION_ALIAS: Record<string, ProjectFlowSection> = {
   review: 'production',
   history: 'production',
   director: 'storyboard',
+  'script-parse': 'script',
+  'script-structure': 'script',
 };
 
 const FLOW_SECTION_IDS = new Set<string>(PROJECT_FLOW_SECTIONS.map(item => item.id));
 
-export function projectFlowHash(projectId: string, section: ProjectFlowSection): string {
+export function projectFlowHash(projectId: string, section: ProjectWorkspaceSection): string {
   return `#/projects/${encodeURIComponent(projectId)}/${section}`;
 }
 
@@ -43,4 +47,19 @@ export function parseProjectFlowSection(value: string | undefined | null): Proje
   if (!value) return null;
   if (FLOW_SECTION_IDS.has(value)) return value as ProjectFlowSection;
   return LEGACY_SECTION_ALIAS[value] ?? null;
+}
+
+/** 解析中心与剧本结构使用独立 URL；旧 script 链接默认进入解析中心。 */
+export function parseProjectWorkspaceSection(value: string | undefined | null): ProjectWorkspaceSection | null {
+  if (value === 'script-parse' || value === 'script-structure') return value;
+  return parseProjectFlowSection(value);
+}
+
+export function scriptWorkspacePanel(value: string | undefined | null): ScriptWorkspacePanel {
+  return value === 'script-structure' ? 'structure' : 'parse';
+}
+
+/** 两个剧本子页共享动画 key，避免切换时卸载整个工作区并丢失修复上下文。 */
+export function projectWorkspaceMotionSection(value: string | undefined | null): string {
+  return value === 'script-parse' || value === 'script-structure' ? 'script' : value ?? '';
 }

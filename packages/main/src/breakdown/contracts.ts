@@ -80,6 +80,7 @@ const AdoptPlanSchema = Type.Object({
   planRevisionId: OpaqueIdSchema,
   checkId: OpaqueIdSchema,
   expectedActivePlanRevisionId: Type.Union([Type.Null(), OpaqueIdSchema]),
+  allowCheckWarnings: Type.Optional(Type.Literal(true)),
 }, { additionalProperties: false });
 export type AdoptPlanRequest = Static<typeof AdoptPlanSchema>;
 const validateAdoptPlan = ajv.compile<AdoptPlanRequest>(AdoptPlanSchema);

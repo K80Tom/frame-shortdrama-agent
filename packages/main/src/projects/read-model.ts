@@ -77,7 +77,7 @@ export function decideNextAction(state: WorkflowState): NextAction | null {
       && state.latestCheck.ruleVersion === FACT_CHECK_RULE_VERSION);
     if (!checkPassed) {
       return { id: 'review-facts', label: '核对事实候选', detail: state.latestCheck
-        ? `候选事实存在 ${state.openIssueCount} 项待处理问题，请核对后重新校验。`
+        ? `候选事实存在 ${state.openIssueCount} 项校验提示；可修复、忽略，或确认警告后采用。`
         : '候选事实尚未运行程序校验，请核对原文证据后校验。', section: 'script' };
     }
     return { id: 'adopt-facts', label: '采用事实版本', detail: '校验已通过，人工核对语义后采用这版事实。', section: 'script' };

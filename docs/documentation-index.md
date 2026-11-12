@@ -1,6 +1,6 @@
 # 文档有效性目录
 
-最后盘点：2026-11-09；适用源码快照：`dev b264844`，加本 PR 文档增量。下表“最后修改”由 `git log -1 origin/dev -- <文件>` 查询，不是验收日期，也不表示该文件所有说法已重新验证。
+最后盘点：2026-11-12；适用源码快照：`dev 2470f90`，加本 PR 文档增量。下表“最后修改”由 `git log -1 origin/dev -- <文件>` 查询，不是验收日期，也不表示该文件所有说法已重新验证。
 
 当前工程/分支/审查安全规范以[根 AGENTS.md](../AGENTS.md)为准，能力边界以[功能台账](feature-status.md)分层记录；[生产架构路线](production-architecture-roadmap.md)是目标规范，不将未完成部署和故障演练写成现状。已有设计文档中的产品目标、技术候选与真实验收必须分别理解。
 
@@ -8,7 +8,7 @@
 
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
-| [项目工作区读模型](project-workspace.md) | 2026-11-11 / 本 PR | `feat/ux-182-project-flow`（基于 dev 36ede58） | #182 六区段、两个只读接口、nextAction 与边界；桩仓储+HTTP 测试，未验真实 PG/浏览器 |
+| [项目工作区读模型](project-workspace.md) | 2026-11-12 / 本 PR | `fix/script-parse-feedback`（基于 dev 2470f90） | #182 六区段、结构化剧本、AI 解析与历史、对白修复和警告后采用；含真实 PostgreSQL 定向与隔离浏览器桩验收，未验真实付费供应商 |
 | [项目入口收敛](project-entrypoints.md) | 2026-11-11 / 本 PR | `feat/project-entrypoints`（基于 dev df976eb） | #181 导航/新建/旧路由；真实浏览器+模拟 HTTP，不代表 #180 整体闭环 |
 | [异构媒体预设协议拦截](media-preset-protocol-containment.md) | 2026-11-11 / 本 PR | `fix/media-preset-protocol-guard`（基于 dev df976eb） | #174 执行绑定/v3 升级/匹配路由及冻结能力校验；未验真实供应商，其他预设仍不可执行 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前工程/分支/安全与真人审批规范；本 PR 不修改它 |

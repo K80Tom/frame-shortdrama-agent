@@ -5,7 +5,10 @@ import {
 } from 'lucide-react';
 import type { Draft } from './model';
 import type { ProjectSection } from './navigation';
-import { parseProjectFlowSection, projectFlowHash, PROJECT_FLOW_SECTIONS, type ProjectFlowSection } from './project-flow';
+import {
+  parseProjectFlowSection, parseProjectWorkspaceSection, projectFlowHash, scriptWorkspacePanel,
+  PROJECT_FLOW_SECTIONS, type ProjectFlowSection, type ProjectWorkspaceSection, type ScriptWorkspacePanel,
+} from './project-flow';
 import type { ProjectWorkspaceOverview } from '@lyra/shared';
 import { fetchProjectWorkspaceOverview } from './project-workspace-api';
 import {
@@ -20,7 +23,7 @@ import './project-workspace.css';
 type WorkspaceViewProps = { projectId: string; draft: Draft };
 type ProjectWorkspaceProps = WorkspaceViewProps & {
   /** 接受既有 ProjectSection 与新区段 ProjectFlowSection；旧区段由 parseProjectFlowSection 归一。 */
-  section: ProjectSection | ProjectFlowSection;
+  section: ProjectSection | ProjectWorkspaceSection;
   /** 正式剧本工作区的未保存状态上报给 App 的 hash 守卫。 */
   onUnsavedChange?: (dirty: boolean) => void;
   children: ReactNode;
@@ -57,13 +60,13 @@ function fallbackEntry(projectId: string, draft: Draft): ProjectEntry {
 }
 
 /** 新主链区段的内部渲染；practice 项目与画布/制作区段继续使用 children。 */
-function sectionBody({ projectId, flowSection, practice, children, onUnsavedChange }: {
-  projectId: string; flowSection: ProjectFlowSection; practice: boolean; children: ReactNode;
+function sectionBody({ projectId, flowSection, scriptPanel, practice, children, onUnsavedChange }: {
+  projectId: string; flowSection: ProjectFlowSection; scriptPanel: ScriptWorkspacePanel; practice: boolean; children: ReactNode;
   onUnsavedChange?: (dirty: boolean) => void;
 }) {
   if (practice) return children;
   switch (flowSection) {
-    case 'script': return <ProjectScriptWorkspace projectId={projectId} onUnsavedChange={onUnsavedChange} />;
+    case 'script': return <ProjectScriptWorkspace projectId={projectId} panel={scriptPanel} onUnsavedChange={onUnsavedChange} />;
     case 'assets': return <ProjectAssetsWorkspace projectId={projectId} />;
     case 'storyboard': return <ProjectStoryboardWorkspace projectId={projectId} />;
     default: return children;
@@ -75,6 +78,7 @@ export default function ProjectWorkspace({ projectId, section, draft, children, 
   const entry = catalog.entries.find(item => item.id === projectId) ?? fallbackEntry(projectId, draft);
   const summary = catalog.projects.items.find(item => item.id === projectId);
   const flowSection = parseProjectFlowSection(section) ?? 'overview';
+  const scriptPanel = scriptWorkspacePanel(parseProjectWorkspaceSection(section));
   const practice = projectId === 'local-practice';
   const current = PROJECT_FLOW_SECTIONS.find(item => item.id === flowSection)!;
   const Icon = sectionIcons[flowSection];
@@ -108,7 +112,7 @@ export default function ProjectWorkspace({ projectId, section, draft, children, 
           <div className="project-save-state"><span /><div><strong>{entry.kind === 'practice' ? '保存在本浏览器（练习用，不用于正式制作）' : '项目数据已同步'}</strong><small>{formatProjectDate(entry.date)}</small></div></div>
         </header>
         <div className={`project-workspace-content project-section-${flowSection}`}>
-          {sectionBody({ projectId, flowSection, practice, children, onUnsavedChange })}
+          {sectionBody({ projectId, flowSection, scriptPanel, practice, children, onUnsavedChange })}
         </div>
       </div>
     </section>

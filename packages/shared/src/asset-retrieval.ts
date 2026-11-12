@@ -57,7 +57,14 @@ export function freezeAssetRetrievalPolicy(
   };
 }
 
-/** Legacy runs and a registry with no adoption both retain this exact baseline. */
-export const DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY: Readonly<FrozenAssetRetrievalPolicy> = Object.freeze(
-  freezeAssetRetrievalPolicy(DEFAULT_ASSET_RETRIEVAL_POLICY),
-);
+/** Legacy runs and a registry with no adoption both retain this exact baseline.
+ * The canonical digest is frozen so browser bundles do not execute Node's crypto at module load.
+ * A Node regression test asserts it stays equal to assetRetrievalPolicyDigest(DEFAULT_ASSET_RETRIEVAL_POLICY).
+ */
+export const DEFAULT_FROZEN_ASSET_RETRIEVAL_POLICY: Readonly<FrozenAssetRetrievalPolicy> = Object.freeze({
+  ...DEFAULT_ASSET_RETRIEVAL_POLICY,
+  schemaVersion: ASSET_RETRIEVAL_POLICY_SCHEMA_VERSION,
+  registryRevision: 0,
+  policyDigest: 'bacf3bf4e0496a1689085131805d1d5bb80a63ede9d0f59e14abc95dc98ce87f',
+  sourceCandidateId: null,
+});

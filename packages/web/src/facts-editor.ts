@@ -13,6 +13,7 @@ export type FactPlan = {
     synopsis: FactValue | null;
     scenes: Array<{ id: string; order: number; title: FactValue; sourceRefs: SourceRef[] }>;
     dialogues: Array<{ id: string; sceneId: string; speakerId: string | null; sourceRef: SourceRef }>;
+    dialogueExclusions?: Array<{ sourceRef: SourceRef; reason: string }>;
     manualLocks: Array<{ targetType: string; targetId: string | null; fields: string[]; introducedInRevisionId: string }>;
   };
 };

@@ -48,6 +48,13 @@ const CandidateDialogueSchema = Type.Object({
   sourceRef: SourceRefSchema,
 }, { additionalProperties: false });
 
+const DialogueExclusionSchema = Type.Object({
+  sourceRef: SourceRefSchema,
+  reason: Nonblank(500),
+}, { additionalProperties: false });
+const DialogueExclusionsSchema = Type.Array(DialogueExclusionSchema, { maxItems: 1_000 });
+export type DialogueExclusion = Static<typeof DialogueExclusionSchema>;
+
 export const CreateExtractFactsCandidateSchema = Type.Object({
   synopsis: Type.Union([Type.Null(), SourcedTextSchema]),
   characters: Type.Array(CandidateEntitySchema, { maxItems: 2_000 }),
@@ -55,6 +62,7 @@ export const CreateExtractFactsCandidateSchema = Type.Object({
   props: Type.Array(CandidateEntitySchema, { maxItems: 2_000 }),
   scenes: Type.Array(CandidateSceneSchema, { maxItems: 2_000 }),
   dialogues: Type.Array(CandidateDialogueSchema, { maxItems: 20_000 }),
+  dialogueExclusions: Type.Optional(DialogueExclusionsSchema),
 }, { additionalProperties: false });
 
 export type CreateExtractFactsCandidateRequest = Static<typeof CreateExtractFactsCandidateSchema>;
@@ -96,6 +104,7 @@ export interface ExtractFactsPlanContent {
   props: PlanEntity[];
   dialogues: PlanDialogue[];
   scenes: PlanScene[];
+  dialogueExclusions?: DialogueExclusion[];
   assetRequirements: [];
   manualLocks: EntityManualLock[];
 }
@@ -153,6 +162,7 @@ const StoredContentSchema = Type.Object({
   }, { additionalProperties: false }), { maxItems: 20_000 }),
   assetRequirements: Type.Array(Type.Unknown(), { maxItems: 0 }),
   manualLocks: Type.Array(EntityManualLockSchema, { maxItems: 18_000 }),
+  dialogueExclusions: Type.Optional(DialogueExclusionsSchema),
 }, { additionalProperties: false });
 const ajv = new Ajv({ allErrors: false });
 const validateRequest = ajv.compile<CreateExtractFactsCandidateRequest>(CreateExtractFactsCandidateSchema);
@@ -321,6 +331,9 @@ export function materializeExtractFactsCandidate(input: CreateExtractFactsCandid
     scenes,
     assetRequirements: [],
     manualLocks: [],
+    dialogueExclusions: (input.dialogueExclusions ?? []).map((entry) => ({
+      sourceRef: { ...entry.sourceRef }, reason: entry.reason,
+    })),
   };
 }
 
@@ -367,6 +380,9 @@ export function validateStoredPlanContent(content: ExtractFactsPlanContent, scri
     dialogues: content.dialogues.map(({ id, sceneId, speakerId, ...entry }) => ({
       tempId: id, sceneTempId: sceneId, speakerTempId: speakerId, ...entry,
     })),
+    dialogueExclusions: (content.dialogueExclusions ?? []).map((entry) => ({
+      sourceRef: { ...entry.sourceRef }, reason: entry.reason,
+    })),
   };
   if (!validateRequest(candidate)) invalid("已保存的候选计划结构无效。");
   let ordinal = 0;
@@ -392,6 +408,13 @@ function validateCandidateSourceRefs(input: CreateExtractFactsCandidateRequest, 
     addValue(scene.title); addValue(scene.timeOfDay); refs.push(...scene.sourceRefs);
   }
   for (const dialogue of input.dialogues) refs.push(dialogue.sourceRef, ...dialogue.speakerSourceRefs);
+  for (const exclusion of input.dialogueExclusions ?? []) refs.push(exclusion.sourceRef);
+  const exclusionKeys = new Set<string>();
+  for (const exclusion of input.dialogueExclusions ?? []) {
+    const key = `${exclusion.sourceRef.start}:${exclusion.sourceRef.end}`;
+    if (exclusionKeys.has(key)) invalid("同一原文范围不能重复标记为非对白。");
+    exclusionKeys.add(key);
+  }
   for (const ref of refs) {
     if (ref.scriptVersionId !== script.id || ref.end <= ref.start) invalid("原文引用没有绑定当前剧本版本或范围无效。");
     let quote: string;

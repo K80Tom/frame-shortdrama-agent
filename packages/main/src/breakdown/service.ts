@@ -69,6 +69,8 @@ export interface BreakdownServicePort {
     planRevisionId: string; checkId: string; expectedActivePlanRevisionId: string | null;
     /** Internal production orchestration may adopt a program-checked candidate. HTTP callers never set this field. */
     actor?: "user" | "agent";
+    /** Explicit human acknowledgement of a current failed check; automated agents cannot use it. */
+    allowCheckWarnings?: boolean;
   }): Promise<PlanAdoptionRecord>;
 }
 
@@ -350,6 +352,8 @@ export class BreakdownService implements BreakdownServicePort {
   async adoptPlan(projectId: string, input: {
     planRevisionId: string; checkId: string; expectedActivePlanRevisionId: string | null;
     actor?: "user" | "agent";
+    /** Explicit human acknowledgement of a current failed check; automated agents cannot use it. */
+    allowCheckWarnings?: boolean;
   }): Promise<PlanAdoptionRecord> {
     const actor = input.actor ?? "user";
     if (actor !== "user" && actor !== "agent") {
@@ -359,15 +363,17 @@ export class BreakdownService implements BreakdownServicePort {
     if (plan.projectId !== projectId) throw new BreakdownError(404, "PLAN_REVISION_NOT_FOUND", "候选计划不属于该项目。");
     const checks = await this.repository.listPlanChecks(plan.id);
     const check = checks.find((entry) => entry.id === input.checkId);
-    if (!check || check.result !== "passed" || check.ruleVersion !== FACT_CHECK_RULE_VERSION
+    const allowCheckWarnings = input.allowCheckWarnings === true && actor === "user";
+    const outcomeAccepted = check?.result === "passed" || (check?.result === "failed" && allowCheckWarnings);
+    if (!check || !outcomeAccepted || check.ruleVersion !== FACT_CHECK_RULE_VERSION
       || check.contentDigest !== canonicalJsonSha256(plan.content)) {
-      throw new BreakdownError(409, "PLAN_NOT_ADOPTABLE", "候选计划没有通过当前规则检查。");
+      throw new BreakdownError(409, "PLAN_NOT_ADOPTABLE", "候选计划没有通过当前规则检查；如接受警告，需由用户明确确认后继续。");
     }
     return this.repository.adoptPlan({
       id: this.nextId("adoption"), projectId,
       fromRevisionId: input.expectedActivePlanRevisionId,
       toRevisionId: plan.id, checkId: check.id, actor, createdAt: this.timestamp(),
-    });
+    }, { allowCheckWarnings });
   }
 
   private async requireProject(projectId: string): Promise<ProjectRecord> {
@@ -417,6 +423,8 @@ export class UnavailableBreakdownService implements BreakdownServicePort {
   async adoptPlan(_: string, __: {
     planRevisionId: string; checkId: string; expectedActivePlanRevisionId: string | null;
     actor?: "user" | "agent";
+    /** Explicit human acknowledgement of a current failed check; automated agents cannot use it. */
+    allowCheckWarnings?: boolean;
   }): Promise<PlanAdoptionRecord> { return this.unavailable(); }
 
   private unavailable(): never {

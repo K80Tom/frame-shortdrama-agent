@@ -31,3 +31,12 @@ test('issue cards show the field path, object, expected value, actual value and 
 test('an empty issue list renders nothing', () => {
   assert.equal(renderToStaticMarkup(createElement(PlanIssueList, { issues: [] })), '');
 });
+
+test('issue cards can expose scoped repair actions without changing other consumers', () => {
+  const html = renderToStaticMarkup(createElement(PlanIssueList, {
+    issues: [{ id: 'issue_1', code: 'DIALOGUE_MISSING', message: '缺少对白。', sourceRefs: [{ quote: '原文对白' }] }],
+    renderActions: issue => createElement('button', { type: 'button' }, `修复 ${issue.code}`),
+  }));
+  assert.match(html, /plan-issue-actions/);
+  assert.match(html, /修复 DIALOGUE_MISSING/);
+});

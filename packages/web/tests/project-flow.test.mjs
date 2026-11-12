@@ -33,6 +33,19 @@ test('parseProjectFlowSection：新区段直出、旧区段归一、非法值返
   assert.equal(flow.parseProjectFlowSection(''), null);
 });
 
+test('AI 解析中心与剧本结构拥有独立且可恢复的路由', () => {
+  assert.equal(flow.projectFlowHash('project_demo', 'script-parse'), '#/projects/project_demo/script-parse');
+  assert.equal(flow.projectFlowHash('project_demo', 'script-structure'), '#/projects/project_demo/script-structure');
+  assert.equal(flow.parseProjectWorkspaceSection('script-parse'), 'script-parse');
+  assert.equal(flow.parseProjectWorkspaceSection('script-structure'), 'script-structure');
+  assert.equal(flow.parseProjectWorkspaceSection('script'), 'script');
+  assert.equal(flow.parseProjectFlowSection('script-parse'), 'script');
+  assert.equal(flow.parseProjectFlowSection('script-structure'), 'script');
+  assert.equal(flow.projectWorkspaceMotionSection('script-parse'), 'script');
+  assert.equal(flow.projectWorkspaceMotionSection('script-structure'), 'script');
+  assert.equal(flow.projectWorkspaceMotionSection('assets'), 'assets');
+});
+
 test('旧 hash 经别名归一不出现 404：App 传入 legacy section 时也能落到主链区段', () => {
   // 模拟 App.tsx 现状传入的 ProjectSection 值。
   for (const legacy of ['overview', 'source', 'screenplay', 'storyboard', 'canvas', 'director', 'production', 'review', 'history']) {

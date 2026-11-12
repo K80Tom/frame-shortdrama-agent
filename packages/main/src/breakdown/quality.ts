@@ -115,7 +115,9 @@ export function inspectExtractFactsPlan(plan: PlanRevisionRecord, sourceIndex: S
         [dialogue.sourceRef], dialogue.sceneId, "storyAmbiguity");
     }
   }
-  const dialogueSpans = sourceIndex.spans.filter((span) => span.kind === "dialogueTurnCandidate");
+  const exclusions = content.dialogueExclusions ?? [];
+  const dialogueSpans = sourceIndex.spans.filter((span) => span.kind === "dialogueTurnCandidate"
+    && !exclusions.some((entry) => entry.sourceRef.start === span.start && entry.sourceRef.end === span.end));
   for (const span of dialogueSpans) {
     const covering = content.dialogues.filter((dialogue) => contains(span, dialogue.sourceRef));
     const spanPath = `/sourceSpans/${span.start}:${span.end}`;

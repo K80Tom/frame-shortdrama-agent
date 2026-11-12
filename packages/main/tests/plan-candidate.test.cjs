@@ -227,6 +227,27 @@ test('P0.5 records blocking issues and adopts only a checked current-script cand
   }), (error) => error.code === 'PLAN_NOT_ADOPTABLE');
 });
 
+test('P0.5 allows a user to adopt after explicitly acknowledging failed-check warnings', async () => {
+  const { repository, service } = fixture();
+  const { project, script, run } = await prepared(service);
+  const incomplete = candidate(script);
+  incomplete.dialogues = [];
+  const plan = await service.createExtractFactsCandidate(run.id, incomplete);
+  const failed = await service.checkPlan(plan.id);
+  assert.equal(failed.check.result, 'failed');
+  await assert.rejects(service.adoptPlan(project.id, {
+    planRevisionId: plan.id, checkId: failed.check.id, expectedActivePlanRevisionId: null,
+    allowCheckWarnings: true, actor: 'agent',
+  }), (error) => error.code === 'PLAN_NOT_ADOPTABLE');
+  const adopted = await service.adoptPlan(project.id, {
+    planRevisionId: plan.id, checkId: failed.check.id, expectedActivePlanRevisionId: null,
+    allowCheckWarnings: true, actor: 'user',
+  });
+  assert.equal(adopted.checkId, failed.check.id);
+  assert.equal((await repository.getProject(project.id)).activePlanRevisionId, plan.id);
+  assert.ok((await service.listPlanIssues(failed.check.id)).some(issue => issue.status === 'open'));
+});
+
 test('P0.5 rejects truncated dialogue even when its source quote and offsets are valid', async () => {
   for (const quote of ['你', '终于来了。🙂', '你终于来了。', '你终于来了']) {
     const { service } = fixture();

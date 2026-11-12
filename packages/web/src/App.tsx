@@ -9,7 +9,7 @@ import ProjectEntryPicker from './ProjectEntryPicker';
 import './project-entrypoints.css';
 import AssetWorkspace from './AssetWorkspace';
 import { advancedNavigation, commands, navigationHash, workspaceNavigation, routeFromHash } from './navigation';
-import { projectFlowHash } from './project-flow';
+import { projectFlowHash, projectWorkspaceMotionSection } from './project-flow';
 import { readDraft, saveDraft, type Draft, type Page } from './model';
 import ProductionPage from './production';
 import NovelBreakdown from './NovelBreakdown';
@@ -140,6 +140,7 @@ export default function App() {
     label: activeProjectId ? `项目 ${activeProjectId}` : current.label,
     ...(activeProjectId ? { projectId: activeProjectId } : {}),
   };
+  const projectMotionSection = projectWorkspaceMotionSection(route.projectSection);
   const projectContent = route.projectId && route.projectSection ? route.projectId === 'new'
     ? <ProductionPage initialProjectId="new" onProjectCreated={openProject} onUnsavedChange={reportProductionUnsaved} />
     : <ProjectWorkspace projectId={route.projectId} section={route.projectSection} draft={draft}
@@ -169,7 +170,7 @@ export default function App() {
       <div className="sidebar-bottom"><button className="nav-settings" aria-current={route.page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Settings2 size={19} /><span>设置</span></button></div>
     </aside>
     <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-only" onClick={() => setMobileNav(value => !value)} aria-label="打开导航菜单" aria-expanded={mobileNav}><Menu size={20} /></button><span className="breadcrumb">工作空间 <ChevronRight size={12} /><strong>{route.projectId ? '项目工作台' : current.label}</strong></span></div><div className="topbar-right"><WorkspaceSwitcher directory={sessionDirectory} onSelect={switchWorkspace} /><SessionControl />{route.page !== 'studio' && <button className="topbar-create" aria-label="开始创作，创建新项目" onClick={() => setNewOpen(true)}><Plus size={15} /><span>{route.page === 'projects' ? '开始创作' : '新建项目'}</span></button>}</div></header>
-      <main id="main-content" tabIndex={-1} className={`main-content page-${route.page}${route.projectId ? ' project-mode' : ''}`}><AnimatePresence mode="wait" initial={false}><motion.div key={`${route.page}/${route.resourceId ?? ''}/${route.projectId ?? ''}/${route.projectSection ?? ''}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.18 }}>
+      <main id="main-content" tabIndex={-1} className={`main-content page-${route.page}${route.projectId ? ' project-mode' : ''}`}><AnimatePresence mode="wait" initial={false}><motion.div key={`${route.page}/${route.resourceId ?? ''}/${route.projectId ?? ''}/${projectMotionSection}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.18 }}>
         {projectContent}
         {!projectContent && <>
         {route.page === 'studio' && <WorkspaceHome {...props} onNew={() => setNewOpen(true)} onOpenProject={openProject} onOpenNovel={openNovel} onAdvanced={() => setAdvancedOpen(true)} />}
