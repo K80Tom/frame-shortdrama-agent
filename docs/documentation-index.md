@@ -1,18 +1,27 @@
 # 文档有效性目录
 
-最后盘点：2026-11-12；适用源码快照：`dev 2470f90`，加本 PR 文档增量。下表“最后修改”由 `git log -1 origin/dev -- <文件>` 查询，不是验收日期，也不表示该文件所有说法已重新验证。
+最后盘点：2026-11-12；适用源码快照：`dev 0ec4b4b`，加本 PR 文档增量。下表“最后修改”由 `git log -1 origin/dev -- <文件>` 查询，不是验收日期，也不表示该文件所有说法已重新验证。
 
-当前工程/分支/审查安全规范以[根 AGENTS.md](../AGENTS.md)为准，能力边界以[功能台账](feature-status.md)分层记录；[生产架构路线](production-architecture-roadmap.md)是目标规范，不将未完成部署和故障演练写成现状。已有设计文档中的产品目标、技术候选与真实验收必须分别理解。
+当前工程/分支/审查安全规范以[根 AGENTS.md](../AGENTS.md)为准，能力边界以[功能台账](feature-status.md)分层记录；[生产架构路线](production-architecture-roadmap.md)是目标规范，不将未完成部署和故障演练写成现状。已有设计文档中的产品目标、技术候选与真实验收必须分别理解。项目开发记录、路径、运行、决策与风险的统一路由于 2026-11-11 新增至[项目索引](../PROJECT_INDEX.md)；个人 Git 状态与实际 worktree 保存在被忽略的本地补充文件，不进入团队共享记录。
 
 旧 OHAO / FRAME 名称和运行时兼容变量不能仅为改名直接删除。旧 agent 文件名保留兼容入口，正文和 applyTo 仅指向现行 packages 路径，不能借历史命名恢复旧分支/权限规则。`reference/` 为只读历史参考，不属于可运行产品。
 
+2026-11-11 增量：补充按需读写规则与基础导航；只核验本次文件和直接关联链接，未重新盘点其他条目。
+
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
-| [项目工作区读模型](project-workspace.md) | 2026-11-12 / 本 PR | `fix/script-parse-feedback`（基于 dev 2470f90） | #182 六区段、结构化剧本、AI 解析与历史、对白修复和警告后采用；含真实 PostgreSQL 定向与隔离浏览器桩验收，未验真实付费供应商 |
+| [PROJECT_INDEX.md](../PROJECT_INDEX.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 条件路由，不是必读清单；共享文件保存项目事实，个人状态保存在被忽略的本地补充文件 |
+| [项目工作区读模型](project-workspace.md) | 2026-11-12 / 本 PR | `fix/script-parse-feedback`（基于 dev 0ec4b4b） | #182 六区段、结构化剧本、AI 解析与历史、对白修复和警告后采用；含真实 PostgreSQL 定向与隔离浏览器桩验收，未验真实付费供应商 |
 | [项目入口收敛](project-entrypoints.md) | 2026-11-11 / 本 PR | `feat/project-entrypoints`（基于 dev df976eb） | #181 导航/新建/旧路由；真实浏览器+模拟 HTTP，不代表 #180 整体闭环 |
 | [异构媒体预设协议拦截](media-preset-protocol-containment.md) | 2026-11-11 / 本 PR | `fix/media-preset-protocol-guard`（基于 dev df976eb） | #174 执行绑定/v3 升级/匹配路由及冻结能力校验；未验真实供应商，其他预设仍不可执行 |
-| [AGENTS.md](../AGENTS.md) | 2026-11-08 / e5d3e42 | dev b264844 + 本 PR 文档增量 | 当前工程/分支/安全与真人审批规范；本 PR 不修改它 |
-| [README.md](../README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
+| [AGENTS.md](../AGENTS.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前工程、分支、安全、按需读写与真人审批规范 |
+| [README.md](../README.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前入口与能力概览；不得替代功能台账或端到端验收 |
+| [NOW.md](../NOW.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前里程碑、项目级阻塞和待验收事项；个人接续使用本地补充文件 |
+| [MAP.md](../MAP.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 稳定路径、版本与同步边界；实际 worktree 不进入共享文件 |
+| [RUNBOOK.md](../RUNBOOK.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 操作前置条件与验证步骤；命令配置不等于执行成功或授权 |
+| [DECISIONS.md](../DECISIONS.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 现行设计决定与文档协作规则，不收录未采纳建议 |
+| [RISKS.md](../RISKS.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 高风险触发器、证据缺口与控制措施 |
+| [history/README.md](../history/README.md) | 2026-11-11 / 本 PR 新增 | 当前工作区基础文档增量 | 历史条件索引；先搜索再读命中上下文 |
 | [packages/main/README.md](../packages/main/README.md) | 2026-11-09 / 5b3af19 | dev b264844 + 本 PR 文档增量 | 当前 main 操作入口；命令存在不等于目标环境已部署 |
 | [docs/data-event-contract.md](data-event-contract.md) | 2026-11-08 / 653c912 | dev b264844 + 本 PR 文档增量 | 模块/历史参考；本轮未逐段重新核验，不构成当前工程规则或真实供应商验证 |
 | [docs/agent-runtime-recovery.md](agent-runtime-recovery.md) | 2026-11-10 / 本 PR 新增 | `feat/resumable-agent-runtime` + 本 PR 文档增量 | #136A 恢复内核的范围、断点语义与验证边界；Worker/API 装配仍待后续 PR |

@@ -43,3 +43,11 @@
 - 离线测试命令、提交与实际结果（未运行请明确说明）：
 - 真实供应商验证记录（未验证填写“未核验”，不得用桩测试替代）：
 - [ ] 新增/变更设计文档已更新 `docs/documentation-index.md` 的日期、分支与有效性。
+
+## 项目记录与本地文件（必填）
+
+- [ ] 共享文档只写项目事实，个人分支、HEAD、ahead/behind 和实际 worktree 未写入共享 `NOW.md` / `MAP.md`。
+- [ ] 未提交 `NOW.local.md`、`MAP.local.md`、`RUNBOOK.local.md`；个人记录仅保留在本机。
+- [ ] 已按变更类型更新 `NOW.md`、`MAP.md`、`RUNBOOK.md`、`DECISIONS.md`、`RISKS.md` 或 `history/`，或说明无需更新的原因。
+- [ ] 能力状态变化已同步 `docs/feature-status.md` 并填写真实证据；未变化已在上节说明。
+- [ ] 已实际运行 `npm run docs:check` 与 `git diff --check`；未运行时已明确说明原因，不将未运行写成通过。
