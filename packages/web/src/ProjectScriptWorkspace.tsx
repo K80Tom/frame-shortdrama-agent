@@ -576,6 +576,9 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         setMessage('解析完成。结果仍是未确认草稿：请在下方向导逐项勾选要采纳的修改。');
       } catch (reason) {
         await refreshAttempts().catch(() => undefined);
+        // 解析立即失败（如模型未配置）时，把错误滚动到可见区域，避免误以为点击无反应。
+        window.setTimeout(() => document.getElementById('script-workspace-error')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
         throw reason;
       }
     });
