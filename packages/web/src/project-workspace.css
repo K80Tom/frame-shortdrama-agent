@@ -184,3 +184,22 @@
   .project-progress > i > span, .project-stage-nav > a, .project-primary-action { transition: none; }
   .project-primary-action:hover { transform: none; }
 }
+
+/* #182 项目正式主链视图 */
+.project-flow-view { display: grid; gap: 16px; }
+.project-flow-hero h2 { margin: 4px 0; }
+.project-flow-card { border: 1px solid var(--line, #e5e7eb); border-radius: 12px; padding: 16px; background: var(--panel, #fff); display: grid; gap: 10px; }
+.project-flow-head { display: flex; align-items: center; justify-content: space-between; }
+.project-flow-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.project-flow-script { min-height: 140px; width: 100%; box-sizing: border-box; }
+.project-flow-status { margin: 0; font-size: 12px; opacity: .8; }
+.project-flow-next { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.project-next-hint { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; opacity: .85; }
+.project-todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.project-todo-list li { display: flex; justify-content: space-between; gap: 12px; }
+.project-assets-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.project-assets-table th, .project-assets-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line, #e5e7eb); }
+.asset-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.asset-tag.ok { background: #e7f6ec; color: #166534; }
+.asset-tag.warn { background: #fef3c7; color: #92400e; }
+.asset-tag.missing { background: #fee2e2; color: #991b1b; }

@@ -26,8 +26,8 @@ import type {
   ProductionExecutorOutcome,
 } from '../executor';
 
-const EXECUTOR_VERSION = 'production-assets/4';
-const MATCH_RULE_VERSION = 'production-asset-match/5';
+export const EXECUTOR_VERSION = 'production-assets/4';
+export const MATCH_RULE_VERSION = 'production-asset-match/5';
 const PROMPT_VERSION = 'production-asset-image/1';
 const DEFAULT_IMAGE_COST_MICROS = 2_000_000;
 const STRUCTURED_RETRIEVER: AssetRetriever = {
@@ -67,7 +67,7 @@ export interface AssetsProductionExecutorOptions {
   imageCostMicros?: number;
 }
 
-interface EntityRef {
+export interface EntityRef {
   kind: AssetKind;
   entity: PlanEntity;
 }
@@ -83,7 +83,7 @@ interface PlanBlocked {
   message: string;
 }
 
-interface AssetMatch {
+export interface AssetMatch {
   entityId: string;
   kind: AssetKind;
   entityName: string;
@@ -416,7 +416,7 @@ function normalized(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/[\s·•・　]+/gu, '');
 }
 
-function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
+export function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
   const primary = normalized(ref.entity.name.value);
   const aliasEntries: Array<[string, string]> = ref.entity.aliases.map(item => [normalized(item.value), item.value]);
   const aliases = new Map(aliasEntries.filter(([key]) => Boolean(key)));
@@ -465,7 +465,7 @@ async function matchOne(ref: EntityRef, assets: AssetRecord[], retriever: AssetR
       matchedTerm: item.matchedTerms[0] ?? ref.entity.name.value, score: item.score })) };
 }
 
-async function matchEntities(refs: EntityRef[], assets: AssetRecord[], retriever: AssetRetriever, policy: AssetRetrievalPolicy): Promise<AssetMatch[]> {
+export async function matchEntities(refs: EntityRef[], assets: AssetRecord[], retriever: AssetRetriever, policy: AssetRetrievalPolicy): Promise<AssetMatch[]> {
   const matches: AssetMatch[] = [];
   // Sequential query embeddings avoid an unbounded provider burst per episode.
   for (const ref of refs) matches.push(await matchOne(ref, assets, retriever, policy));

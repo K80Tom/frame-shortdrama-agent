@@ -15,6 +15,14 @@
 
 Owner：@K80Tom / @255308153；适用 `fix/media-preset-protocol-guard`（基于 `dev df976eb`）。新增 shared 执行绑定、私有库 v3 升级、Profile/运行时协议路由、冻结能力与调用前参数校验。11 个可执行预设已逐项通过真实客户端/模拟 transport 验证；其他预设明确 metadata-only，不把独立商业适配器类的存在当作 Profile 路径已经接通。Shared 23、Agent 44、Web 140 与构建通过；Main 1036 pass / 2 既有 Windows fail / 5 skipped。见[证据、迁移与限制](media-preset-protocol-containment.md)。未验真实模型/账单/浏览器/目标环境；#172 跨厂商完整连通仍 partial，当前 head 须真人审查。
 
+## #181 项目入口增量（2026-11-11）
+
+Owner：@K80Tom / @255308153；适用 `feat/project-entrypoints`（基于 `dev df976eb`）。全局五目的地、真实最近项目、新建后跳项目概览及上下文保留、旧路由选择、样例/高级工具收纳已实现。Web 串行144/144，Edge 真实浏览器+模拟HTTP覆盖三宽度、创建/历史/脏草稿与故障状态；无模型/制作付费写入。见[范围、证据与回退](project-entrypoints.md)。#180 仍 partial，#182–#184 不冒称完成；未验真实数据库或供应商。
+
+## #182 项目主链读模型增量（2026-11-11）
+
+Owner：@K80Tom / @255308153；适用 `feat/ux-182-project-flow`（基于 `dev 36ede58`，含 #186）。项目入口收敛为概览/剧本/资产/分镜/画布/制作六区段，旧区段别名归一且未知区段保留 projectId；概览改真实状态摘要与唯一 `nextAction`；新增 main 两个只读接口 `workspace-overview`、`asset-requirements`，workspace 仅由租户作用域派生，资产匹配复用 `production-asset-match/5`。Shared/Main/Web 构建通过；Main 1056 项 / 1053 通过 / 0 失败 / 3 跳过，Web 153/153。见[范围、接口与边界](project-workspace.md)。未验真实 PostgreSQL/RLS 和真实后端浏览器全路径；#183/#184 仍未完成，不能宣称 #180 闭环。
+
 ## 当前 15 项 Issue 台账
 
 各行适用上述快照；源码是已合入入口，待审代码另列。默认 owner 同上。无独立执行记录的项目写“本轮未重跑”，不代表失败，也不是通过。

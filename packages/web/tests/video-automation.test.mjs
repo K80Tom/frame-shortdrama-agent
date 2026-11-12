@@ -23,7 +23,7 @@ function run(changes = {}) {
 test('automation is a real navigation destination and unsaved input is protected before unmount', () => {
   assert.deepEqual(routeFromHash('#/automation'), { page: 'automation', step: 1 });
   assert.ok(commands.some(item => item.id === 'automation'));
-  assert.ok(creationNavigation.some(item => item.id === 'automation' && item.label === '自动成片'));
+  assert.ok(creationNavigation.some(item => item.id === 'automation' && item.label === '项目制作'));
   const current = { route: { page: 'automation' }, hash: '#/automation' };
   const restored = [];
   assert.equal(applyHashNavigation(current, { route: { page: 'studio' }, hash: '#/studio' }, {
