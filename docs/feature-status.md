@@ -1,6 +1,6 @@
 # 功能状态与证据（单一入口）
 
-盘点日期：2026-11-12。适用代码快照：`dev 0ec4b4b`（v0.2.0），加本 PR 的文档增量；不是部署或发布验收。Owner 为 CODEOWNERS 默认维护责任 `@K80Tom / @255308153`，不是个人贡献归属或验收背书。
+盘点日期：2026-11-12。适用代码快照：`dev 335a8f0`（v0.2.0），加本 PR 的文档增量；不是部署或发布验收。Owner 为 CODEOWNERS 默认维护责任 `@K80Tom / @255308153`，不是个人贡献归属或验收背书。
 
 ## 判定与证据规则
 
@@ -26,6 +26,12 @@ Owner：@K80Tom / @255308153；适用 `feat/ux-182-project-flow`（基于 `dev 3
 ## #182 剧本解析与校验修复增量（2026-11-12）
 
 Owner：@K80Tom / @255308153；适用 `fix/script-parse-feedback`（基于 `dev 0ec4b4b`，含 #187）。在既有六区段内实现不可变结构化剧本、独立 AI 解析中心与结构页、地点/道具候选、解析历史与刷新恢复；对白问题支持 AI 预览修复、手动定位和仅关闭当前警告，用户可在二次确认后采用带警告候选，agent 自动路径不能复用人工放行。`npm run docs:check` 通过；根目录 `npm run build && npm test` 通过：Agent 44/44；Main 1075 项 / 1073 通过 / 0 失败 / 2 跳过；Web 168/168；Shared 定向 29/29。真实 PostgreSQL 警告采用定向测试通过，055/056 已应用且源码 checksum 与数据库记录一致。隔离真实浏览器使用免费 HTTPS 桩验证三按钮、忽略重跑恢复、AI 成功/失败定位、手动定位、警告采用及分镜入口。未调用真实付费供应商，未重跑全量 RLS；#183/#184 仍未完成，不能宣称完整短剧生产闭环。
+
+## #189 模型网络错误码诊断增量（2026-11-12）
+
+Owner：@K80Tom / @255308153；适用 `fix/model-network-diagnostics`（基于 `dev 335a8f0`）。`ModelClient` 对 transport 抛出的非 `ModelError`、非主动超时异常仍返回原 `PROXY_UNAVAILABLE`，新增服务端单行 JSON 日志，仅含 `event`、`callId`、`networkCode`、`provider`、`model`；从 `code`、嵌套 `cause` 和 `AggregateError.errors` 提取白名单网络/TLS/Undici 错误码，未知情况记录 `UNKNOWN_NETWORK_ERROR`，不序列化原始异常、消息、堆栈、URL、请求头、请求体或密钥。HTTP 上游错误和主动超时不误记普通网络日志，不增加自动重试，日志回调异常不替换原失败。
+
+新增回归在旧实现因没有诊断日志而失败；修复后 `packages/main/tests/models.test.cjs` 25/25 通过，覆盖 `ECONNRESET`、嵌套 `ENOTFOUND`、聚合 `ECONNREFUSED`、未知代码、敏感文本/API key/URL 防泄露、上游错误与超时日志隔离。根目录 `npm run build && npm test` 通过：Agent 44/44；Main 1075 项 / 1073 通过 / 0 失败 / 2 跳过；Web 168/168。`npm run docs:check` 通过：13 份文档、173 个本地链接。未调用真实付费供应商，未部署或重启本机服务，原故障的历史底层错误码无法由本补丁追溯补全。
 
 ## 当前 15 项 Issue 台账
 

@@ -13,6 +13,35 @@ function supportsThinkingControl(config: AppConfig): boolean {
 const safeString = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_.:()\/-]{1,160}$/.test(value) ? value : null;
 const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
 
+const SAFE_NETWORK_CODES = new Set([
+  'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN',
+  'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+]);
+type NetworkDiagnostic = {
+  event: 'model_network_failure'; callId: string; networkCode: string; provider: AppConfig['provider']; model: string;
+};
+const defaultNetworkDiagnostic = (event: NetworkDiagnostic) => { console.error(JSON.stringify(event)); };
+
+function networkErrorCode(error: unknown): string {
+  const visited = new Set<object>();
+  const visit = (value: unknown, depth: number): string | null => {
+    if (depth > 5 || value === null || typeof value !== 'object' || visited.has(value)) return null;
+    visited.add(value);
+    const item = record(value);
+    if (typeof item.code === 'string' && SAFE_NETWORK_CODES.has(item.code)) return item.code;
+    const children = [item.cause, ...(Array.isArray(item.errors) ? item.errors : [])];
+    for (const child of children) {
+      const code = visit(child, depth + 1);
+      if (code) return code;
+    }
+    return null;
+  };
+  // Never serialize the original error: messages, stacks and socket details can contain secrets.
+  return visit(error, 0) ?? 'UNKNOWN_NETWORK_ERROR';
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const reader = response.body?.getReader();
   if (!reader) throw new ModelError(502, 'INVALID_UPSTREAM_RESPONSE', '模型返回空响应。');
@@ -37,7 +66,11 @@ async function readJson(response: Response): Promise<unknown> {
 // Independent of Nest/HTTP: future task workers can call this same bounded adapter.
 export class ModelClient {
   private readonly localBudget = { active: 0 };
-  constructor(private readonly config: AppConfig, private readonly transport: typeof fetch = fetch) {
+  constructor(
+    private readonly config: AppConfig,
+    private readonly transport: typeof fetch = fetch,
+    private readonly logNetwork: (event: NetworkDiagnostic) => void = defaultNetworkDiagnostic,
+  ) {
     if (config.modelExecution) assertExecutionBinding('text', config.endpointUrl ?? `${config.baseUrl}/chat/completions`, config.defaultModel, config.modelExecution);
   }
 
@@ -113,6 +146,10 @@ export class ModelClient {
     } catch (error) {
       if (error instanceof ModelError) throw new ModelError(error.status, error.code, error.message, { ...error.details, callId });
       if (signal.aborted) throw new ModelError(504, 'UPSTREAM_TIMEOUT', '等待模型超时；上游可能仍执行或已计费，未自动重试。', { callId });
+      try {
+        this.logNetwork({ event: 'model_network_failure', callId, networkCode: networkErrorCode(error),
+          provider: this.config.provider, model: model.id });
+      } catch { /* Diagnostics must not replace the original model failure. */ }
       throw new ModelError(502, 'PROXY_UNAVAILABLE', '无法完成模型请求，请检查服务配置与网络；结果可能未知，未自动重试。', { callId });
     } finally { budget.active--; }
   }
