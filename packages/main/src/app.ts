@@ -24,6 +24,7 @@ import type { StoredScriptVersion } from './breakdown/repository';
 import type { ExtractFactsStageRunner } from './breakdown/execution';
 import type { StoryboardService } from './breakdown/storyboard';
 import { type BreakdownServicePort, UnavailableBreakdownService } from './breakdown/service';
+import { ProjectWorkspaceReadModel } from './projects/read-model';
 import { NovelController, NOVEL_SERVICE } from './novel/controller';
 import { NovelError } from '@lyra/shared';
 import type { NovelService } from './novel/service';
@@ -100,6 +101,7 @@ const STAGE_RUNNER = Symbol('STAGE_RUNNER');
 const STORYBOARD_SERVICE = Symbol('STORYBOARD_SERVICE');
 const AGENT_RUNTIME = Symbol('AGENT_RUNTIME');
 const AGENT_TOOL_KERNEL = Symbol('AGENT_TOOL_KERNEL');
+const PROJECT_WORKSPACE_READ_MODEL = Symbol('PROJECT_WORKSPACE_READ_MODEL');
 
 function requestPath(url: string): string {
   return url.split('?', 1)[0] ?? url;
@@ -272,7 +274,8 @@ class ModelsController {
 
 @Controller('api')
 class ProjectsController {
-  constructor(@Inject(BREAKDOWN_SERVICE) private readonly breakdown: BreakdownServicePort) {}
+  constructor(@Inject(BREAKDOWN_SERVICE) private readonly breakdown: BreakdownServicePort,
+    @Inject(PROJECT_WORKSPACE_READ_MODEL) private readonly readModel: ProjectWorkspaceReadModel) {}
 
   @Get('projects')
   async listProjects() { return { items: await this.breakdown.listProjects() }; }
@@ -336,6 +339,17 @@ class ProjectsController {
   @Get('projects/:projectId/breakdown-runs')
   async listRuns(@Param('projectId') projectId: string) {
     return { items: await this.breakdown.listRuns(parseOpaqueId(projectId, 'projectId')) };
+  }
+
+  // #182 项目正式主链只读聚合：不触发模型/付费/Outbox；跨 workspace 由 RLS 表现为 404。
+  @Get('projects/:projectId/workspace-overview')
+  workspaceOverview(@Param('projectId') projectId: string) {
+    return this.readModel.overview(parseOpaqueId(projectId, 'projectId'));
+  }
+
+  @Get('projects/:projectId/asset-requirements')
+  assetRequirements(@Param('projectId') projectId: string) {
+    return this.readModel.assetRequirements(parseOpaqueId(projectId, 'projectId'));
   }
 }
 
@@ -532,6 +546,16 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   // In-memory only in explicitly injected/test apps. main.ts supplies the private file-backed service.
   config = config.modelConnections ? config : { ...config, modelConnections: new ModelConnections(config) };
   const breakdownService = dependencies.breakdownService ?? new UnavailableBreakdownService();
+  // #182 只读聚合读模型：workspaceId 只能从租户作用域派生，绝不接受请求体传入。
+  const projectReadModel = new ProjectWorkspaceReadModel({
+    breakdown: breakdownService,
+    storyboards: dependencies.storyboardService ?? undefined,
+    assets: dependencies.assetService ?? undefined,
+    workspaceId: () => {
+      const current = tenantExecutionScope.current();
+      return current?.kind === 'tenant' ? current.tenant.workspaceId : undefined;
+    },
+  });
   const systemStatus = dependencies.systemStatus ?? new SystemStatusService(config.runtimeRole);
   if (config.authMode === 'session' && !dependencies.authService) {
     throw new Error('Session authentication requires a migrated AuthService');
@@ -558,6 +582,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
       sessionTtlSeconds: config.sessionTtlSeconds,
     } },
     { provide: BREAKDOWN_SERVICE, useValue: breakdownService },
+    { provide: PROJECT_WORKSPACE_READ_MODEL, useValue: projectReadModel },
     { provide: STAGE_RUNNER, useValue: dependencies.stageRunner ?? null },
     { provide: NOVEL_SERVICE, useValue: dependencies.novelService ?? null },
     { provide: ASSET_SERVICE, useValue: dependencies.assetService ?? null },

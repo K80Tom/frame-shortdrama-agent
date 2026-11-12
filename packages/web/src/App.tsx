@@ -8,7 +8,8 @@ import ProjectsPage from './ProjectsPage';
 import ProjectEntryPicker from './ProjectEntryPicker';
 import './project-entrypoints.css';
 import AssetWorkspace from './AssetWorkspace';
-import { advancedNavigation, commands, navigationHash, projectWorkspaceHash, workspaceNavigation, routeFromHash } from './navigation';
+import { advancedNavigation, commands, navigationHash, workspaceNavigation, routeFromHash } from './navigation';
+import { projectFlowHash } from './project-flow';
 import { readDraft, saveDraft, type Draft, type Page } from './model';
 import ProductionPage from './production';
 import NovelBreakdown from './NovelBreakdown';
@@ -24,7 +25,7 @@ import { WorkspaceSwitcher, activateWorkspace } from './WorkspaceSwitcher';
 import type { WorkspaceSummary } from './deployment';
 import { sessionWorkspaceDirectory } from './auth';
 import { SessionControl, useAuth } from './AuthBoundary';
-import ProjectWorkspace, { ProjectHistory, ProjectOverview, ProjectReview } from './ProjectWorkspace';
+import ProjectWorkspace, { ProjectOverview } from './ProjectWorkspace';
 import CanvasWorkspace from './canvas/CanvasWorkspace';
 import { githubDockLinks } from './GitHubDock';
 import './assistant/assistant.css';
@@ -111,7 +112,7 @@ export default function App() {
     if (location.hash === hash) setMobileNav(false);
     else location.hash = hash;
   }
-  function openProject(id: string) { location.hash = projectWorkspaceHash(id, 'overview'); }
+  function openProject(id: string) { location.hash = projectFlowHash(id, 'overview'); }
   function openNovel(id: string) { location.hash = `#/novel/${encodeURIComponent(id)}`; }
   function startNovel() {
     setNewOpen(false);
@@ -121,7 +122,7 @@ export default function App() {
   function startProject() {
     setNewOpen(false);
     if (route.projectId === 'new') { window.scrollTo({ top: 0 }); document.getElementById('new-project-title')?.focus(); }
-    else location.hash = projectWorkspaceHash('new', 'source');
+    else location.hash = projectFlowHash('new', 'script');
   }
   function save(next: Draft = draft) {
     try { const saved = saveDraft(next); setDraft(saved); notify(`已保存到本浏览器 · 草稿 V${saved.revision}`); }
@@ -141,18 +142,18 @@ export default function App() {
   };
   const projectContent = route.projectId && route.projectSection ? route.projectId === 'new'
     ? <ProductionPage initialProjectId="new" onProjectCreated={openProject} onUnsavedChange={reportProductionUnsaved} />
-    : <ProjectWorkspace projectId={route.projectId} section={route.projectSection} draft={draft}>
+    : <ProjectWorkspace projectId={route.projectId} section={route.projectSection} draft={draft}
+        onUnsavedChange={reportProductionUnsaved}>
     {route.projectSection === 'overview' && <ProjectOverview projectId={route.projectId} draft={draft} />}
-    {(route.projectSection === 'source' || route.projectSection === 'screenplay') && (route.projectId === 'local-practice'
-      ? <ScriptPage {...props} />
-      : <ProductionPage initialProjectId={route.projectId} onUnsavedChange={reportProductionUnsaved} />)}
-    {route.projectSection === 'storyboard' && <StoryboardPage {...props} />}
+    {/* script / assets / storyboard（含旧 source/screenplay/director 归一）由 ProjectWorkspace 内部直出
+        正式工作区（ProjectScriptWorkspace / ProjectAssetsWorkspace / ProjectStoryboardWorkspace）；
+        正式项目不再挂载本地 ProductionPage / StoryboardPage / DirectorWorkspace。 */}
+    {route.projectId === 'local-practice' && route.projectSection === 'script' && <ScriptPage {...props} />}
     {route.projectSection === 'canvas' && <CanvasWorkspace projectId={route.projectId}
       notify={notify} onOpenAssistant={() => setAssistantOpen(true)} />}
-    {route.projectSection === 'director' && <Suspense fallback={<p className="notice">正在准备 3D 导演台…</p>}><DirectorWorkspace notify={notify} /></Suspense>}
-    {route.projectSection === 'production' && <ProductionAutomationPage initialProjectId={route.projectId === 'local-practice' ? undefined : route.projectId} onUnsavedChange={reportAutomationUnsaved} />}
-    {route.projectSection === 'review' && <ProjectReview projectId={route.projectId} draft={draft} />}
-    {route.projectSection === 'history' && <ProjectHistory projectId={route.projectId} draft={draft} />}
+    {route.projectSection === 'production' && <ProductionAutomationPage
+      initialProjectId={route.projectId === 'local-practice' ? undefined : route.projectId}
+      onUnsavedChange={reportAutomationUnsaved} />}
   </ProjectWorkspace> : null;
   return <div className="app-shell project-entry-shell" data-backdrop-variant={backdropVariant} data-home={route.page === 'studio' ? 'true' : undefined}>
     <BackdropMode variant={backdropVariant} />

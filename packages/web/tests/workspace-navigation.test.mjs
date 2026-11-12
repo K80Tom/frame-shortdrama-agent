@@ -25,20 +25,25 @@ test('workspace routes preserve legacy flow links and safely decode project iden
   assert.equal(routeFromHash('#/unknown').page, 'studio');
 });
 
-test('project workspace links preserve the project identity and map sections onto existing editors', () => {
+test('project workspace links preserve the project identity and normalize flow sections', () => {
   const mappings = {
-    overview: 'projects', source: 'production', screenplay: 'production', storyboard: 'storyboard',
-    canvas: 'canvas', director: 'director', production: 'automation', review: 'projects', history: 'projects',
+    overview: 'overview', source: 'script', screenplay: 'script', storyboard: 'storyboard',
+    canvas: 'canvas', director: 'storyboard', production: 'production', review: 'production', history: 'production',
   };
-  for (const [projectSection, page] of Object.entries(mappings)) {
-    const hash = projectWorkspaceHash('story/\u4e00', projectSection);
-    assert.deepEqual(routeFromHash(hash), { page, step: 1, projectId: 'story/\u4e00', projectSection });
+  for (const [legacySection, projectSection] of Object.entries(mappings)) {
+    const hash = projectWorkspaceHash('story/\u4e00', legacySection);
+    assert.deepEqual(routeFromHash(hash), { page: 'projects', step: 1, projectId: 'story/\u4e00', projectSection });
   }
   assert.deepEqual(routeFromHash('#/projects/project_test/director/'), {
-    page: 'director', step: 1, projectId: 'project_test', projectSection: 'director',
+    page: 'projects', step: 1, projectId: 'project_test', projectSection: 'storyboard',
+  });
+  assert.deepEqual(routeFromHash('#/projects/project_test/assets'), {
+    page: 'projects', step: 1, projectId: 'project_test', projectSection: 'assets',
   });
   assert.deepEqual(routeFromHash('#/projects/%broken/overview'), { page: 'projects', step: 1 });
-  assert.deepEqual(routeFromHash('#/projects/project_test/unknown'), { page: 'projects', step: 1 });
+  assert.deepEqual(routeFromHash('#/projects/project_test/unknown'), {
+    page: 'projects', step: 1, projectId: 'project_test', projectSection: 'overview',
+  });
 });
 
 test('only five global destinations are primary, while advanced tools and legacy routes remain reachable', () => {
@@ -87,8 +92,8 @@ test('a clean item switch is committed and an identical editor location does not
 });
 
 test('switching project workspace section or project protects a dirty mapped editor', () => {
-  const current = { route: routeFromHash('#/projects/project_one/screenplay'), hash: '#/projects/project_one/screenplay' };
-  for (const hash of ['#/projects/project_one/source', '#/projects/project_two/screenplay']) {
+  const current = { route: routeFromHash('#/projects/project_one/script'), hash: '#/projects/project_one/script' };
+  for (const hash of ['#/projects/project_one/canvas', '#/projects/project_two/script']) {
     const next = { route: routeFromHash(hash), hash };
     const restored = [];
     const result = applyHashNavigation(current, next, {
