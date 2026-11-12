@@ -2,21 +2,22 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Check, ChevronRight, FileText, History, RefreshCw, Save, Sparkles } from 'lucide-react';
 import {
   SCRIPT_ELEMENT_LABELS,
-  applySelectedDiffs, diffScriptStructures, parseScriptStructure, emptyScriptStructure,
+  applySelectedDiffs, diffScriptStructures, filterImportEntities, normalizeScriptCharacterName,
+  parseScriptStructure, planCharacterImport, emptyScriptStructure,
   validateScriptStructure,
+  type ScriptCharacterImportPlanItem,
   type ScriptDiffItem, type ScriptParseAttempt, type ScriptParseCharacter, type ScriptParseEntity,
   type ScriptParseResult, type ScriptStructure, type ScriptDialogueRepairPreview,
 } from '@lyra/shared';
 import * as api from './project-workspace-api';
-import ProjectFactsPanel from './ProjectFactsPanel';
-import StructuredScriptEditor from './StructuredScriptEditor';
+import StructuredScriptEditor, { collectCharacterNames } from './StructuredScriptEditor';
 import type { FactPlan } from './facts-editor';
 import type { PlanCheckIssue } from './plan-issue-list';
 import { projectFlowHash, type ScriptWorkspacePanel } from './project-flow';
 import {
   clearScriptParsePreview, draftFromParseAttempt, readScriptParsePreview, writeScriptParsePreview,
 } from './script-parse-preview';
-import { countScriptCharacters, estimateSceneCount } from './script-structure';
+import { countScriptCharacters, estimateSceneCount, summarizeScriptStructure } from './script-structure';
 
 type PreviewResult = ScriptParseResult & { attemptId: string; model: string; promptVersion: string };
 
@@ -77,26 +78,65 @@ function patchEntity(items: ScriptParseEntity[], index: number, patch: Partial<S
   return items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item);
 }
 
-export function ScriptParseEntityFields({ label, items, disabled, onPatch, onRemove, onAppend, addLabel }: {
+export interface CharacterImportControl {
+  enabled: boolean;
+  onEnabledChange: (next: boolean) => void;
+  plan: ScriptCharacterImportPlanItem[];
+  selected: ReadonlySet<string>;
+  onToggle: (key: string, next: boolean) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+}
+
+export function ScriptParseEntityFields({ label, items, disabled, onPatch, onRemove, onAppend, addLabel, importControl }: {
   label: string; items: ScriptParseEntity[]; disabled: boolean;
   onPatch: (index: number, patch: Partial<ScriptParseEntity>) => void;
   onRemove: (index: number) => void;
   onAppend: () => void;
   addLabel?: string;
+  /** 仅人物组传入：角色导入总开关 + 单角色复选 + 出场/已有角色标记。 */
+  importControl?: CharacterImportControl;
 }) {
   const noun = label === '场景 / 地点' ? '地点' : label;
+  const importing = importControl?.enabled ?? true;
   return <section className="script-parse-entity-group" aria-label={`${label}解析结果`}>
     <h5>{label} <span className="muted">{items.length}</span></h5>
+    {importControl && <div className="script-character-import" data-testid="character-import-control">
+      <label className="script-character-import-master">
+        <input type="checkbox" checked={importControl.enabled} disabled={disabled}
+          onChange={event => importControl.onEnabledChange(event.target.checked)} />
+        <span>导入本次识别出的角色<small>总开关：关闭后不会创建任何新角色，避免龙套污染角色库</small></span>
+      </label>
+      {importControl.enabled && <div className="script-character-import-quick">
+        <button type="button" className="structured-add-link" disabled={disabled} onClick={importControl.onSelectAll}>全选</button>
+        <button type="button" className="structured-add-link" disabled={disabled} onClick={importControl.onSelectNone}>全消</button>
+        <span className="muted" data-testid="character-import-count">已选 {importControl.selected.size}/{items.length} 位角色</span>
+      </div>}
+    </div>}
     {items.length === 0 && <p className="muted">本次没有识别到{noun}，可以手动添加。</p>}
-    {items.map((item, index) => <div className="script-character-row" key={`${label}-${index}`}>
-      <input aria-label={`${noun}名称`} value={item.name} disabled={disabled}
-        onChange={event => onPatch(index, { name: event.target.value })} />
-      <input aria-label={`${noun}别名`} value={item.aliases.join('、')} placeholder="别名（顿号分隔）" disabled={disabled}
-        onChange={event => onPatch(index, { aliases: event.target.value.split(/[、，,]/u).map(value => value.trim()).filter(Boolean) })} />
-      <input aria-label={`${noun}说明`} value={item.description ?? ''} placeholder="说明" disabled={disabled}
-        onChange={event => onPatch(index, { description: event.target.value || null })} />
-      <button type="button" disabled={disabled} aria-label={`删除${noun} ${item.name}`} onClick={() => onRemove(index)}>删除</button>
-    </div>)}
+    {items.map((item, index) => {
+      const meta = importControl?.plan[index];
+      const key = meta?.key ?? normalizeScriptCharacterName(item.name);
+      const checked = importControl ? importControl.selected.has(key) : true;
+      return <div className={`script-character-row ${importControl && !checked ? 'is-excluded' : ''} ${importControl && !importing ? 'is-import-disabled' : ''}`}
+        key={`${label}-${index}`} data-character-key={key}>
+        {importControl && <input type="checkbox" className="script-character-check" aria-label={`导入${noun} ${item.name}`}
+          checked={checked} disabled={disabled || !importing}
+          onChange={event => importControl.onToggle(key, event.target.checked)} />}
+        <input aria-label={`${noun}名称`} value={item.name} disabled={disabled}
+          onChange={event => onPatch(index, { name: event.target.value })} />
+        <input aria-label={`${noun}别名`} value={item.aliases.join('、')} placeholder="别名（顿号分隔）" disabled={disabled}
+          onChange={event => onPatch(index, { aliases: event.target.value.split(/[、，,]/u).map(value => value.trim()).filter(Boolean) })} />
+        <input aria-label={`${noun}说明`} value={item.description ?? ''} placeholder="说明" disabled={disabled}
+          onChange={event => onPatch(index, { description: event.target.value || null })} />
+        {meta && <span className="script-character-meta">
+          <em>出场 {meta.sceneCount} 场</em>
+          {meta.existing && <em className="is-existing">已匹配已有角色</em>}
+          {!meta.existing && !meta.suggested && <em className="is-extra">建议不导入</em>}
+        </span>}
+        <button type="button" disabled={disabled} aria-label={`删除${noun} ${item.name}`} onClick={() => onRemove(index)}>删除</button>
+      </div>;
+    })}
     <button className="button-secondary" type="button" disabled={disabled} onClick={onAppend}>{addLabel ?? `+ 添加${noun}`}</button>
   </section>;
 }
@@ -246,8 +286,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
   projectId: string; panel?: ScriptWorkspacePanel; onUnsavedChange?: (dirty: boolean) => void;
 }) {
   const [project, setProject] = useState<api.ProjectRecord | null>(null);
-  const [plans, setPlans] = useState<FactPlan[]>([]);
-  const [factsDirty, setFactsDirty] = useState(false);
   const [savedScript, setSavedScript] = useState<api.ScriptVersionRecord | null>(null);
   const [versions, setVersions] = useState<api.ScriptVersionSummary[]>([]);
   const [script, setScript] = useState('');
@@ -269,16 +307,28 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
   const [previewVersion, setPreviewVersion] = useState('');
   const [modelRevision, setModelRevision] = useState('');
   const [repairPreview, setRepairPreview] = useState<ScriptDialogueRepairPreview | null>(null);
-  const [repairFocus, setRepairFocus] = useState<{ sceneId: string; requestId: number } | null>(null);
-  const [repairNotice, setRepairNotice] = useState('');
-  const [manualRepairPlan, setManualRepairPlan] = useState<FactPlan | null>(null);
   const [diffMode, setDiffMode] = useState<'all' | 'none' | 'custom'>('all');
   const [diffIds, setDiffIds] = useState<Set<string>>(() => new Set());
+  const [characterImportEnabled, setCharacterImportEnabled] = useState(true);
+  const [characterImportSelected, setCharacterImportSelected] = useState<Set<string>>(() => new Set());
+  const [characterImportCustomized, setCharacterImportCustomized] = useState(false);
 
   const structureReady = Boolean(savedScript?.structure);
   const activeAttempt = attempts.find(attempt => attempt.id === activeAttemptId) ?? null;
   const parseReadOnly = Boolean(activeAttempt && savedScript && activeAttempt.scriptVersionId !== savedScript.id);
   const baseStructure = savedScript?.structure ?? null;
+
+  // 项目中已有角色：当前正式版本里出现过的说话人，用于“已匹配已有角色”标记。
+  const existingCharacterNames = useMemo(() => (baseStructure ? collectCharacterNames(baseStructure) : []), [baseStructure]);
+  const characterImportPlan = useMemo(
+    () => planCharacterImport(parseStructure, parseCharacters, existingCharacterNames),
+    [parseStructure, parseCharacters, existingCharacterNames]);
+  /** 未手动调整时按建议默认勾选（已有角色或出场 ≥2 场）；一旦点选过就以用户选择为准。 */
+  const characterImportSelection = useMemo(() => {
+    if (characterImportCustomized) return characterImportSelected;
+    return new Set(characterImportPlan.filter(item => item.suggested).map(item => item.key));
+  }, [characterImportCustomized, characterImportSelected, characterImportPlan]);
+  const structureSummary = useMemo(() => summarizeScriptStructure(scriptStructure), [scriptStructure]);
 
   const diffItems = useMemo(() => (
     parsePreview && parseStructure ? diffScriptStructures(baseStructure, parseStructure) : []
@@ -293,7 +343,22 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
   const resetDiffSelection = useCallback(() => {
     setDiffMode('all');
     setDiffIds(new Set());
+    setCharacterImportEnabled(true);
+    setCharacterImportSelected(new Set());
+    setCharacterImportCustomized(false);
   }, []);
+
+  const toggleCharacterImport = useCallback((key: string, next: boolean) => {
+    const current = new Set(characterImportSelection);
+    if (next) current.add(key); else current.delete(key);
+    setCharacterImportSelected(current);
+    setCharacterImportCustomized(true);
+  }, [characterImportSelection]);
+
+  const setAllCharacterImport = useCallback((next: boolean) => {
+    setCharacterImportSelected(next ? new Set(characterImportPlan.map(item => item.key)) : new Set());
+    setCharacterImportCustomized(true);
+  }, [characterImportPlan]);
 
   const toggleDiff = useCallback((id: string, next: boolean) => {
     const current = new Set(selectedDiffIds);
@@ -301,10 +366,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     setDiffMode('custom');
     setDiffIds(current);
   }, [selectedDiffIds]);
-
-  const refreshFacts = useCallback(async () => {
-    setPlans(await api.listPlanRevisions(projectId));
-  }, [projectId]);
 
   const refreshAttempts = useCallback(async () => {
     const items = await api.listScriptParseAttempts(projectId);
@@ -326,7 +387,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         api.getProject(projectId), api.getCurrentScriptVersion(projectId),
         api.listScriptParseAttempts(projectId), api.listScriptVersions(projectId),
       ]);
-      await refreshFacts();
       setProject(nextProject);
       setSavedScript(nextSaved);
       setVersions(nextVersions);
@@ -360,14 +420,9 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '读取项目数据失败。');
     }
-  }, [projectId, refreshFacts, panel, resetDiffSelection]);
+  }, [projectId, panel, resetDiffSelection]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    setManualRepairPlan(null);
-    setRepairFocus(null);
-    setRepairNotice('');
-  }, [projectId]);
   useEffect(() => {
     api.getBreakdownModel().then(value => {
       setModel(value.model);
@@ -376,9 +431,9 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     }).catch(() => undefined);
   }, [projectId]);
   useEffect(() => {
-    onUnsavedChange?.(dirty || Boolean(script !== (savedScript?.rawText ?? '')) || (panel === 'structure' && structureDirty) || factsDirty);
+    onUnsavedChange?.(dirty || Boolean(script !== (savedScript?.rawText ?? '')) || (panel === 'structure' && structureDirty));
     return () => onUnsavedChange?.(false);
-  }, [dirty, script, savedScript, structureDirty, factsDirty, panel, onUnsavedChange]);
+  }, [dirty, script, savedScript, structureDirty, panel, onUnsavedChange]);
 
   useEffect(() => {
     if (!parsePreview || !activeAttemptId || !savedScript || !parseStructure || parseReadOnly) return;
@@ -422,9 +477,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       setScriptStructure(parseScriptStructure(saved.rawText));
       setStructureDirty(false);
       setDirty(false);
-      setManualRepairPlan(null);
-      setRepairFocus(null);
-      setRepairNotice('');
       resetPreviewState();
       setMessage(`原文已保存为 V${saved.version}。旧解析仍保留在记录中；请基于新原文发起解析。`);
       await Promise.all([refreshAttempts(), refreshVersions()]);
@@ -438,48 +490,16 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       setError(reason instanceof Error ? reason.message : '剧本结构不完整，请检查场次编号和元素。');
       return false;
     }
-    const repairPlan = manualRepairPlan;
-    if (repairPlan && !window.confirm('确认保存手动修复？将创建新剧本版本和事实候选，并自动重跑校验；不会自动采用。')) return false;
     setBusy(true); setError(''); setMessage('');
     try {
+      // 原文保持不变：解析记录与对白证据的 sourceRef 偏移绑定原文，这里只写新的结构版本。
       const saved = await api.saveScriptVersion(projectId, { rawText: script, structure: scriptStructure });
-      let repairMessage = '';
-      if (repairPlan) {
-        try {
-          const candidate = await api.request<FactPlan>(`/projects/${projectId}/script-character-candidates`, {
-            method: 'POST', body: {
-              scriptVersionId: saved.id,
-              characters: repairPlan.content.characters.map(item => ({ name: item.name.value,
-                aliases: item.aliases.map(alias => alias.value), description: item.description?.value ?? null })),
-              locations: repairPlan.content.locations.map(item => ({ name: item.name.value,
-                aliases: item.aliases.map(alias => alias.value), description: item.description?.value ?? null })),
-              props: repairPlan.content.props.map(item => ({ name: item.name.value,
-                aliases: item.aliases.map(alias => alias.value), description: item.description?.value ?? null })),
-              dialogueExclusions: (repairPlan.content.dialogueExclusions ?? []).map(item => ({
-                ...item, sourceRef: { ...item.sourceRef, scriptVersionId: saved.id },
-              })),
-            },
-          });
-          const checked = await api.request<{ check: { result: 'passed' | 'failed' }; issues: PlanCheckIssue[] }>(
-            `/plan-revisions/${candidate.id}/checks`, { method: 'POST', body: {} });
-          repairMessage = checked.check.result === 'passed'
-            ? '手动修复已保存，自动重跑校验通过。返回解析中心可人工核对并采用。'
-            : `手动修复已保存，自动重跑后仍有 ${checked.issues.length} 项问题。`;
-        } catch (reason) {
-          repairMessage = `剧本已保存，但新事实候选或自动校验未完成：${reason instanceof Error ? reason.message : '未知错误'}`;
-        }
-      }
       setSavedScript(saved);
       setProject(current => current ? { ...current, currentScriptVersionId: saved.id } : current);
       setScriptStructure(saved.structure ?? scriptStructure);
       setStructureDirty(false);
-      if (repairPlan) {
-        setManualRepairPlan(null);
-        setRepairFocus(null);
-        setRepairNotice('');
-      }
-      setMessage(repairPlan ? `剧本 V${saved.version}。${repairMessage}` : `场次已保存为剧本 V${saved.version}。`);
-      await Promise.all([refreshAttempts(), refreshVersions(), ...(repairPlan ? [refreshFacts()] : [])]);
+      setMessage(`场次与角色已保存为剧本 V${saved.version}。`);
+      await Promise.all([refreshAttempts(), refreshVersions()]);
       return true;
     } catch (reason) {
       setMessage('');
@@ -522,7 +542,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     if (dirty || script !== savedScript.rawText) { setError('原文有未保存修改，请先保存原文。'); return; }
     if (!approved) { setError('请先勾选模型调用确认，再开始智能解析。'); return; }
     if (parsePreview && !parseReadOnly && !window.confirm('重新解析会替换当前未确认预览；原记录仍保留。确定继续？')) return;
-    setManualRepairPlan(null);
     await mutate(async () => {
       try {
         const result = await api.request<PreviewResult>(`/projects/${projectId}/script-parses`, {
@@ -546,65 +565,19 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     });
   }
 
-  function manualRepair(plan: FactPlan, issue: PlanCheckIssue) {
-    if (!savedScript?.structure) { setError('当前版本还没有可编辑的剧本结构。'); return; }
-    if (structureDirty) { setError('剧本结构有未保存修改，请先保存或取消后再定位修复。'); return; }
-    const target = repairSceneTarget(plan, issue, savedScript.structure);
-    if (!target) { setError('无法把该问题定位到当前结构，请检查场次编号或重新解析。'); return; }
-    setRepairFocus(previous => ({ sceneId: target.sceneId, requestId: (previous?.requestId ?? 0) + 1 }));
-    setManualRepairPlan(plan);
-    const sourceQuote = issue.sourceRefs[0]?.quote.trim();
-    setRepairNotice(`手动修复 ${issue.code}：已定位到 ${target.sceneNumber}。请用“上方补对白”按原文顺序插入，或使用“+ 添加对白”补齐原文内容；保存时会创建新候选并自动重跑校验。${sourceQuote ? ` 对应原文：${sourceQuote.slice(0, 160)}${sourceQuote.length > 160 ? '…' : ''}` : ''}`);
-    location.hash = projectFlowHash(projectId, 'script-structure');
-  }
-
-  async function startAiRepair(plan: FactPlan, check: { id: string }, issue: PlanCheckIssue) {
-    if (!modelRevision) { setError('拆解模型尚未就绪，请先在模型中心确认配置。'); return; }
-    if (parsePreview && !parseReadOnly && !window.confirm('生成修复建议会替换当前未确认预览；原解析记录仍保留。确定继续？')) {
-      setMessage('已取消 AI 修复，未调用模型。'); return;
-    }
-    if (!window.confirm(`AI 修复将调用 ${model}，本次独立计价。只允许补齐原文已有对白或建议排除非对白误报；先预览，不直接保存。确认调用？`)) {
-      setMessage('已取消 AI 修复，未调用模型。'); return;
-    }
-    setManualRepairPlan(null);
-    await mutate(async () => {
-      setMessage('AI 修复调用中，请稍候；完成前不会修改正式剧本。');
-      try {
-        const result = await api.request<PreviewResult>(`/projects/${projectId}/script-dialogue-repair`, {
-          method: 'POST', body: {
-            allowPaid: true, planRevisionId: plan.id, checkId: check.id, issueId: issue.id,
-            expectedModelConnectionRevision: modelRevision,
-          },
-        });
-        if (!result.repair) throw new Error('模型没有返回可确认的修复预览。');
-        setParseStructure(result.structure);
-        setParseCharacters(result.characters);
-        setParseLocations(result.locations ?? []);
-        setParseProps(result.props ?? []);
-        setRepairPreview(result.repair);
-        setPreviewVersion(result.promptVersion);
-        setActiveAttemptId(result.attemptId);
-        setParsePreview(true);
-        resetDiffSelection();
-        await refreshAttempts().catch(() => undefined);
-        setMessage('AI 修复建议已生成，已为你定位到预览；确认保存后会自动重跑校验。');
-        window.requestAnimationFrame(() => {
-          document.getElementById('script-parse-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-      } catch (reason) {
-        await refreshAttempts().catch(() => undefined);
-        window.requestAnimationFrame(() => {
-          document.getElementById('script-workspace-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        throw reason;
-      }
-    });
-  }
-
   function patchParseCharacter(index: number, patch: Partial<ScriptParseCharacter>) {
     const previous = parseCharacters[index]?.name;
     setParseCharacters(items => patchEntity(items, index, patch));
     if (patch.name && previous && patch.name !== previous) {
+      // 改名后同步迁移勾选状态，避免角色被意外排除在导入清单之外。
+      const oldKey = normalizeScriptCharacterName(previous);
+      if (characterImportSelected.has(oldKey)) {
+        const next = new Set(characterImportSelected);
+        next.delete(oldKey);
+        next.add(normalizeScriptCharacterName(patch.name));
+        setCharacterImportSelected(next);
+        setCharacterImportCustomized(true);
+      }
       setParseStructure(structure => {
         if (!structure) return structure;
         return {
@@ -662,6 +635,10 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     }
     const adoptedCount = selectedDiffIds.size;
     const repairing = repairPreview;
+    // 角色导入总控：总开关关闭或取消勾选的角色不会进入正式库；场景/道具沿用草稿。
+    const charactersToImport = filterImportEntities(parseCharacters, {
+      enabled: characterImportEnabled, selectedNames: characterImportSelection,
+    });
     await mutate(async () => {
       // 原文保持不变：解析记录与对话排除证据的 sourceRef 偏移都绑定原文，
       // 重新序列化会让既有证据错位；新版本只合并结构，不重写原文。
@@ -670,12 +647,12 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       let candidateError = '';
       let recheckError = '';
       let recheckMessage = '';
-      const hasParseEntities = parseCharacters.length + parseLocations.length + parseProps.length > 0;
+      const hasParseEntities = charactersToImport.length + parseLocations.length + parseProps.length > 0;
       if (hasParseEntities || repairing) {
         try {
           const candidate = await api.request<FactPlan>(`/projects/${projectId}/script-character-candidates`, {
             method: 'POST', body: {
-              scriptVersionId: saved.id, characters: parseCharacters,
+              scriptVersionId: saved.id, characters: charactersToImport,
               locations: parseLocations, props: parseProps,
               ...(repairing ? { dialogueExclusions: repairing.exclusions.map(item => ({
                 ...item, sourceRef: { ...item.sourceRef, scriptVersionId: saved.id },
@@ -703,18 +680,15 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       setScript(rawText);
       setScriptStructure(merged);
       setStructureDirty(false);
-      setManualRepairPlan(null);
-      setRepairFocus(null);
-      setRepairNotice('');
       resetPreviewState();
       setMessage(candidateError
-        ? `剧本已按勾选合并为 V${saved.version}，但事实候选没有创建：${candidateError}`
+        ? `剧本已按勾选合并为 V${saved.version}，但角色候选没有创建：${candidateError}`
         : recheckError
-          ? `剧本与事实候选已保存为 V${saved.version}，但自动重跑校验失败：${recheckError}`
+          ? `剧本与角色已保存为 V${saved.version}，但自动重跑校验失败：${recheckError}`
           : repairing
             ? `修复已保存为剧本 V${saved.version}。${recheckMessage}`
-            : `已合并 ${adoptedCount} 项勾选修改，保存为剧本 V${saved.version}；已进入场次工作台。`);
-      await Promise.all([refreshFacts(), refreshAttempts(), refreshVersions()]);
+            : `已采纳 ${adoptedCount} 项修改，导入 ${charactersToImport.length} 位角色，保存为剧本 V${saved.version}；已进入场次工作台。`);
+      await Promise.all([refreshAttempts(), refreshVersions()]);
       // 先同步清掉父级未保存标记，再跳转，避免 hash 守卫把刚保存的版本当成脏数据。
       onUnsavedChange?.(false);
       location.hash = projectFlowHash(projectId, 'script-structure');
@@ -749,13 +723,13 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       <a href={projectFlowHash(projectId, 'script-parse')} aria-current={panel === 'parse' ? 'page' : undefined}
         data-stage="1" className={panel === 'parse' ? 'is-current' : ''}>
         <span className="script-step-index">1</span>
-        <span><strong>剧本录入与 AI 解析</strong><small>模型确认 → 差异比对 → 受控导入</small></span>
+        <span><strong>剧本录入与智能解析</strong><small>模型确认 → 角色与场次采纳</small></span>
       </a>
       <ChevronRight size={14} className="script-step-arrow" />
       <a href={projectFlowHash(projectId, 'script-structure')} aria-current={panel === 'structure' ? 'page' : undefined}
         data-stage="2" className={panel === 'structure' ? 'is-current' : ''}>
         <span className="script-step-index">2</span>
-        <span><strong>剧本场次工作台</strong><small>场次校对 → 保存版本 → 推进分镜</small></span>
+        <span><strong>场次与角色工作台</strong><small>时空校对 → 合并拆分 → 推进分镜</small></span>
       </a>
     </nav>
 
@@ -764,14 +738,18 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
 
     {panel === 'structure' ? <section className="project-flow-card script-structure-page">
       <header className="project-flow-card-heading"><span className="project-section-icon"><BookOpen size={18} /></span>
-        <div><p className="project-kicker">STAGE 2 · SAVED SCRIPT STRUCTURE</p><h2>剧本场次工作台</h2></div>
+        <div><p className="project-kicker">STAGE 2 · SCENES & CHARACTERS</p><h2>剧本场次与角色工作台</h2></div>
         <a className="button-secondary" href={projectFlowHash(projectId, 'script-parse')}>返回阶段一</a>
       </header>
-      <p className="muted">这里只编辑已确认保存的分集、场次与五类元素；时空可就地修改，相邻场次可合并。
-        人物、地点、道具请回到阶段一核对。</p>
+      <div className="script-structure-summary" data-testid="script-structure-summary">
+        <span>共 {structureSummary.scenes} 场</span>
+        <span>核心角色 {structureSummary.characters} 位</span>
+        <span>对白 {structureSummary.dialogues} 句</span>
+        {savedScript && <span className="muted">当前版本 V{savedScript.version} 正式场次</span>}
+      </div>
+      <p className="muted">时空可就地微调，相邻场次可合并、长场次可拆分；说话人直接在下拉框中纠正，出场角色标签与概览同步更新。</p>
       {structureReady || structureDirty ? <>
         <StructuredScriptEditor structure={scriptStructure} disabled={busy}
-          focusRequest={repairFocus} repairNotice={repairNotice}
           onChange={next => { setScriptStructure(next); setStructureDirty(true); }} />
         <div className="script-save-toolbar">
           <span className={structureDirty ? 'warning' : 'muted'}>
@@ -779,14 +757,14 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           </span>
           <div className="script-save-actions">
             <button className="button-secondary" disabled={busy || !structureDirty} onClick={() => { void saveStructure(); }}>
-              <Save size={16} />{manualRepairPlan ? '保存手动修复并重跑校验' : '仅保存新版本'}
+              <Save size={16} />仅保存新版本
             </button>
             <button className="button-primary" disabled={busy} onClick={() => { void confirmScenes(); }}>
-              <Check size={16} />确认场次，推进至分镜<ArrowRight size={15} />
+              <Check size={16} />确认场次，推进至分镜设计<ArrowRight size={15} />
             </button>
           </div>
         </div>
-        <p className="muted script-flow-hint">唯一流转主行动：确认场次后进入「正式分镜」；若场次未保存，会先保存为新的不可变剧本版本。</p>
+        <p className="muted script-flow-hint">唯一流转主行动：确认场次后固化正式版本并进入「正式分镜」；若场次未保存，会先保存为新的不可变剧本版本。</p>
       </> : <div className="script-structure-empty">
         <FileText size={28} />
         <h3>还没有已确认的剧本结构</h3>
@@ -865,7 +843,16 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           <ScriptParseEntityFields label="人物" items={parseCharacters} disabled={busy || parseReadOnly}
             onPatch={patchParseCharacter}
             onRemove={index => setParseCharacters(items => items.filter((_, itemIndex) => itemIndex !== index))}
-            onAppend={() => setParseCharacters(items => [...items, { name: '新人物', aliases: [], description: null }])} addLabel="+ 添加人物" />
+            onAppend={() => setParseCharacters(items => [...items, { name: '新人物', aliases: [], description: null }])} addLabel="+ 添加人物"
+            importControl={{
+              enabled: characterImportEnabled,
+              onEnabledChange: setCharacterImportEnabled,
+              plan: characterImportPlan,
+              selected: characterImportSelection,
+              onToggle: toggleCharacterImport,
+              onSelectAll: () => setAllCharacterImport(true),
+              onSelectNone: () => setAllCharacterImport(false),
+            }} />
           <ScriptParseEntityFields label="场景 / 地点" items={parseLocations} disabled={busy || parseReadOnly}
             onPatch={patchParseLocation} onRemove={removeParseLocation}
             onAppend={() => setParseLocations(items => [...items, { name: '新地点', aliases: [], description: null }])} addLabel="+ 添加地点" />
@@ -889,9 +876,13 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
 
       {parsePreview && parseStructure && !parseReadOnly && <div className="script-import-gateway">
         <button className="button-primary" disabled={busy || (!baseStructure && selectedDiffIds.size === 0)} onClick={confirmPreview}><Check size={16} />
-          确认保存并导入剧本场次<ArrowRight size={15} />
+          确认采纳所选项，导入场次工作台<ArrowRight size={15} />
         </button>
-        <span className="muted">只合并已勾选采纳的修改；未勾选项完全保持原版。导入后进入阶段二场次工作台。
+        <span className="muted" data-testid="script-import-character-hint">
+          {characterImportEnabled
+            ? `本次导入 ${filterImportEntities(parseCharacters, { enabled: true, selectedNames: characterImportSelection }).length} 位角色；`
+            : '角色总开关已关闭，不导入任何角色；'}
+          未勾选的场次变动完全保持原版。
           {!baseStructure && selectedDiffIds.size === 0
             ? ' 当前没有正式剧本可保留原版，请至少采纳一项修改。'
             : diffMode === 'none' && parseStructure ? ' 当前全部保留原版。' : ''}</span>
@@ -945,18 +936,6 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         </ol>}
       </section>
 
-      {plans.length > 0 && <section className="project-flow-card">
-        <header className="project-flow-card-heading"><span className="project-section-icon"><Check size={18} /></span>
-          <div><p className="project-kicker">FACTS CANDIDATES</p><h2>事实候选与采用</h2></div>
-          <button className="button-secondary" onClick={() => void mutate(refreshFacts)}><RefreshCw size={15} />刷新版本列表</button>
-        </header>
-        <p className="muted">导入后创建的人物、地点和道具在这里继续校对；场次结构请在阶段二编辑。</p>
-        {project && <ProjectFactsPanel project={project} plans={plans} disabled={busy}
-          onDirtyChange={setFactsDirty} onError={setError} onMessage={setMessage}
-          onProjectChange={setProject} onRefresh={refreshFacts}
-          onManualRepair={manualRepair} onAiRepair={startAiRepair}
-          repairBusy={busy} />}
-      </section>}
     </>}
   </div>;
 }

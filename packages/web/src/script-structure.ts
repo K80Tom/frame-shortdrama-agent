@@ -4,10 +4,14 @@ import {
   emptyScriptStructure,
   episodeDiffId,
   elementDiffId,
+  filterImportEntities,
   isSceneHeadingLine,
+  normalizeScriptCharacterName,
   parseScriptStructure,
+  planCharacterImport,
   sceneDiffId,
   serializeScriptStructure,
+  type ScriptCharacterImportPlanItem,
   type ScriptDiffItem,
   type ScriptDiffKind,
   type ScriptElement,
@@ -19,7 +23,9 @@ import {
 
 export {
   applySelectedDiffs, diffScriptStructures, emptyScriptStructure, episodeDiffId, elementDiffId,
-  isSceneHeadingLine, parseScriptStructure, sceneDiffId, serializeScriptStructure,
+  filterImportEntities, isSceneHeadingLine, normalizeScriptCharacterName, parseScriptStructure,
+  planCharacterImport, sceneDiffId, serializeScriptStructure,
+  type ScriptCharacterImportPlanItem,
   type ScriptDiffItem, type ScriptDiffKind,
   type ScriptElement, type ScriptElementType, type ScriptEpisode, type ScriptScene, type ScriptStructure,
 };
@@ -148,6 +154,51 @@ export function mergeScenes(structure: ScriptStructure, episodeId: string, scene
         })),
     };
   });
+}
+
+/**
+ * 把长场次拆成两场：默认按元素列表中段切分，第二场继承原场次的时空与标题，
+ * 元素 id 保持不变（只是移动归属），随后按顺序重排整场编号。
+ */
+export function splitScene(structure: ScriptStructure, episodeId: string, sceneId: string,
+  splitIndex?: number): ScriptStructure {
+  return updateEpisode(structure, episodeId, episode => {
+    const index = episode.scenes.findIndex(scene => scene.id === sceneId);
+    const current = episode.scenes[index];
+    if (!current || current.dialogues.length < 2) return episode;
+    const at = Math.min(Math.max(splitIndex ?? Math.floor(current.dialogues.length / 2), 1), current.dialogues.length - 1);
+    const first: ScriptScene = { ...current, dialogues: current.dialogues.slice(0, at) };
+    const second: ScriptScene = {
+      ...current,
+      id: uid('scene'),
+      sceneDescription: '',
+      dialogues: current.dialogues.slice(at),
+    };
+    return {
+      ...episode,
+      scenes: episode.scenes.flatMap((scene, sceneIndex) => sceneIndex === index ? [first, second] : [scene])
+        .map((scene, sceneIndex) => ({ ...scene, sceneNumber: `${episode.episodeNumber}-${sceneIndex + 1}` })),
+    };
+  });
+}
+
+/** 步骤二概览栏：总场次数、核心角色数（排除“旁白”）与对白句数。 */
+export function summarizeScriptStructure(structure: ScriptStructure): { scenes: number; characters: number; dialogues: number } {
+  const names = new Set<string>();
+  let scenes = 0;
+  let dialogues = 0;
+  for (const episode of structure.episodes) {
+    scenes += episode.scenes.length;
+    for (const scene of episode.scenes) {
+      for (const element of scene.dialogues) {
+        if (element.type === 1) dialogues += 1;
+        if (element.type !== 1 && element.type !== 3) continue;
+        const name = element.characterName?.trim() ?? '';
+        if (name && name !== '旁白') names.add(name);
+      }
+    }
+  }
+  return { scenes, characters: names.size, dialogues };
 }
 
 /** 录入区展示用：不含空白的字符数。 */

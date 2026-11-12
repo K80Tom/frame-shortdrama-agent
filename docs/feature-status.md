@@ -35,7 +35,11 @@ Owner：@K80Tom / @255308153；适用 `fix/model-network-diagnostics`（基于 `
 
 ## #191 剧本受控导入与场次工作台重构（2026-11-12）
 
-Owner：@K80Tom / @255308153；适用 `feat/script-diff-191`（基于 `dev b8d19ad`，含 #188/#189）。把剧本解析与场次编辑收敛为两阶段：①录入（字数/预估场次、模型计价确认）→ AI 解析草稿 → 仅展示变动项的选择性差异比对（逐项勾选与「全部采纳修改 / 全部保留原版」）→ 受控导入为新的不可变剧本版本；②场次工作台（场次卡片、时空就地编辑、出场角色标签、相邻场次合并、说话人下拉纠正、保存新版本、唯一主行动「确认场次，推进至分镜」）。差异与合并由 `shared` 纯函数 `diffScriptStructures` / `applySelectedDiffs` 承担，按内容相似度对齐，不依赖服务端生成的场次号；导入时 `rawText` 保持原版本，避免 `dialogueExclusions.sourceRef` 偏移失效。`npm run build`、`npm test`（Agent 44/44；Main 1073/1075，2 skipped；Web 175/175）、`npm run docs:check` 与 Shared 定向 9/9 通过。见[受控导入与场次工作台](project-workspace.md)。另在独立 PostgreSQL 15 库 + 隔离 main/Vite 页面完成真实浏览器验收：手工构造成功解析记录与草稿后恢复预览，差异面板 5 项（4 修改 + 1 新增）中取消一项后按 4/5 导入 V2 并跳转场次工作台，数据库确认未勾选的 `sceneHeading` 保持原版；场次卡片、角色标签、说话人候选、相邻合并与「确认场次，推进至分镜」保存 V3 后跳分镜均实际点通。未调用付费模型，未验真实供应商解析质量与全量 RLS。
+Owner：@K80Tom / @255308153；适用 `feat/script-diff-191`（基于 `dev b8d19ad`，含 #188/#189）。把剧本解析与场次编辑收敛为两阶段：①录入（字数/预估场次、模型计价确认）→ AI 解析草稿 → 仅展示变动项的选择性差异比对（逐项勾选与「全部采纳修改 / 全部保留原版」）→ 受控导入为新的不可变剧本版本；②场次与角色工作台（概览栏、场次卡片、时空就地编辑、出场角色标签、相邻合并、长场次拆分、说话人下拉纠正、保存新版本、唯一主行动「确认场次，推进至分镜设计」）。差异与合并由 `shared` 纯函数 `diffScriptStructures` / `applySelectedDiffs` 承担，按内容相似度对齐，不依赖服务端生成的场次号；导入时 `rawText` 保持原版本，避免 `dialogueExclusions.sourceRef` 偏移失效。
+
+按同日更新的 Issue 追加：人物组提供角色导入总开关与逐角色勾选，展示出场场数、「已匹配已有角色」与「建议不导入」标记（`planCharacterImport` / `filterImportEntities`），默认勾选已有角色或出场 ≥2 场的角色，采纳时只把勾选角色写入 `script-character-candidates`；旧「事实候选与采用」面板、独立事实版本下拉与手工校验/修复入口从剧本工作区移除（`ProjectFactsPanel` 删除），历史解析与修复记录仍可重开，生产工作区 `FactsEditor` 不受影响。
+
+`npm run build`、`npm test`（Agent 44/44；Main 1073/1075，2 skipped；Web 178/178）、Shared 定向 9/9 + 角色导入 5/5、Web 定向 18/18 通过。真实浏览器 + 演示 PostgreSQL 验收（未调用付费模型）：取消一个角色并关闭总开关时计数与提示正确变化；只勾选「老林」导入 V18 后数据库确认新候选仅含 1 位角色；概览栏「共 6 场 / 核心角色 2 位 / 对白 10 句」，拆分变 7 场、合并回到 6 场，「确认场次，推进至分镜设计」保存 V19 并跳转分镜；剧本页已无旧事实面板。未验真实供应商解析质量与全量 RLS。见[受控导入与场次工作台](project-workspace.md)。
 
 ## 当前 15 项 Issue 台账
 

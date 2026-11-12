@@ -8,8 +8,8 @@ const server = await createServer({ server: { middlewareMode: true, hmr: false, 
 after(() => server.close());
 const {
   addElement, addElementAfter, addEpisode, addScene, applySelectedDiffs, countScriptCharacters,
-  diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, removeElement, removeScene,
-  serializeScriptStructure, updateElement,
+  diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, planCharacterImport,
+  removeElement, removeScene, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
 const {
   ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, groupScriptDiffs, repairSceneTarget,
@@ -148,16 +148,18 @@ test('AI parse center and saved structure are independent screens', () => {
   assert.match(parseHtml, /原文与 AI 解析/);
   assert.match(parseHtml, /解析记录/);
   assert.match(parseHtml, /href="#\/projects\/project_demo\/script-structure"/);
-  assert.doesNotMatch(parseHtml, /SAVED SCRIPT STRUCTURE/);
+  assert.doesNotMatch(parseHtml, /SCENES &amp; CHARACTERS/);
+  assert.doesNotMatch(parseHtml, /事实候选与采用/);
 
   const structureHtml = renderToStaticMarkup(createElement(ProjectScriptWorkspace, { projectId: 'project_demo', panel: 'structure' }));
-  assert.match(structureHtml, /SAVED SCRIPT STRUCTURE/);
+  assert.match(structureHtml, /SCENES &amp; CHARACTERS/);
+  assert.match(structureHtml, /data-testid="script-structure-summary"/);
   assert.match(structureHtml, /还没有已确认的剧本结构/);
   assert.match(structureHtml, /href="#\/projects\/project_demo\/script-parse"/);
   assert.doesNotMatch(structureHtml, /id="project-script-raw"/);
 });
 
-test('校验问题可定位到独立结构页场次并显示手动修复入口', () => {
+test('校验问题可定位到当前结构中的对应场次', () => {
   const structure = parseScriptStructure(raw);
   const plan = { content: { scenes: [
     { id: 'scene_a', order: 1, title: { value: '旧钟表店' }, sourceRefs: [{ start: 0, end: 100 }] },
@@ -167,15 +169,6 @@ test('校验问题可定位到独立结构页场次并显示手动修复入口',
   assert.equal(repairSceneTarget(plan, sceneIssue, structure).sceneId, structure.episodes[1].scenes[0].id);
   const sourceIssue = { scope: { kind: 'sourceSpan', targetId: null }, sourceRefs: [{ start: 10, end: 20 }] };
   assert.equal(repairSceneTarget(plan, sourceIssue, structure).sceneId, structure.episodes[0].scenes[0].id);
-  const target = structure.episodes[0].scenes[0];
-  const html = renderToStaticMarkup(createElement(StructuredScriptEditor, {
-    structure, onChange: () => undefined, repairNotice: '手动修复：请添加对白。',
-    focusRequest: { sceneId: target.id, requestId: 1 },
-  }));
-  assert.match(html, /手动修复：请添加对白。/);
-  assert.match(html, /is-repair-target/);
-  assert.match(html, /上方补对白/);
-  assert.match(html, /\+ 添加对白/);
 });
 
 test('录入区统计字数并按场次标题预估场次数量', () => {
@@ -262,8 +255,8 @@ test('未勾选模型确认时禁止发起 AI 解析', () => {
 
 test('阶段向导展示两步门禁与录入统计', () => {
   const parseHtml = renderToStaticMarkup(createElement(ProjectScriptWorkspace, { projectId: 'project_demo', panel: 'parse' }));
-  assert.match(parseHtml, /剧本录入与 AI 解析/);
-  assert.match(parseHtml, /剧本场次工作台/);
+  assert.match(parseHtml, /剧本录入与智能解析/);
+  assert.match(parseHtml, /场次与角色工作台/);
   assert.match(parseHtml, /data-stage="1"/);
   assert.match(parseHtml, /data-stage="2"/);
   assert.match(parseHtml, /data-testid="script-source-stats"/);
@@ -282,5 +275,86 @@ test('场次工作台卡片展示时空徽标、角色标签、说话人下拉�
   assert.match(html, /list="structured-character-options"/);
   assert.match(html, /<option value="老周"/);
   assert.match(html, /与下一场合并/);
+  assert.match(html, /拆分/);
   assert.match(html, /is-bubble/);
+});
+
+test('长场次可一键拆分为两场并继承时空、重排编号', () => {
+  const structure = parseScriptStructure(`第1集
+
+1-1 内景 客厅 日
+林澈：第一句。
+老周：第二句。
+【动作】林澈起身。
+林澈：第三句。
+
+1-2 外景 街道 夜
+老周：另一场。`);
+  const episode = structure.episodes[0];
+  const target = episode.scenes[0];
+  const elementIds = target.dialogues.map(item => item.id);
+  const split = splitScene(structure, episode.id, target.id);
+  const scenes = split.episodes[0].scenes;
+  assert.equal(scenes.length, 3);
+  assert.deepEqual(scenes.map(item => item.sceneNumber), ['1-1', '1-2', '1-3']);
+  assert.equal(scenes[0].dialogues.length, 2);
+  assert.equal(scenes[1].dialogues.length, target.dialogues.length - 2);
+  assert.equal(scenes[1].location, target.location);
+  assert.equal(scenes[1].intExt, target.intExt);
+  assert.equal(scenes[1].timeOfDay, target.timeOfDay);
+  assert.notEqual(scenes[1].id, target.id);
+  assert.deepEqual([...scenes[0].dialogues, ...scenes[1].dialogues].map(item => item.id), elementIds);
+  // 只有一个元素的场次不可拆分。
+  const single = splitScene(structure, episode.id, episode.scenes[1].id);
+  assert.equal(single.episodes[0].scenes.length, 2);
+});
+
+test('步骤二概览统计场次数、核心角色与对白句数', () => {
+  const structure = parseScriptStructure(raw);
+  const summary = summarizeScriptStructure(structure);
+  assert.equal(summary.scenes, 2);
+  assert.equal(summary.characters, 2);
+  assert.equal(summary.dialogues, 2);
+});
+
+test('角色导入总控渲染总开关、单角色勾选与已有角色/龙套标记', () => {
+  const draft = parseScriptStructure(`第1集
+
+1-1 内景 客厅 日
+林澈：第一句。
+老周：回应。
+
+1-2 外景 街道 夜
+林澈：第二句。`);
+  const characters = [
+    { name: '老周', aliases: [], description: null },
+    { name: '林澈', aliases: [], description: null },
+    { name: '前台小妹', aliases: [], description: null },
+  ];
+  const plan = planCharacterImport(draft, characters, ['老周']);
+  assert.deepEqual(plan.map(item => item.suggested), [true, true, false]);
+  const html = renderToStaticMarkup(createElement(ScriptParseEntityFields, {
+    label: '人物', items: characters, disabled: false,
+    onPatch: () => undefined, onRemove: () => undefined, onAppend: () => undefined,
+    importControl: {
+      enabled: true, onEnabledChange: () => undefined, plan,
+      selected: new Set(plan.filter(item => item.suggested).map(item => item.key)),
+      onToggle: () => undefined, onSelectAll: () => undefined, onSelectNone: () => undefined,
+    },
+  }));
+  assert.match(html, /导入本次识别出的角色/);
+  assert.match(html, /已匹配已有角色/);
+  assert.match(html, /建议不导入/);
+  assert.match(html, /已选 2\/3 位角色/);
+  assert.match(html, /aria-label="导入人物 前台小妹"/);
+  const disabledHtml = renderToStaticMarkup(createElement(ScriptParseEntityFields, {
+    label: '人物', items: characters, disabled: false,
+    onPatch: () => undefined, onRemove: () => undefined, onAppend: () => undefined,
+    importControl: {
+      enabled: false, onEnabledChange: () => undefined, plan,
+      selected: new Set(), onToggle: () => undefined, onSelectAll: () => undefined, onSelectNone: () => undefined,
+    },
+  }));
+  assert.doesNotMatch(disabledHtml, /character-import-count/);
+  assert.match(disabledHtml, /关闭后不会创建任何新角色/);
 });

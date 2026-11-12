@@ -977,3 +977,67 @@ export function applySelectedDiffs(base: ScriptStructure | null | undefined, dra
   }
   return validateScriptStructure({ schemaVersion: SCRIPT_STRUCTURE_SCHEMA_VERSION, episodes });
 }
+
+/* -------------------------------------------------------------------------
+ * 角色导入总控（#191）
+ * 模型识别出的角色默认只是草稿，只有总开关开启且逐项勾选的角色才会进入正式库，
+ * 避免“路人甲 / 龙套小妹”等无效角色污染项目角色资产。
+ * ---------------------------------------------------------------------- */
+
+/** 角色勾选状态使用归一化名称作为键：忽略空白与大小写，避免同名重复导入。 */
+export function normalizeScriptCharacterName(name: string): string {
+  return name.replace(/\s+/g, '').toLowerCase();
+}
+
+export interface ScriptCharacterImportInput {
+  name: string;
+  aliases?: string[];
+}
+
+export interface ScriptCharacterImportPlanItem {
+  /** 勾选状态键，等于 normalizeScriptCharacterName(name)。 */
+  key: string;
+  name: string;
+  /** 在草稿结构中作为说话人出现的场次数（名称或别名命中即计）。 */
+  sceneCount: number;
+  /** 是否已匹配项目已有角色：命中时不重复创建，只更新引用。 */
+  existing: boolean;
+  /** 默认勾选建议：已有角色，或出场两场及以上的核心角色。 */
+  suggested: boolean;
+}
+
+/** 汇总每个角色在草稿里的出场场数，并标记已存在于项目中的角色。 */
+export function planCharacterImport(draft: ScriptStructure | null | undefined,
+  characters: readonly ScriptCharacterImportInput[], existingNames: Iterable<string>): ScriptCharacterImportPlanItem[] {
+  const existing = new Set([...existingNames].map(normalizeScriptCharacterName).filter(Boolean));
+  const sceneSpeakers: Array<Set<string>> = [];
+  for (const episode of draft?.episodes ?? []) {
+    for (const scene of episode.scenes) {
+      const speakers = new Set<string>();
+      for (const element of scene.dialogues) {
+        if (element.type !== 1 && element.type !== 3) continue;
+        const key = normalizeScriptCharacterName(element.characterName ?? '');
+        if (key) speakers.add(key);
+      }
+      sceneSpeakers.push(speakers);
+    }
+  }
+  return characters.map(character => {
+    const names = new Set([character.name, ...(character.aliases ?? [])]
+      .map(normalizeScriptCharacterName).filter(Boolean));
+    const key = normalizeScriptCharacterName(character.name);
+    const sceneCount = sceneSpeakers.filter(speakers => [...names].some(name => speakers.has(name))).length;
+    const isExisting = existing.has(key);
+    return { key, name: character.name, sceneCount, existing: isExisting, suggested: isExisting || sceneCount >= 2 };
+  });
+}
+
+/**
+ * 角色导入总控 + 逐项筛选：总开关关闭时一个角色都不导入；
+ * 开启时只保留被勾选项，返回新数组，不修改入参。
+ */
+export function filterImportEntities<T extends { name: string }>(items: readonly T[],
+  options: { enabled: boolean; selectedNames: ReadonlySet<string> }): T[] {
+  if (!options.enabled) return [];
+  return items.filter(item => options.selectedNames.has(normalizeScriptCharacterName(item.name)));
+}

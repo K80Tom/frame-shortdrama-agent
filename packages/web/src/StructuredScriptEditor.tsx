@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  addElement, addElementAfter, addEpisode, addScene, mergeScenes, patchEpisode, patchScene,
-  removeElement, removeScene, updateElement,
+  addElement, addEpisode, addScene, mergeScenes, patchEpisode, patchScene,
+  removeElement, removeScene, splitScene, updateElement,
   type ScriptElement, type ScriptElementType, type ScriptEpisode, type ScriptScene, type ScriptStructure,
 } from './script-structure';
 
@@ -45,8 +45,6 @@ interface Props {
   savingSceneId?: string | null;
   disabled?: boolean;
   preview?: boolean;
-  focusRequest?: { sceneId: string; requestId: number } | null;
-  repairNotice?: string;
 }
 
 function ElementFields({ element, onPatch, disabled }: {
@@ -62,8 +60,7 @@ function ElementFields({ element, onPatch, disabled }: {
   </div>;
 }
 
-export default function StructuredScriptEditor({ structure, onChange, onSaveScene, savingSceneId, disabled, preview,
-  focusRequest, repairNotice }: Props) {
+export default function StructuredScriptEditor({ structure, onChange, onSaveScene, savingSceneId, disabled, preview }: Props) {
   const firstEpisode = structure.episodes[0];
   const [episodeId, setEpisodeId] = useState(firstEpisode?.id ?? '');
   const [sceneId, setSceneId] = useState(firstEpisode?.scenes[0]?.id ?? '');
@@ -78,18 +75,6 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
     const current = structure.episodes.find(item => item.id === episodeId) ?? structure.episodes[0];
     if (current && !current.scenes.some(item => item.id === sceneId)) setSceneId(current.scenes[0]?.id ?? '');
   }, [structure, episodeId, sceneId]);
-
-  useEffect(() => {
-    if (!focusRequest) return;
-    const targetEpisode = structure.episodes.find(item => item.scenes.some(scene => scene.id === focusRequest.sceneId));
-    if (!targetEpisode) return;
-    setEpisodeId(targetEpisode.id);
-    setSceneId(focusRequest.sceneId);
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(`structured-scene-${focusRequest.sceneId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusRequest]);
 
   if (!episode) return <p className="muted">还没有分集。</p>;
 
@@ -143,7 +128,6 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
         <div><span className="project-kicker">EPISODE {episode.episodeNumber}</span><h3>{episode.title || '未命名分集'}</h3></div>
         <small>{episode.scenes.length} 场</small>
       </div>
-      {repairNotice && <div className="structured-repair-notice" role="status">{repairNotice}</div>}
       <label className="structured-field">
         <span>分集标题</span>
         <input value={episode.title} disabled={disabled} placeholder="第1集"
@@ -163,7 +147,7 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
             .filter(Boolean))];
           const isLast = itemIndex === episode.scenes.length - 1;
           return <article key={item.id} id={`structured-scene-${item.id}`}
-            className={`structured-scene ${item.id === scene?.id ? 'is-active' : ''} ${item.id === focusRequest?.sceneId ? 'is-repair-target' : ''}`}
+            className={`structured-scene ${item.id === scene?.id ? 'is-active' : ''}`}
             onClick={() => { setEpisodeId(episode.id); setSceneId(item.id); }}>
             <div className="structured-scene-badge-row">
               <span className="structured-scene-badge">第 {itemIndex + 1} 场</span>
@@ -194,6 +178,16 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
                 }} disabled={disabled || isLast}>
                 与下一场合并
               </button>
+              <button type="button" className="structured-merge" title="按元素列表中段把本场拆成两场，第二场继承时空"
+                onClick={event => {
+                  event.stopPropagation();
+                  const next = splitScene(structure, episode.id, item.id);
+                  onChange(next);
+                  const updated = next.episodes.find(entry => entry.id === episode.id);
+                  setSceneId(updated?.scenes[itemIndex + 1]?.id ?? item.id);
+                }} disabled={disabled || item.dialogues.length < 2}>
+                拆分
+              </button>
               <button type="button" className="structured-remove" onClick={event => {
                 event.stopPropagation();
                 onChange(removeScene(structure, episode.id, item.id));
@@ -217,11 +211,6 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
                 <div className="structured-block-head">
                   <span>{elementLabels[element.type]}</span>
                   <div className="structured-block-actions">
-                    {repairNotice && <button type="button" className="structured-add-link"
-                      onClick={event => {
-                        event.stopPropagation();
-                        onChange(addElementAfter(structure, episode.id, item.id, elementIndex, 1));
-                      }} disabled={disabled}>上方补对白</button>}
                     <select aria-label="元素类型" value={element.type} disabled={disabled}
                       onChange={event => onChange(updateElement(structure, episode.id, item.id, element.id,
                         { type: Number(event.target.value) as ScriptElementType }))}>

@@ -432,3 +432,25 @@
 .structured-merge:disabled { opacity: .45; cursor: default; }
 .structured-block.is-bubble { border-left-width: 3px; border-radius: 10px; background: rgba(143,136,255,.06); }
 .structured-bubble-speaker { font-size: 12px; color: var(--project-accent-bright, #aaa6ff); }
+
+/* #191 角色导入总控（总开关 + 单角色勾选 + 出场/已有角色标记） */
+.script-character-import { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid rgba(143, 136, 255, .25); border-radius: 10px; background: rgba(143, 136, 255, .05); }
+.script-character-import-master { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.script-character-import-master small { display: block; margin-top: 2px; color: var(--project-muted, #a3a3ad); font-size: 12px; }
+.script-character-import-quick { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.script-character-row:has(.script-character-check) { grid-template-columns: 22px minmax(120px, .6fr) minmax(140px, .8fr) minmax(200px, 1.4fr) 32px; }
+.script-character-check { width: 16px; height: 16px; margin-bottom: 12px; }
+.script-character-meta { grid-column: 2 / -1; display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--project-muted, #a3a3ad); }
+.script-character-meta em { font-style: normal; padding: 1px 8px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; }
+.script-character-meta .is-existing { color: #7dd3fc; border-color: rgba(125, 211, 252, .4); }
+.script-character-meta .is-extra { color: #fbbf24; border-color: rgba(251, 191, 36, .35); }
+.script-character-row.is-excluded input:not(.script-character-check) { opacity: .45; }
+.script-character-row.is-import-disabled { opacity: .7; }
+
+/* #191 步骤二概览栏：场次数 / 核心角色 / 对白句数 */
+.script-structure-summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 13px; }
+.script-structure-summary span { padding: 4px 12px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; }
+
+@media (max-width: 900px) {
+  .script-character-row:has(.script-character-check) { grid-template-columns: 22px 1fr 1fr 32px; }
+}
