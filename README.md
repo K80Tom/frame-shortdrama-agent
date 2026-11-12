@@ -298,10 +298,13 @@ npm run cli -- run cancel
 
 ## 文档导航
 
-先查看[文档有效性目录](docs/documentation-index.md)；Stage 1 最新架构与限制以[生产路线](docs/production-architecture-roadmap.md)为准。
+项目上下文按 [PROJECT_INDEX.md](PROJECT_INDEX.md) 的条件路由选择，不把索引当成必读清单；文档适用性查看[文档有效性目录](docs/documentation-index.md)，Stage 1 最新架构与限制以[生产路线](docs/production-architecture-roadmap.md)为准。
 
 | 主题 | 文档 |
 | --- | --- |
+| 项目索引与当前接续 | [PROJECT_INDEX.md](PROJECT_INDEX.md) · [NOW.md](NOW.md) |
+| 路径、操作、决策与风险 | [MAP.md](MAP.md) · [RUNBOOK.md](RUNBOOK.md) · [DECISIONS.md](DECISIONS.md) · [RISKS.md](RISKS.md) |
+| 历史归档索引 | [history/README.md](history/README.md) |
 | 后端功能、启动与路线 | [packages/main/README.md](packages/main/README.md) |
 | 生产初版、增长期与规模化架构 | [生产部署架构与分阶段演进路线](docs/production-architecture-roadmap.md) |
 | 自动制片十阶段实现 | [Lyra 全流程自动制片实现](packages/main/docs/Lyra全流程自动制片实现-v0.1.md) |

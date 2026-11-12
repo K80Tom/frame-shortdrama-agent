@@ -7,7 +7,9 @@ on:
       - "packages/**"
       - "package*.json"
       - "docs/**"
+      - "history/**"
       - "deploy/**"
+      - ".gitignore"
       - "*.md"
       - ".github/**"
   push:
@@ -16,7 +18,9 @@ on:
       - "packages/**"
       - "package*.json"
       - "docs/**"
+      - "history/**"
       - "deploy/**"
+      - ".gitignore"
       - "*.md"
       - ".github/**"
 
@@ -54,6 +58,33 @@ jobs:
             exit 1
           fi
           echo "分支合规检查通过。"
+
+  project-records:
+    name: Project records
+    needs: [branch-guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - name: Validate shared and personal record boundaries
+        run: npm run docs:check
+      - name: Check patch whitespace
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git diff --check "origin/${BASE_REF}...HEAD"
+          else
+            git diff --check HEAD^ HEAD
+          fi
 
   backend:
     name: Backend tests
