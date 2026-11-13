@@ -121,7 +121,7 @@ test('asset registration page offers local import without implying generation or
   assert.match(html, /上传本地图片/);
   assert.match(html, /不生成、不自动质检/);
   assert.match(html, /链接仅作为记录，不保证可达或永久有效/);
-  assert.match(html, /登记记录不可覆盖/);
+  assert.match(html, /已登记资产可在详情中修改名称、类型、说明或重新上传图片/);
   assert.doesNotMatch(html, /<img|<video|<iframe/);
   assert.match(html, /关闭弹窗会保留尚未登记的输入/);
   assert.match(html, /<dialog[^>]*aria-label="新建资产"/);

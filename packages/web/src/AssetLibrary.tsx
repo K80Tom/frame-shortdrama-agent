@@ -30,25 +30,26 @@ function AssetDialog({ open, title, onClose, children, className = '' }: { open:
 }
 
 /** Cards preview server-owned images; external resources remain click-to-open. */
-export function AssetRecordCard({ asset, onOpen }: { asset: AssetRecord; onOpen?: () => void }) {
+export function AssetRecordCard({ asset, onOpen, previewNonce = 0 }: { asset: AssetRecord; onOpen?: () => void; previewNonce?: number }) {
   const preview = localAssetLink(asset.resourceUrl);
   return <button className="alib-card" onClick={onOpen} aria-label={`查看${assetKindLabels[asset.kind]}资产：${asset.name}`} title={`${asset.name} · ${assetKindLabels[asset.kind]} · ${asset.id}`}>
-    <span className="alib-card-cover" aria-hidden="true">{preview ? <img src={preview} alt="" loading="lazy" /> : <ImageIcon size={34} strokeWidth={1.2} />}<span className="alib-card-kind">{assetKindLabels[asset.kind]}</span></span>
+    <span className="alib-card-cover" aria-hidden="true">{preview ? <img src={`${preview}?v=${previewNonce}`} alt="" loading="lazy" /> : <ImageIcon size={34} strokeWidth={1.2} />}<span className="alib-card-kind">{assetKindLabels[asset.kind]}</span></span>
     <span className="alib-card-info"><strong>{asset.name}</strong><span>{formatDate(asset.createdAt)}</span></span>
   </button>;
 }
 
 /** Only local imports are previewed automatically; external links require a click. */
-export function AssetRecordDetails({ asset }: { asset: AssetRecord }) {
+export function AssetRecordDetails({ asset, onEdit, previewNonce = 0 }: { asset: AssetRecord; onEdit?: () => void; previewNonce?: number }) {
   const link = assetLink(asset.resourceUrl);
   const preview = localAssetLink(asset.resourceUrl);
   return <div className="alib-detail">
-    {preview && <img className="alib-image-preview" src={preview} alt={`${asset.name}预览`} />}
+    {preview && <img className="alib-image-preview" src={`${preview}?v=${previewNonce}`} alt={`${asset.name}预览`} />}
     <div className="alib-detail-summary"><span className="alib-detail-icon" aria-hidden="true"><ImageIcon size={31} strokeWidth={1.2} /></span><div><span className="alib-detail-kind">{assetKindLabels[asset.kind]}</span><h3>{asset.name}</h3></div></div>
     <dl className="alib-detail-fields"><div><dt>素材说明</dt><dd className="alib-description">{asset.description || '未填写说明'}</dd></div><div><dt>资产 ID</dt><dd><code>{asset.id}</code></dd></div><div><dt>登记时间</dt><dd>{formatDate(asset.createdAt, true)} · 北京时间</dd></div><div><dt>素材链接</dt><dd className="alib-resource-url">{asset.resourceUrl}</dd></div></dl>
     <p className="alib-detail-note">登记记录未自动质检。打开素材后，请人工确认内容与适用性。</p>
     {link ? <a className="alib-open-link" href={link} target="_blank" rel="noreferrer noopener">打开已登记素材 <ArrowUpRight size={14} /></a> : <p className="alib-form-errors" role="alert">素材链接无效，请勿使用。</p>}
     {preview && <a className="alib-download-link" href={`${preview}?download=1`} download>下载本地原图</a>}
+    {onEdit && <button type="button" className="alib-secondary" onClick={onEdit}>编辑说明 / 重新上传图片</button>}
   </div>;
 }
 
@@ -73,6 +74,11 @@ export default function AssetLibrary({ onUnsavedChange, onCountChange, active = 
   const [loadError, setLoadError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
+  const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
+  const [editForm, setEditForm] = useState({ kind: 'character' as AssetKind, name: '', description: '' });
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [previewNonce, setPreviewNonce] = useState(0);
   const alive = useRef(false);
   const savingRef = useRef(false);
   const loadId = useRef(0);
@@ -131,6 +137,39 @@ export default function AssetLibrary({ onUnsavedChange, onCountChange, active = 
 
   function openRegistration() { setSelectedAsset(null); setCreateOpen(true); }
 
+  function openEdit(asset: AssetRecord) {
+    setEditingAsset(asset);
+    setEditForm({ kind: asset.kind, name: asset.name, description: asset.description });
+    setEditFile(null); setMessage(''); setRegistrationFailed(false);
+  }
+
+  /** 名称/类型/说明与图片都可编辑；资产 ID 不变，已建立的需求绑定不受影响。 */
+  async function saveEdit() {
+    const asset = editingAsset;
+    if (!asset || editSaving) return;
+    if (!editForm.name.trim() || editForm.name.trim().length > 200) { setMessage('资产名称需为 1–200 字符。'); setRegistrationFailed(true); return; }
+    if (editForm.description.trim().length > 2000) { setMessage('说明不可超过 2000 字符。'); setRegistrationFailed(true); return; }
+    const fileProblem = editFile ? assetFileError(editFile) : null;
+    if (editFile && fileProblem) { setMessage(fileProblem); setRegistrationFailed(true); return; }
+    setEditSaving(true); setMessage(''); setRegistrationFailed(false);
+    try {
+      let saved = await assetApi<AssetRecord>(`/api/assets/${asset.id}/update`, {
+        kind: editForm.kind, name: editForm.name.trim(), description: editForm.description.trim(),
+      });
+      if (editFile) {
+        saved = await assetApi<AssetRecord>(`/api/assets/${asset.id}/media`, { contentBase64: await fileBase64(editFile) });
+        setPreviewNonce(value => value + 1);
+      }
+      setAssets(previous => previous.map(item => item.id === saved.id ? saved : item));
+      setSelectedAsset(saved);
+      setEditingAsset(null); setEditFile(null);
+      setMessage(editFile ? '已更新资产信息并替换图片，资产 ID 与既有绑定保持不变。' : '已更新资产信息，资产 ID 与既有绑定保持不变。');
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : '保存失败，请稍后重试。');
+      setRegistrationFailed(true);
+    } finally { setEditSaving(false); }
+  }
+
   return <div className="alib-page">
     <header className="alib-toolbar"><h1>个人资产库</h1><div className="alib-tools">
       <label className="alib-search"><Search size={14} aria-hidden="true" /><input aria-label="搜索资产名称或 ID" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索资产" />{query && <button className="alib-search-clear" aria-label="清空资产搜索" onClick={() => setQuery('')}><X size={13} /></button>}</label>
@@ -144,7 +183,7 @@ export default function AssetLibrary({ onUnsavedChange, onCountChange, active = 
     {loadError && <div className="alib-error" role="alert"><AlertCircle size={16} aria-hidden="true" /><span>{loadError}</span><button disabled={loading || saving} onClick={() => void load()}><RefreshCw size={13} aria-hidden="true" />重试</button></div>}
 
     <div className="alib-grid" aria-busy={loading}>
-      {visible.map(asset => <AssetRecordCard asset={asset} key={asset.id} onOpen={() => { setCreateOpen(false); setSelectedAsset(asset); }} />)}
+      {visible.map(asset => <AssetRecordCard asset={asset} key={asset.id} previewNonce={previewNonce} onOpen={() => { setCreateOpen(false); setSelectedAsset(asset); }} />)}
       {loading && !assets.length && Array.from({ length: 3 }, (_, index) => <div className="alib-skeleton" key={index} aria-hidden="true"><span /><i /><i /></div>)}
     </div>
     {loading && <p className="alib-loading" role="status"><LoaderCircle className="alib-spin" size={14} aria-hidden="true" />正在读取资产目录…</p>}
@@ -163,10 +202,26 @@ export default function AssetLibrary({ onUnsavedChange, onCountChange, active = 
         <label>素材说明（可选）<textarea rows={3} maxLength={2000} disabled={saving} value={form.description} onChange={event => setForm(value => ({ ...value, description: event.target.value }))} placeholder="记录素材的服装、角度、内容或使用限制。" /></label>
         {dirty && errors.length > 0 && <ul className="alib-form-errors">{errors.map(error => <li key={error}>{error}</li>)}</ul>}
         {registrationFailed && message && <p className="alib-form-errors" role="alert">{message}</p>}
-        <p className="alib-help">导入会检查格式和大小，不生成、不自动质检。登记记录不可覆盖，当前不提供修改或删除；保存不调用模型。</p>
+        <p className="alib-help">导入会检查格式和大小，不生成、不自动质检。保存不调用模型；已登记资产可在详情中修改名称、类型、说明或重新上传图片。</p>
         <div className="alib-form-actions"><button className="alib-text-button" type="button" disabled={!dirty || saving} onClick={() => { if (window.confirm('放弃尚未登记的资产信息？')) { setForm(emptyRegistration); setFile(null); if (fileInput.current) fileInput.current.value = ''; setMessage(''); setRegistrationFailed(false); } }}>清空表单</button><button className="alib-secondary" type="button" onClick={() => setCreateOpen(false)}>稍后继续</button><button className="alib-new" disabled={saving || errors.length > 0} type="submit">{saving ? <><LoaderCircle className="alib-spin" size={14} aria-hidden="true" />正在登记…</> : '保存到资产目录'}</button></div>
       </form>
     </AssetDialog>
-    <AssetDialog open={active && Boolean(selectedAsset)} title="资产详情" onClose={() => setSelectedAsset(null)} className="alib-detail-dialog">{selectedAsset && <AssetRecordDetails asset={selectedAsset} />}</AssetDialog>
+    <AssetDialog open={active && Boolean(selectedAsset)} title="资产详情" onClose={() => setSelectedAsset(null)} className="alib-detail-dialog">{selectedAsset && <AssetRecordDetails asset={selectedAsset} previewNonce={previewNonce} onEdit={() => openEdit(selectedAsset)} />}</AssetDialog>
+    <AssetDialog open={active && Boolean(editingAsset)} title="编辑资产" onClose={() => setEditingAsset(null)}>
+      {editingAsset && <form className="alib-form" onSubmit={event => { event.preventDefault(); void saveEdit(); }}>
+        <p className="alib-form-intro">修改名称、类型或说明，也可重新上传图片。资产 ID 不变，已匹配的需求绑定继续有效。</p>
+        <div className="alib-form-row"><label>资产类型<select aria-label="编辑资产类型" value={editForm.kind} disabled={editSaving}
+          onChange={event => setEditForm(value => ({ ...value, kind: event.target.value as AssetKind }))}>{Object.entries(assetKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>资产名称<input aria-label="编辑资产名称" required maxLength={200} disabled={editSaving} value={editForm.name}
+            onChange={event => setEditForm(value => ({ ...value, name: event.target.value }))} /></label></div>
+        <label>素材说明<textarea aria-label="编辑素材说明" rows={3} maxLength={2000} disabled={editSaving} value={editForm.description}
+          onChange={event => setEditForm(value => ({ ...value, description: event.target.value }))} /></label>
+        <label>重新上传图片（可选）<input aria-label="重新上传图片" type="file" accept="image/png,image/jpeg,image/webp" disabled={editSaving}
+          onChange={event => setEditFile(event.target.files?.[0] ?? null)} /></label>
+        <p className="alib-help">PNG、JPEG、静态 WebP，最多 6 MiB。不选择文件则只更新文字信息。</p>
+        <div className="alib-form-actions"><button className="alib-secondary" type="button" disabled={editSaving} onClick={() => setEditingAsset(null)}>取消</button>
+          <button className="alib-new" type="submit" disabled={editSaving}>{editSaving ? '正在保存…' : '保存修改'}</button></div>
+      </form>}
+    </AssetDialog>
   </div>;
 }

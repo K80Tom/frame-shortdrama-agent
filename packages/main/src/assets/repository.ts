@@ -8,6 +8,10 @@ export interface AssetRepository {
   get(id: string): Promise<AssetRecord | null>;
   create(record: AssetRecord): Promise<AssetRecord>;
   createWithMedia(record: AssetRecord, media: AssetMedia): Promise<AssetRecord>;
+  /** 编辑名称/类型/说明；ID 与创建时间不变，媒体字节不受影响。 */
+  update(record: AssetRecord): Promise<AssetRecord>;
+  /** 重新上传图片：同一资产 ID 就地替换媒体，外部链接资产同时转为本地图片。 */
+  replaceMedia(record: AssetRecord, media: AssetMedia): Promise<AssetRecord>;
   getMedia(id: string): Promise<AssetMedia | null>;
 }
 
@@ -22,6 +26,9 @@ const clone = <T>(value: T): T => structuredClone(value);
 function compare(a: AssetRecord, b: AssetRecord): number {
   if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+function missing(): never {
+  throw new AssetError(404, 'ASSET_NOT_FOUND', '找不到此资产登记。');
 }
 function conflict(): never {
   throw new AssetError(409, 'ASSET_ALREADY_EXISTS', '资产登记已存在；不会覆盖已有素材记录。');
@@ -52,6 +59,21 @@ export class InMemoryAssetRepository implements AssetRepository {
     if (record.resourceUrl !== localAssetUrl(record.id)) throw new AssetError(400, 'INVALID_ASSET_IMAGE', '本地图片地址不匹配。');
     if (this.records.has(record.id)) return conflict();
     this.records.set(record.id, clone(record)); this.media.set(record.id, copyMedia(media));
+    return clone(record);
+  }
+  async update(input: AssetRecord): Promise<AssetRecord> {
+    validateAssetRecord(input);
+    if (!this.records.has(input.id)) return missing();
+    const record = clone(input);
+    this.records.set(record.id, record);
+    return clone(record);
+  }
+  async replaceMedia(input: AssetRecord, media: AssetMedia): Promise<AssetRecord> {
+    validateAssetRecord(input); validMedia(media);
+    if (input.resourceUrl !== localAssetUrl(input.id)) throw new AssetError(400, 'INVALID_ASSET_IMAGE', '本地图片地址不匹配。');
+    if (!this.records.has(input.id)) return missing();
+    const record = clone(input);
+    this.records.set(record.id, record); this.media.set(record.id, copyMedia(media));
     return clone(record);
   }
   async getMedia(id: string): Promise<AssetMedia | null> {
@@ -118,6 +140,34 @@ export class PostgresAssetRepository implements AssetRepository {
           [record.id, record.kind, record.name, record.description, record.resourceUrl, record.createdAt]);
         await client.query('INSERT INTO asset_media (asset_id, mime_type, sha256, content) VALUES ($1, $2, $3, $4)', [record.id, media.mimeType, media.sha256, media.bytes]);
         if (!result.rows[0]) throw new Error('Asset insert returned no record.');
+        return fromRow(result.rows[0]);
+      });
+    } catch (error) { return databaseError(error); }
+  }
+  async update(input: AssetRecord): Promise<AssetRecord> {
+    validateAssetRecord(input);
+    const record = clone(input);
+    try {
+      const result = await this.database.query<AssetRow>(
+        'UPDATE asset_catalog SET kind = $2, name = $3, description = $4 WHERE id = $1 RETURNING id, kind, name, description, resource_url, created_at',
+        [record.id, record.kind, record.name, record.description]);
+      if (!result.rows[0]) return missing();
+      return fromRow(result.rows[0]);
+    } catch (error) { return databaseError(error); }
+  }
+  async replaceMedia(input: AssetRecord, inputMedia: AssetMedia): Promise<AssetRecord> {
+    validateAssetRecord(input); validMedia(inputMedia);
+    if (input.resourceUrl !== localAssetUrl(input.id)) throw new AssetError(400, 'INVALID_ASSET_IMAGE', '本地图片地址不匹配。');
+    const record = clone(input); const media = copyMedia(inputMedia);
+    try {
+      return await this.database.transaction(async client => {
+        const result = await client.query<AssetRow>(
+          'UPDATE asset_catalog SET resource_url = $2 WHERE id = $1 RETURNING id, kind, name, description, resource_url, created_at',
+          [record.id, record.resourceUrl]);
+        if (!result.rows[0]) return missing();
+        await client.query(
+          'INSERT INTO asset_media (asset_id, mime_type, sha256, content) VALUES ($1, $2, $3, $4) ON CONFLICT (asset_id) DO UPDATE SET mime_type = EXCLUDED.mime_type, sha256 = EXCLUDED.sha256, content = EXCLUDED.content',
+          [record.id, media.mimeType, media.sha256, media.bytes]);
         return fromRow(result.rows[0]);
       });
     } catch (error) { return databaseError(error); }

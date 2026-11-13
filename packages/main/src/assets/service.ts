@@ -1,6 +1,6 @@
-import { AssetError, createAssetRecord, localAssetUrl, type AssetRecord } from '@lyra/shared';
+import { AssetError, createAssetRecord, localAssetUrl, parseAssetMetadata, type AssetRecord } from '@lyra/shared';
 import type { AssetRepository } from './repository';
-import { parseAssetImport, type AssetMedia } from './media';
+import { parseAssetImport, parseAssetMediaReplacement, type AssetMedia } from './media';
 
 export class AssetService {
   constructor(private readonly repository: AssetRepository, private readonly mediaReady = true) {}
@@ -30,6 +30,21 @@ export class AssetService {
     }
     return existing;
   }
+  /** 编辑名称、类型与说明；资产 ID、素材链接与创建时间保持不变。 */
+  async update(id: string, input: unknown): Promise<AssetRecord> {
+    const existing = await this.get(id);
+    const metadata = parseAssetMetadata(input as Record<string, unknown>);
+    return this.repository.update({ ...existing, ...metadata });
+  }
+
+  /** 重新上传图片：同一资产 ID 就地替换媒体字节，外部链接资产转为本地图片。 */
+  async replaceMedia(id: string, input: unknown): Promise<AssetRecord> {
+    this.requireMedia();
+    const existing = await this.get(id);
+    const media = parseAssetMediaReplacement(input);
+    return this.repository.replaceMedia({ ...existing, resourceUrl: localAssetUrl(existing.id) }, media);
+  }
+
   async content(id: string): Promise<AssetMedia> {
     this.requireMedia();
     const record = await this.get(id);
