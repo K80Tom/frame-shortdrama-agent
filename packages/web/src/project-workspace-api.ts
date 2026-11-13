@@ -21,6 +21,15 @@ export interface ScriptVersionRecord {
   createdAt: string;
 }
 
+/** 版本历史只读摘要：列表接口不回传 rawText/structure，避免整份剧本重复传输。 */
+export interface ScriptVersionSummary {
+  id: string;
+  projectId: string;
+  version: number;
+  contentSha256: string;
+  createdAt: string;
+}
+
 async function readJson<T>(path: string, subject: string): Promise<T> {
   const response = await workspaceFetch(path, { cache: 'no-store' });
   const body = await response.json().catch(() => null);
@@ -73,6 +82,13 @@ export async function getCurrentScriptVersion(projectId: string): Promise<Script
 
 export function saveScriptVersion(projectId: string, input: { rawText: string; structure?: ScriptStructure }): Promise<ScriptVersionRecord> {
   return request<ScriptVersionRecord>(`/projects/${encodeURIComponent(projectId)}/script-versions`, { method: 'POST', body: input });
+}
+
+/** 版本历史：只用于列表展示与“当前版本”标记，不触发任何写入。 */
+export async function listScriptVersions(projectId: string): Promise<ScriptVersionSummary[]> {
+  const result = await request<{ items: ScriptVersionSummary[] }>(
+    `/projects/${encodeURIComponent(projectId)}/script-versions`);
+  return result.items;
 }
 
 export async function listPlanRevisions(projectId: string): Promise<FactPlan[]> {

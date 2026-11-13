@@ -86,7 +86,7 @@ test('in-memory assets do not overwrite and all return values are detached snaps
   await assert.rejects(repository.create({ ...original, name: 'overwrite' }), error => error.code === 'ASSET_ALREADY_EXISTS');
   assert.deepEqual(await repository.get(id), original);
   assert.equal(await repository.get('missing'), null);
-  assert.equal(typeof repository.update, 'undefined');
+  // 元数据编辑与图片替换由受控接口提供（见 asset-update.test.cjs）；仍不提供删除。
   assert.equal(typeof repository.delete, 'undefined');
 });
 

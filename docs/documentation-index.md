@@ -11,7 +11,7 @@
 | 文档 | dev 最后修改日期 / 提交 | 盘点适用快照 | 有效性与边界 |
 | --- | --- | --- | --- |
 | [PROJECT_INDEX.md](../PROJECT_INDEX.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 条件路由，不是必读清单；共享文件保存项目事实，个人状态保存在被忽略的本地补充文件 |
-| [项目工作区读模型](project-workspace.md) | 2026-11-12 / 本 PR | `fix/script-parse-feedback`（基于 dev 0ec4b4b） | #182 六区段、结构化剧本、AI 解析与历史、对白修复和警告后采用；含真实 PostgreSQL 定向与隔离浏览器桩验收，未验真实付费供应商 |
+| [项目工作区读模型](project-workspace.md) | 2026-11-12 / 本 PR | `feat/script-diff-191`（基于 dev b8d19ad） | #182 六区段、结构化剧本、AI 解析与历史、对白修复；#191 两阶段受控导入（选择性差异、受控网关）与场次工作台（时空编辑、相邻合并、说话人纠正、推进分镜）；含隔离 PostgreSQL + 真实浏览器验收（手工构造解析记录，未调用付费模型），未验真实供应商解析质量与全量 RLS |
 | [项目入口收敛](project-entrypoints.md) | 2026-11-11 / 本 PR | `feat/project-entrypoints`（基于 dev df976eb） | #181 导航/新建/旧路由；真实浏览器+模拟 HTTP，不代表 #180 整体闭环 |
 | [异构媒体预设协议拦截](media-preset-protocol-containment.md) | 2026-11-11 / 本 PR | `fix/media-preset-protocol-guard`（基于 dev df976eb） | #174 执行绑定/v3 升级/匹配路由及冻结能力校验；未验真实供应商，其他预设仍不可执行 |
 | [AGENTS.md](../AGENTS.md) | 2026-11-11 / 本 PR 文档增量 | 当前工作区基础文档增量 | 当前工程、分支、安全、按需读写与真人审批规范 |

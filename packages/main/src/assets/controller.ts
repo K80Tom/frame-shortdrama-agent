@@ -16,6 +16,8 @@ export class AssetController {
   @Get() async list() { return { assets: await this.ready().list() }; }
   @Post() create(@Body() body: unknown) { return this.ready().create(body); }
   @Post('import') importImage(@Body() body: unknown) { return this.ready().importImage(body); }
+  @Post(':id/update') update(@Param('id') id: string, @Body() body: unknown) { return this.ready().update(id, body); }
+  @Post(':id/media') replaceMedia(@Param('id') id: string, @Body() body: unknown) { return this.ready().replaceMedia(id, body); }
   @Get(':id/content') async content(@Param('id') id: string, @Query('download') download: string | undefined, @Res() reply: FastifyReply) {
     const media = await this.ready().content(id);
     const extension = media.mimeType === 'image/jpeg' ? 'jpg' : media.mimeType.slice(6);

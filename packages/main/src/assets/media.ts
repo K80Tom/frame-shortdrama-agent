@@ -106,6 +106,24 @@ export function inspectAssetImage(bytes: Buffer): AssetMedia['mimeType'] {
   return invalid();
 }
 
+/** 只解析图片字节与摘要，供「重新上传图片」复用同一套格式/大小校验。 */
+export function decodeAssetMedia(contentBase64: unknown): AssetMedia {
+  if (typeof contentBase64 !== 'string') invalid();
+  if (contentBase64.length > Math.ceil(MAX_ASSET_BYTES / 3) * 4) throw new AssetError(413, 'ASSET_IMAGE_TOO_LARGE', '图片最多为 6 MiB。');
+  if (contentBase64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(contentBase64)) invalid();
+  const bytes = Buffer.from(contentBase64, 'base64');
+  if (bytes.toString('base64') !== contentBase64) invalid();
+  const mimeType = inspectAssetImage(bytes);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  return { bytes, mimeType, sha256 };
+}
+
+export function parseAssetMediaReplacement(input: unknown): AssetMedia {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).length !== 1 || !('contentBase64' in input)) invalid();
+  return decodeAssetMedia((input as Record<string, unknown>).contentBase64);
+}
+
 export function parseAssetImport(input: unknown): { record: AssetRecord; media: AssetMedia } {
   if (!input || typeof input !== 'object' || Array.isArray(input)
     || Object.keys(input).length !== 4 || Object.keys(input).some(key => !['kind', 'name', 'description', 'contentBase64'].includes(key))) invalid();
