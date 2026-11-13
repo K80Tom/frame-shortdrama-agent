@@ -194,6 +194,13 @@ export function groupScriptDiffs(items: ScriptDiffItem[]): ScriptDiffGroup[] {
 }
 
 /** 顶部统计：新增 / 修改 / 删除，便于用户先看总量再决定是否逐项勾选。 */
+/** 「全部保留原版」必须返回空集合，绝不能沿用逐项调整时保存的旧选择。 */
+export function diffSelectionForMode(mode: 'all' | 'none' | 'custom', allIds: readonly string[], selectedIds: ReadonlySet<string>): Set<string> {
+  if (mode === 'none') return new Set<string>();
+  if (mode === 'all') return new Set(allIds);
+  return new Set(allIds.filter(id => selectedIds.has(id)));
+}
+
 export function scriptDiffCounts(items: ScriptDiffItem[]) {
   let inserted = 0;
   let removed = 0;
@@ -350,11 +357,10 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     parsePreview && parseStructure ? diffScriptStructures(baseStructure, parseStructure) : []
   ), [parsePreview, parseStructure, baseStructure]);
 
-  const selectedDiffIds = useMemo(() => {
-    if (diffMode === 'all') return new Set(diffItems.map(item => item.id));
-    if (diffMode === 'none' || diffMode === 'custom') return new Set(diffItems.filter(item => diffIds.has(item.id)).map(item => item.id));
-    return new Set<string>();
-  }, [diffMode, diffIds, diffItems]);
+  const selectedDiffIds = useMemo(
+    () => diffSelectionForMode(diffMode, diffItems.map(item => item.id), diffIds),
+    [diffMode, diffIds, diffItems],
+  );
 
   const resetDiffSelection = useCallback(() => {
     setDiffMode('all');
@@ -960,8 +966,8 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         readOnly={parseReadOnly}
         items={diffItems}
         onToggle={toggleDiff}
-        onSelectAll={() => setDiffMode('all')}
-        onSelectNone={() => setDiffMode('none')} />}
+        onSelectAll={() => { setDiffMode('all'); setDiffIds(new Set(diffItems.map(item => item.id))); }}
+        onSelectNone={() => { setDiffMode('none'); setDiffIds(new Set()); }} />}
 
       {parsePreview && parseStructure && !parseReadOnly && <div className="script-import-gateway">
         <button className="button-primary" disabled={busy || (!baseStructure && selectedDiffIds.size === 0)} onClick={confirmPreview}><Check size={16} />

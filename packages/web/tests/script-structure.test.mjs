@@ -12,7 +12,7 @@ const {
   removeElement, removeScene, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
 const {
-  ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, groupScriptDiffs, parseStartBlockReason, repairSceneTarget,
+  ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, diffSelectionForMode, groupScriptDiffs, parseStartBlockReason, repairSceneTarget,
   scriptDiffCounts, default: ProjectScriptWorkspace,
 } = await server.ssrLoadModule('/src/ProjectScriptWorkspace.tsx');
 const { default: StructuredScriptEditor } = await server.ssrLoadModule('/src/StructuredScriptEditor.tsx');
@@ -376,4 +376,28 @@ test('推进分镜前可从当前结构补齐角色与地点候选', () => {
   assert.ok(facts.characters.every(item => item.name !== '旁白'));
   assert.ok(facts.locations.some(item => item.name === '旧钟表店'));
   assert.deepEqual(facts.props, []);
+});
+
+test('先逐项调整再点全部保留原版时选择必须清空，全部采纳可恢复', () => {
+  const base = parseScriptStructure(raw);
+  const episodeId = base.episodes[0].id;
+  const sceneId = base.episodes[0].scenes[0].id;
+  const draft = patchScene(patchScene(base, episodeId, sceneId, { location: '雨夜码头' }), episodeId, sceneId, { timeOfDay: '夜' });
+  const allIds = diffScriptStructures(base, draft).map(item => item.id);
+  assert.ok(allIds.length >= 2);
+
+  let selection = diffSelectionForMode('all', allIds, new Set());
+  assert.equal(selection.size, allIds.length);
+  const customized = new Set(selection);
+  customized.delete(allIds[0]);
+  selection = diffSelectionForMode('custom', allIds, customized);
+  assert.equal(selection.size, allIds.length - 1);
+  // 点击「全部保留原版」：旧选择不得残留，导入结果必须逐项等于原版
+  selection = diffSelectionForMode('none', allIds, customized);
+  assert.equal(selection.size, 0);
+  assert.deepEqual(applySelectedDiffs(base, draft, [...selection]), base);
+  // 再次点击「全部采纳修改」恢复全选
+  selection = diffSelectionForMode('all', allIds, new Set());
+  assert.equal(selection.size, allIds.length);
+  assert.deepEqual(applySelectedDiffs(base, draft, [...selection]), draft);
 });
