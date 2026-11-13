@@ -7,9 +7,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const {
-  addElement, addElementAfter, addEpisode, addScene, applySelectedDiffs, countScriptCharacters,
+  addElement, addElementAfter, addEpisode, addScene, appendEpisodeFromText, applySelectedDiffs, countScriptCharacters,
   buildStructureFactCandidate, diffScriptStructures, estimateSceneCount, mergeScenes, parseScriptStructure, patchScene, planCharacterImport,
-  removeElement, removeScene, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
+  removeElement, removeScene, scopeEpisodeDraft, serializeScriptStructure, splitScene, summarizeScriptStructure, updateElement,
 } = await server.ssrLoadModule('/src/script-structure.ts');
 const {
   ScriptParseEntityFields, ScriptDiffReviewPanel, canStartParse, diffSelectionForMode, groupScriptDiffs, parseStartBlockReason, repairSceneTarget,
@@ -400,4 +400,48 @@ test('先逐项调整再点全部保留原版时选择必须清空，全部采�
   selection = diffSelectionForMode('all', allIds, new Set());
   assert.equal(selection.size, allIds.length);
   assert.deepEqual(applySelectedDiffs(base, draft, [...selection]), draft);
+});
+
+test('按集草稿嵌回整本后，差异与合并只作用于目标集，新增场次也归入该集', () => {
+  const base = parseScriptStructure(raw);
+  assert.ok(base.episodes.length >= 2);
+  const target = base.episodes[1];
+  // AI 只返回目标集：改地点，并新增一场
+  const aiEpisode = structuredClone(target);
+  aiEpisode.scenes[0].location = '江岸仓库';
+  const extra = structuredClone(aiEpisode.scenes[0]);
+  extra.id = 'scene_ai_new'; extra.sceneNumber = '2-99'; extra.location = '新码头';
+  aiEpisode.scenes.push(extra);
+  const draft = { ...base, episodes: [aiEpisode] };
+
+  const scoped = scopeEpisodeDraft(base, draft, target.id);
+  assert.equal(scoped.episodes.length, base.episodes.length);
+  assert.deepEqual(scoped.episodes[0], base.episodes[0]);
+  assert.equal(scoped.episodes[1].id, target.id);
+  assert.equal(scoped.episodes[1].episodeNumber, target.episodeNumber);
+
+  const diffs = diffScriptStructures(base, scoped);
+  assert.ok(diffs.length > 0);
+  const merged = applySelectedDiffs(base, scoped, diffs.map(item => item.id));
+  assert.deepEqual(merged.episodes[0], base.episodes[0]);
+  assert.ok(merged.episodes[1].scenes.some(scene => scene.location === '新码头'));
+});
+
+test('未选择解析目标集时门禁给出明确原因', () => {
+  const input = { approved: true, busy: false, modelRevision: 'rev1', savedScript: { rawText: 'x' }, script: 'x', dirty: false };
+  assert.equal(canStartParse(input), true);
+  const reason = '请先选择要解析的集：可选择已有集，或选择「新建一集」并保存该集原文。';
+  assert.equal(canStartParse({ ...input, parseTargetReason: reason }), false);
+  assert.equal(parseStartBlockReason({ ...input, parseTargetReason: reason }), reason);
+});
+
+test('新建集只追加新集，既有集结构与 ID 保持不变', () => {
+  const base = parseScriptStructure(raw);
+  const merged = appendEpisodeFromText(base, '第3集\n\n3-1 外景 码头 夜\n老林：到了。', 3);
+  assert.equal(merged.episodes.length, base.episodes.length + 1);
+  assert.deepEqual(merged.episodes.slice(0, base.episodes.length), base.episodes);
+  const added = merged.episodes[merged.episodes.length - 1];
+  assert.equal(added.episodeNumber, 3);
+  const ids = merged.episodes.flatMap(episode => [episode.id, ...episode.scenes.map(scene => scene.id)]);
+  assert.equal(new Set(ids).size, ids.length);
 });

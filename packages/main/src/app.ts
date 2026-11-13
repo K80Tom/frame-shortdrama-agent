@@ -452,7 +452,7 @@ class ScriptParseController {
   @Post('projects/:projectId/script-parses')
   async parse(@Param('projectId') projectId: string, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
-      || Object.keys(body).some(key => !['allowPaid', 'scriptVersionId', 'expectedModelConnectionRevision'].includes(key))
+      || Object.keys(body).some(key => !['allowPaid', 'scriptVersionId', 'expectedModelConnectionRevision', 'episodeId'].includes(key))
       || (body as Record<string, unknown>).allowPaid !== true) {
       throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', 'AI 解析前须明确传入 allowPaid: true。');
     }
@@ -464,8 +464,11 @@ class ScriptParseController {
     if (record.expectedModelConnectionRevision !== undefined && typeof record.expectedModelConnectionRevision !== 'string') {
       throw new BreakdownError(400, 'MODEL_SELECTION_INVALID', '模型选择版本格式不正确。');
     }
+    if (record.episodeId !== undefined && (typeof record.episodeId !== 'string' || record.episodeId.length > 100)) {
+      throw new BreakdownError(400, 'SCRIPT_EPISODE_INVALID', 'episodeId 格式不正确。');
+    }
     return this.service().parse(parseOpaqueId(projectId, 'projectId'), scriptVersionId,
-      record.expectedModelConnectionRevision as string | undefined);
+      record.expectedModelConnectionRevision as string | undefined, record.episodeId as string | undefined);
   }
   @Post('projects/:projectId/script-dialogue-repair')
   async repairDialogue(@Param('projectId') projectId: string, @Body() body: unknown) {
