@@ -17,9 +17,9 @@ import { projectFlowHash, type ScriptWorkspacePanel } from './project-flow';
 import {
   clearScriptParsePreview, draftFromParseAttempt, readScriptParsePreview, writeScriptParsePreview,
 } from './script-parse-preview';
-import { buildStructureFactCandidate, countScriptCharacters, estimateSceneCount, summarizeScriptStructure } from './script-structure';
+import { appendEpisodeFromText, buildStructureFactCandidate, countScriptCharacters, estimateSceneCount, scopeEpisodeDraft, summarizeScriptStructure } from './script-structure';
 
-type PreviewResult = ScriptParseResult & { attemptId: string; model: string; promptVersion: string };
+type PreviewResult = ScriptParseResult & { attemptId: string; model: string; promptVersion: string; episode?: { id: string; episodeNumber: number } | null };
 
 export function deriveScriptState(input: {
   currentScriptVersionId: string | null;
@@ -49,7 +49,9 @@ export function canStartParse(input: {
   savedScript: { rawText: string } | null;
   script: string;
   dirty: boolean;
+  parseTargetReason?: string;
 }): boolean {
+  if (input.parseTargetReason) return false;
   if (!input.savedScript) return false;
   if (input.busy || !input.approved || !input.modelRevision) return false;
   if (input.dirty || input.script !== input.savedScript.rawText) return false;
@@ -63,8 +65,10 @@ export function parseStartBlockReason(input: {
   savedScript: { rawText: string } | null;
   script: string;
   dirty: boolean;
+  parseTargetReason?: string;
 }): string {
   if (!input.savedScript) return '请先保存剧本原文，再开始智能解析。';
+  if (input.parseTargetReason) return input.parseTargetReason;
   if (!input.modelRevision) return '未检测到可用解析模型，请先在模型设置中配置后再试。';
   if (input.dirty || input.script !== input.savedScript.rawText) return '原文有未保存修改，请先点击「保存原文」。';
   if (!input.approved) return '请先勾选上方「我确认调用模型解析」；勾选后「开始智能解析」按钮才会变为可点击。';
@@ -329,6 +333,8 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
   const [previewVersion, setPreviewVersion] = useState('');
   const [modelRevision, setModelRevision] = useState('');
   const [repairPreview, setRepairPreview] = useState<ScriptDialogueRepairPreview | null>(null);
+  const [parseTargetEpisode, setParseTargetEpisode] = useState('');
+  const [newEpisodeText, setNewEpisodeText] = useState('');
   const [diffMode, setDiffMode] = useState<'all' | 'none' | 'custom'>('all');
   const [diffIds, setDiffIds] = useState<Set<string>>(() => new Set());
   const [characterImportEnabled, setCharacterImportEnabled] = useState(true);
@@ -339,6 +345,12 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
   const activeAttempt = attempts.find(attempt => attempt.id === activeAttemptId) ?? null;
   const parseReadOnly = Boolean(activeAttempt && savedScript && activeAttempt.scriptVersionId !== savedScript.id);
   const baseStructure = savedScript?.structure ?? null;
+  const nextEpisodeNumber = scriptStructure.episodes.reduce((max, episode) => Math.max(max, episode.episodeNumber), 0) + 1;
+  // 先选集再解析：已有集直接解析；新建集需先保存该集原文（追加到剧本末尾）。
+  const parseTargetReason = !savedScript ? ''
+    : !parseTargetEpisode ? '请先选择要解析的集：可选择已有集，或选择「新建一集」并保存该集原文。'
+    : parseTargetEpisode === 'new' ? '请先填写并保存新集原文；保存后该集加入剧本，再开始解析。'
+    : '';
 
   // 项目中已有角色：当前正式版本里出现过的说话人，用于“已匹配已有角色”标记。
   const existingCharacterNames = useMemo(() => (baseStructure ? collectCharacterNames(baseStructure) : []), [baseStructure]);
@@ -351,7 +363,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     return new Set(characterImportPlan.filter(item => item.suggested).map(item => item.key));
   }, [characterImportCustomized, characterImportSelected, characterImportPlan]);
   const structureSummary = useMemo(() => summarizeScriptStructure(scriptStructure), [scriptStructure]);
-  const parseGateHint = parseStartBlockReason({ approved, modelRevision, savedScript, script, dirty });
+  const parseGateHint = parseStartBlockReason({ approved, modelRevision, savedScript, script, dirty, parseTargetReason });
 
   const diffItems = useMemo(() => (
     parsePreview && parseStructure ? diffScriptStructures(baseStructure, parseStructure) : []
@@ -426,7 +438,9 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         const attempt = draft ? nextAttempts.find(item => item.id === draft.attemptId && item.status === 'succeeded') : null;
         const manualRepair = draft?.attemptId.startsWith('manual-dialogue-repair:') && draft.repair?.kind === 'exclude';
         if (draft && (attempt || manualRepair)) {
-          setParseStructure(draft.structure);
+          const episodeScope = (attempt?.output as unknown as { episode?: { id: string } } | null | undefined)?.episode?.id;
+          setParseStructure(episodeScope ? scopeEpisodeDraft(baseStructure, draft.structure, episodeScope) : draft.structure);
+          if (episodeScope) setParseTargetEpisode(episodeScope);
           setParseCharacters(draft.characters);
           setParseLocations(draft.locations);
           setParseProps(draft.props);
@@ -505,6 +519,29 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
     });
   }
 
+  /** 新建一集：原文追加到整本末尾，既有集的原文与 sourceRef 偏移不变。 */
+  async function saveNewEpisode() {
+    const text = newEpisodeText.trim();
+    if (!savedScript || !text || busy) return;
+    await mutate(async () => {
+      const rawText = `${script.replace(/\s+$/, '')}\n\n${text}`;
+      // 既有结构保持不变，只把新集追加进去；整本原文仅做追加，既有 sourceRef 偏移不变。
+      const structure = appendEpisodeFromText(scriptStructure, text, nextEpisodeNumber);
+      const saved = await api.saveScriptVersion(projectId, { rawText, structure });
+      setSavedScript(saved);
+      setProject(current => current ? { ...current, currentScriptVersionId: saved.id } : current);
+      setScript(saved.rawText);
+      setScriptStructure(structure);
+      setStructureDirty(false); setDirty(false);
+      resetPreviewState();
+      const episode = structure.episodes[structure.episodes.length - 1];
+      setParseTargetEpisode(episode?.id ?? '');
+      setNewEpisodeText('');
+      await Promise.all([refreshAttempts(), refreshVersions()]);
+      setMessage(`已保存第${episode?.episodeNumber ?? '?'}集原文（追加保存为 V${saved.version}），其他集原文未改动；现在可以只解析这一集。`);
+    });
+  }
+
   /** 保存场次结构为新的不可变版本；返回保存成功的版本，供“推进至分镜”串联。 */
   async function saveStructure(): Promise<api.ScriptVersionRecord | null> {
     if (!savedScript) return null;
@@ -566,7 +603,9 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
       : null;
     const draft = stored?.attemptId === attempt.id ? stored : draftFromParseAttempt(attempt);
     if (!draft) return;
-    setParseStructure(draft.structure);
+    const episodeScope = (attempt.output as unknown as { episode?: { id: string } } | null)?.episode?.id;
+    setParseStructure(episodeScope ? scopeEpisodeDraft(baseStructure, draft.structure, episodeScope) : draft.structure);
+    if (episodeScope) setParseTargetEpisode(episodeScope);
     setParseCharacters(draft.characters);
     setParseLocations(draft.locations);
     setParseProps(draft.props);
@@ -589,15 +628,16 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
 
   async function startParse() {
     if (!savedScript) { setError('请先保存原文，再使用 AI 解析。'); return; }
+    if (parseTargetReason) { setError(parseTargetReason); return; }
     if (dirty || script !== savedScript.rawText) { setError('原文有未保存修改，请先保存原文。'); return; }
     if (!approved) { setError('请先勾选模型调用确认，再开始智能解析。'); return; }
     if (parsePreview && !parseReadOnly && !window.confirm('重新解析会替换当前未确认预览；原记录仍保留。确定继续？')) return;
     await mutate(async () => {
       try {
         const result = await api.request<PreviewResult>(`/projects/${projectId}/script-parses`, {
-          method: 'POST', body: { allowPaid: true, scriptVersionId: savedScript.id, expectedModelConnectionRevision: modelRevision },
+          method: 'POST', body: { allowPaid: true, scriptVersionId: savedScript.id, expectedModelConnectionRevision: modelRevision, episodeId: parseTargetEpisode },
         });
-        setParseStructure(result.structure);
+        setParseStructure(scopeEpisodeDraft(baseStructure, result.structure, parseTargetEpisode));
         setParseCharacters(result.characters);
         setParseLocations(result.locations ?? []);
         setParseProps(result.props ?? []);
@@ -607,7 +647,7 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
         setParsePreview(true);
         resetDiffSelection();
         await refreshAttempts().catch(() => undefined);
-        setMessage('解析完成。结果仍是未确认草稿：请在下方向导逐项勾选要采纳的修改。');
+        setMessage(`解析完成（第${scriptStructure.episodes.find(episode => episode.id === parseTargetEpisode)?.episodeNumber ?? '?'}集）。结果仍是未确认草稿：差异与导入只作用于该集，其他集保持不变。`);
       } catch (reason) {
         await refreshAttempts().catch(() => undefined);
         // 解析立即失败（如模型未配置）时，把错误滚动到可见区域，避免误以为点击无反应。
@@ -900,11 +940,28 @@ export default function ProjectScriptWorkspace({ projectId, panel = 'parse', onU
           <span className={dirty ? 'warning' : 'muted'}>{dirty ? '原文有未保存修改' : savedScript ? `原文 V${savedScript.version} 已保存` : '原文尚未保存'}</span>
         </div>
         {savedScript && <div className="script-parse-cta">
+          <div className="script-parse-target" data-testid="script-parse-target">
+            <label>解析目标集
+              <select aria-label="解析目标集" value={parseTargetEpisode} disabled={busy}
+                onChange={event => setParseTargetEpisode(event.target.value)}>
+                <option value="">请选择要解析的集</option>
+                {scriptStructure.episodes.map(episode => <option key={episode.id} value={episode.id}>第{episode.episodeNumber}集 · {episode.scenes.length} 场</option>)}
+                <option value="new">＋新建第{nextEpisodeNumber}集</option>
+              </select>
+            </label>
+            {parseTargetEpisode && parseTargetEpisode !== 'new' && <span className="muted">只解析该集原文；差异与导入仅作用于该集，其他集保持不变。</span>}
+          </div>
+          {parseTargetEpisode === 'new' && <div className="script-parse-target-new">
+            <label>新集原文<textarea aria-label="新集原文" rows={8} value={newEpisodeText} disabled={busy}
+              onChange={event => setNewEpisodeText(event.target.value)}
+              placeholder={`粘贴第${nextEpisodeNumber}集原文。保存时追加到剧本末尾，已有集的原文与证据偏移不变。`} /></label>
+            <button className="button-secondary" disabled={busy || !newEpisodeText.trim()} onClick={saveNewEpisode}>保存新集原文</button>
+          </div>}
           <label className="parse-approval"><input type="checkbox" checked={approved} disabled={busy}
             onChange={event => setApproved(event.target.checked)} />
             <span>我确认调用 <strong>{model}</strong> 解析；本次独立计价，刷新可恢复草稿，确认前不会写入正式剧本。</span>
           </label>
-          <button className="button-primary" disabled={!canStartParse({ approved, busy, modelRevision, savedScript, script, dirty })} onClick={startParse}>
+          <button className="button-primary" disabled={!canStartParse({ approved, busy, modelRevision, savedScript, script, dirty, parseTargetReason })} onClick={startParse}>
             <Sparkles size={16} />{busy ? '正在解析…' : parsePreview && !parseReadOnly ? '重新解析并替换草稿' : '开始智能解析'}<ArrowRight size={15} />
           </button>
           {parseGateHint && !busy && <p className="script-parse-gate-hint" data-testid="script-parse-gate-hint" role="note">{parseGateHint}</p>}

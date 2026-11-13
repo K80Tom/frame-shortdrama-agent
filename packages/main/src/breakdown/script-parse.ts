@@ -3,7 +3,7 @@ import Ajv from 'ajv';
 import { Type, type Static } from '@sinclair/typebox';
 import type { ScriptDialogueExclusion, ScriptParseAttempt, ScriptParseCharacter, ScriptParseEntity, ScriptParseResult } from '@lyra/shared';
 import { ModelError, SCRIPT_DIALOGUE_REPAIR_PROMPT_VERSION, SCRIPT_PARSE_PROMPT_VERSION } from '@lyra/shared';
-import { validateScriptStructure, type ScriptElementType, type ScriptStructure } from '@lyra/shared';
+import { serializeScriptStructure, validateScriptStructure, type ScriptElementType, type ScriptStructure } from '@lyra/shared';
 import type { AppConfig } from '../config';
 import { assertModelSelection, configForRole } from '../models/connections';
 import { ModelClient } from '../models/client';
@@ -15,6 +15,20 @@ import type { CreateExtractFactsCandidateRequest, PlanRevisionRecord } from './p
 import type { PlanIssueRecord } from './quality';
 import type { StoredScriptVersion } from './repository';
 import { dialogueBodySpans, sliceCodePoints } from './source-index';
+
+/** 解析输入按集裁剪：未指定集时沿用整本原文（历史行为），指定集时只序列化该集。 */
+export function resolveEpisodeParseInput(script: StoredScriptVersion, episodeId?: string): {
+  text: string; episode: { id: string; episodeNumber: number } | null;
+} {
+  if (episodeId === undefined) return { text: script.rawText, episode: null };
+  const episode = script.structure?.episodes.find(item => item.id === episodeId);
+  if (!episode || !script.structure) {
+    throw new BreakdownError(409, 'SCRIPT_EPISODE_NOT_FOUND', '找不到要解析的集，请刷新后重新选择。');
+  }
+  const text = serializeScriptStructure({ ...script.structure, episodes: [episode] });
+  if (!text.trim()) throw new BreakdownError(409, 'SCRIPT_EPISODE_EMPTY', '该集原文为空，请先保存该集原文。');
+  return { text, episode: { id: episode.id, episodeNumber: episode.episodeNumber } };
+}
 
 export { SCRIPT_PARSE_PROMPT_VERSION };
 export const SCRIPT_PARSE_VALIDATOR_VERSION = 'script-parse-validator/1';
@@ -164,7 +178,7 @@ export class ScriptParseService {
     }));
   }
 
-  async parse(projectId: string, scriptVersionId: string | undefined, expectedModelConnectionRevision?: string): Promise<ScriptParseResult & {
+  async parse(projectId: string, scriptVersionId: string | undefined, expectedModelConnectionRevision?: string, episodeId?: string): Promise<ScriptParseResult & {
     attemptId: string; model: string; promptVersion: string; usage: unknown }> {
     const config = configForRole(this.config, 'breakdown');
     assertModelSelection(config, expectedModelConnectionRevision);
@@ -175,8 +189,10 @@ export class ScriptParseService {
     if (!versionId) throw new BreakdownError(409, 'SCRIPT_VERSION_REQUIRED', '请先保存原文，再进行 AI 解析。');
     const script = await this.breakdown.getScriptVersion(projectId, versionId);
     if (!script.rawText.trim()) throw new BreakdownError(409, 'SCRIPT_VERSION_EMPTY', '原文为空，无法解析。');
-    const inputDigest = canonicalJsonSha256({ scriptVersionId: script.id, rawText: script.rawText,
-      promptVersion: SCRIPT_PARSE_PROMPT_VERSION });
+    // 按集解析：模型只接收目标集文本，集信息随记录保存，前端据此前嵌回整本做差异。
+    const target = resolveEpisodeParseInput(script, episodeId);
+    const inputDigest = canonicalJsonSha256({ scriptVersionId: script.id, rawText: target.text,
+      episodeId: target.episode?.id ?? null, promptVersion: SCRIPT_PARSE_PROMPT_VERSION });
     const attemptId = `scriptparse_${randomUUID().replaceAll('-', '')}`;
     await this.database.query(`INSERT INTO script_parse_attempts
       (id, project_id, script_version_id, model, prompt_version, input_digest, status, created_at)
@@ -188,7 +204,7 @@ export class ScriptParseService {
         model: config.defaultModel,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: script.rawText },
+          { role: 'user', content: target.text },
         ],
         ...(config.reasoningEffort !== 'model-default' ? { reasoningEffort: config.reasoningEffort } : {}),
         maxOutputTokens: config.maxOutputTokens,
@@ -202,11 +218,12 @@ export class ScriptParseService {
       catch { throw new BreakdownError(422, 'SCRIPT_PARSE_OUTPUT_NOT_JSON', '模型没有返回有效 JSON 解析结果。'); }
       if (!validateRaw(raw)) throw new BreakdownError(422, 'SCRIPT_PARSE_OUTPUT_INVALID', '模型解析结果不符合剧本结构约定。');
       const result = normalize(raw as RawParse);
+      const output = target.episode ? { ...result, episode: target.episode } : result;
       await this.database.query(`UPDATE script_parse_attempts SET status='succeeded', output_json=$2::jsonb,
         provider_request_id=$3, usage_json=$4::jsonb, ended_at=now() WHERE id=$1`,
-      [attemptId, JSON.stringify(result),
+      [attemptId, JSON.stringify(output),
         response.providerRequestId, JSON.stringify(response.usage)]);
-      return { ...result, attemptId, model: config.defaultModel, promptVersion: SCRIPT_PARSE_PROMPT_VERSION, usage: response.usage };
+      return { ...output, attemptId, model: config.defaultModel, promptVersion: SCRIPT_PARSE_PROMPT_VERSION, usage: response.usage };
     } catch (error) {
       await this.database.query(`UPDATE script_parse_attempts SET status='failed', error_code=$2,
         provider_request_id=$3, usage_json=$4::jsonb, ended_at=now() WHERE id=$1 AND status='running'`,

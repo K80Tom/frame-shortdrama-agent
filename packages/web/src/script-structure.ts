@@ -244,3 +244,40 @@ export function buildStructureFactCandidate(structure: ScriptStructure): {
   }
   return { characters: [...characters.values()], locations: [...locations.values()], props: [] };
 }
+
+/**
+ * 把只含目标集的 AI 草稿嵌回整本结构：仅替换目标集，其他集原样保留。
+ * 这样差异比对与 applySelectedDiffs 天然只作用于选中的集，新增场次也只会落入该集。
+ */
+export function scopeEpisodeDraft(base: ScriptStructure | null, draft: ScriptStructure, episodeId: string): ScriptStructure {
+  if (!base || !base.episodes.some(episode => episode.id === episodeId)) return draft;
+  const episode = draft.episodes.find(item => item.id === episodeId) ?? draft.episodes[0];
+  if (!episode) return base;
+  return {
+    ...base,
+    episodes: base.episodes.map(item => item.id === episodeId
+      ? { ...episode, id: item.id, episodeNumber: item.episodeNumber }
+      : item),
+  };
+}
+
+/**
+ * 新建集：只解析新集原文并追加到既有结构之后，不重解析整本原文，
+ * 避免把此前通过差异合并得到的场次冲掉；新集/场次/元素 ID 全部重新分配，避免与既有 ID 冲突。
+ */
+export function appendEpisodeFromText(base: ScriptStructure, text: string, startEpisodeNumber: number): ScriptStructure {
+  const parsed = parseScriptStructure(text);
+  let serial = 0;
+  const suffix = `append${startEpisodeNumber}`;
+  const episodes = parsed.episodes.map((episode, episodeIndex) => ({
+    ...episode,
+    id: `${episode.id}_${suffix}_${episodeIndex}`,
+    episodeNumber: startEpisodeNumber + episodeIndex,
+    scenes: episode.scenes.map(scene => ({
+      ...scene,
+      id: `${scene.id}_${suffix}_${episodeIndex}`,
+      dialogues: scene.dialogues.map(element => ({ ...element, id: `${element.id}_${suffix}_${++serial}` })),
+    })),
+  }));
+  return { ...base, episodes: [...base.episodes, ...episodes] };
+}
