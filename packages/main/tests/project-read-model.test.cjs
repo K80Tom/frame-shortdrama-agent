@@ -136,7 +136,7 @@ test('资产齐全后：分镜候选未采用 → adopt-storyboard；已采用�
   assert.equal(overview.nextAction.id, 'create-production');
 });
 
-test('保存新剧本版本后已采用指针被仓库清空，回到 start-breakdown', async () => {
+test('保存新剧本草稿后保留已采用版本链，并明确标记为旧版本', async () => {
   const { service } = fixture();
   const { project, plan } = await prepared(service);
   const checked = await service.checkPlan(plan.id);
@@ -145,7 +145,8 @@ test('保存新剧本版本后已采用指针被仓库清空，回到 start-brea
   assert.equal(overview.facts.stale, false);
   await service.createScriptVersion(project.id, { rawText: `${RAW_TEXT}新的一段。\r\n` });
   overview = await readModel(service).overview(project.id);
-  assert.equal(overview.facts, null);
+  assert.equal(overview.facts.stale, true);
+  assert.equal(overview.facts.planRevisionId, plan.id);
   assert.equal(overview.script.version, 2);
   assert.equal(overview.storyboard, null);
   assert.equal(overview.nextAction.id, 'start-breakdown');

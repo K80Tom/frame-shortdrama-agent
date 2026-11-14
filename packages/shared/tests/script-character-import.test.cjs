@@ -43,6 +43,15 @@ test('planCharacterImport：别名命中的说话人也计入场次，空草稿�
   assert.deepEqual(planCharacterImport(null, [{ name: '林澈' }], []), [{ key: '林澈', name: '林澈', sceneCount: 0, existing: false, suggested: false }]);
 });
 
+test('planCharacterImport：旁白叙事标签不计作真实人物出场', () => {
+  const structure = parseScriptStructure(raw);
+  structure.episodes[0].scenes[0].dialogues.unshift({
+    id: 'narration', type: 3, content: '故事从旧钟表店开始。', characterName: '旁白',
+  });
+  const [item] = planCharacterImport(structure, [{ name: '旁白' }], []);
+  assert.equal(item.sceneCount, 0);
+});
+
 test('filterImportEntities：总开关关闭时一个角色都不导入', () => {
   const characters = [{ name: '林澈' }, { name: '前台小妹' }];
   assert.deepEqual(filterImportEntities(characters, { enabled: false, selectedNames: new Set(['林澈', '前台小妹']) }), []);

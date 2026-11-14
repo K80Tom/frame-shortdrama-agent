@@ -15,6 +15,7 @@ export class AssetController {
   }
   @Get() async list() { return { assets: await this.ready().list() }; }
   @Post() create(@Body() body: unknown) { return this.ready().create(body); }
+  @Post('metadata') createMetadata(@Body() body: unknown) { return this.ready().createMetadata(body); }
   @Post('import') importImage(@Body() body: unknown) { return this.ready().importImage(body); }
   @Post(':id/update') update(@Param('id') id: string, @Body() body: unknown) { return this.ready().update(id, body); }
   @Post(':id/media') replaceMedia(@Param('id') id: string, @Body() body: unknown) { return this.ready().replaceMedia(id, body); }

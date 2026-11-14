@@ -208,6 +208,7 @@ export class ComposeProductionExecutor implements ProductionExecutor {
   async prepare({ run, task }: { run: Readonly<StoredProductionRun>; task: Readonly<ProductionTask> }): Promise<PreparedProductionExecution> {
     const inputs = composeInputs(run);
     const plan = prepared('timeline-composer', { taskId: task.id, inputs });
+    if (run.shotId) return plan;
     const policy = this.options.frameAssessment;
     if (!policy) return plan;
     if (task.scope.kind === 'shot') {
@@ -259,6 +260,19 @@ export class ComposeProductionExecutor implements ProductionExecutor {
       const missing = inputs.find(input => !input.mediaId);
       if (missing) return { state: 'blocked', issue: { code: 'SHOT_SELECTION_INCOMPLETE', title: '镜头选片未完成',
         message: `镜头 ${missing.shotId} 没有已选且通过入库的本地视频。`, severity: 'error' } };
+      if (run.shotId) {
+        if (inputs.length !== 1) return { state: 'blocked', issue: { code: 'SINGLE_SHOT_SCOPE_INVALID',
+          title: '单镜范围不一致', message: `本次运行只允许交付镜头 ${run.shotId}，但当前有 ${inputs.length} 个镜头输入。`, severity: 'error' } };
+        const selected = selectedShotArtifact(run, run.shotId);
+        if (!selected || !mediaId(selected)) return { state: 'blocked', issue: { code: 'SINGLE_SHOT_LOCAL_VIDEO_MISSING',
+          title: '单镜本地视频缺失', message: '镜头视频尚未完成本地下载与校验，不会交付供应商临时链接。', severity: 'error' } };
+        return { state: 'succeeded', artifacts: [{ key: 'single-shot-video', kind: 'video', title: '单镜本地视频',
+          uri: selected.uri, sha256: selected.sha256, metadata: { mediaId: mediaId(selected), sourceArtifactId: selected.id,
+            timelineId: `single-shot-${selected.id}`, inputMediaIds: [mediaId(selected)], shotId: run.shotId,
+            singleShot: true, autoEdit: false, formalAudioIncluded: false } }],
+          qualityChecks: [{ level: 'shot', result: 'pass', ruleVersion: 'local-single-shot-compose/1',
+            summary: '单镜直接复用已入库视频，不附加整集片头片尾、叠化或正式声音' }] };
+      }
       const ids = inputs.map(input => input.mediaId);
       const title = await this.resolveTitle(run.projectId);
       const assessment = this.readAssessments(run, inputs);
@@ -341,7 +355,7 @@ export class DeliveryProductionExecutor implements ProductionExecutor {
       const expectedRatio = run.ratio === '9:16' ? 9 / 16 : 16 / 9;
       const issues: string[] = [];
       if (Math.abs(probe.width / probe.height - expectedRatio) / expectedRatio > 0.035) issues.push('最终画幅与已冻结画幅不一致');
-      if (!probe.hasAudio) issues.push('最终成片没有音轨');
+      if (!run.shotId && !probe.hasAudio) issues.push('最终成片没有音轨');
       if (probe.durationSeconds <= 0 || probe.durationSeconds > 900) issues.push('最终时长超出交付范围');
       const durationRatio = run.qualityPreset === 'quality' ? 0.12 : run.qualityPreset === 'balanced' ? 0.2 : 0.3;
       const durationTolerance = Math.max(3, run.targetDurationSec * durationRatio);
@@ -352,13 +366,14 @@ export class DeliveryProductionExecutor implements ProductionExecutor {
         metadata: { mediaId: local.object.id, issues, targetDurationSec: run.targetDurationSec, durationTolerance } }], qualityChecks: [{ level: 'episode', result: 'fail',
           ruleVersion: 'local-delivery/2', summary: '最终成片技术校验未通过', issues }],
         issue: { code: 'DELIVERY_CHECK_FAILED', title: '成片校验未通过', message: issues.join('；'), severity: 'error' } };
-      return { state: 'succeeded', artifacts: [{ key: 'master', kind: 'delivery', title: '最终成片 MP4',
+      return { state: 'succeeded', artifacts: [{ key: 'master', kind: 'delivery', title: run.shotId ? '单镜视频 MP4' : '最终成片 MP4',
         uri: `/api/production-media/${local.object.id}`, sha256: local.object.sha256,
         metadata: { mediaId: local.object.id, sourceArtifactId: source.id, durationSeconds: probe.durationSeconds,
           width: probe.width, height: probe.height, hasAudio: probe.hasAudio, verifiedLocal: true,
-          targetDurationSec: run.targetDurationSec, durationTolerance } }],
-      qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'local-delivery/2',
-        summary: '最终成片通过本地哈希、容器、画幅、目标时长与音轨技术校验' }],
+          targetDurationSec: run.targetDurationSec, durationTolerance, ...(run.shotId ? { shotId: run.shotId, singleShot: true, formalAudioIncluded: false } : {}) } }],
+      qualityChecks: [{ level: run.shotId ? 'shot' : 'episode', result: 'pass', ruleVersion: run.shotId ? 'local-single-shot-delivery/1' : 'local-delivery/2',
+        summary: run.shotId ? '单镜本地视频通过哈希、容器、画幅与目标时长校验；正式对白和混音不在本次单镜运行范围'
+          : '最终成片通过本地哈希、容器、画幅、目标时长与音轨技术校验' }],
       delivery: { artifactKey: 'master', durationSec: probe.durationSeconds, container: 'mp4', verified: true } };
     } catch (error) { return safeMediaFailure(error, 'DELIVERY_VERIFY_FAILED', '最终成片校验失败。'); }
   }

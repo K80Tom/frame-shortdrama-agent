@@ -140,6 +140,10 @@ const EntityEditSchema = Type.Object({
 export const CreateEntityEditsSchema = Type.Object({
   expectedActivePlanRevisionId: Type.Union([Type.Null(), OpaqueId]),
   edits: Type.Array(EntityEditSchema, { minItems: 0, maxItems: 6_000 }),
+  removeEntities: Type.Optional(Type.Array(Type.Object({
+    kind: Type.Union([Type.Literal("character"), Type.Literal("location"), Type.Literal("prop")]),
+    entityId: OpaqueId,
+  }, { additionalProperties: false }), { minItems: 1, maxItems: 6_000 })),
   synopsis: Type.Optional(Type.Union([Type.Null(), Nonblank(20_000)])),
 }, { additionalProperties: false });
 export type CreateEntityEditsRequest = Static<typeof CreateEntityEditsSchema>;
@@ -196,6 +200,7 @@ export function materializeEntityEdits(base: ExtractFactsPlanContent, request: C
 }): ExtractFactsPlanContent {
   const { edits } = request;
   parseCreateEntityEdits({ expectedActivePlanRevisionId: null, edits,
+    ...(request.removeEntities === undefined ? {} : { removeEntities: request.removeEntities }),
     ...(request.synopsis === undefined ? {} : { synopsis: request.synopsis }) });
   validateStoredPlanContent(base, context.script);
   const content = structuredClone(base);
@@ -248,6 +253,30 @@ export function materializeEntityEdits(base: ExtractFactsPlanContent, request: C
       content.manualLocks.push({ targetType: "entity", targetId: entity.id, fields,
         introducedInRevisionId: context.revisionId });
     }
+  }
+  const removedIds = new Set<string>();
+  for (const removal of request.removeEntities ?? []) {
+    if (seen.has(removal.entityId)) invalid("同一实体不能在一次校对中重复提交或同时编辑和移除。");
+    seen.add(removal.entityId);
+    const index = groups[removal.kind].findIndex((entry) => entry.id === removal.entityId);
+    if (index < 0) invalid("要移除的实体不存在或类型不匹配。");
+    groups[removal.kind].splice(index, 1);
+    removedIds.add(removal.entityId);
+    changed = true;
+  }
+  if (removedIds.size > 0) {
+    for (const scene of content.scenes) {
+      scene.characterIds = scene.characterIds.filter((id) => !removedIds.has(id));
+      if (scene.locationId && removedIds.has(scene.locationId)) scene.locationId = null;
+    }
+    for (const dialogue of content.dialogues) {
+      if (dialogue.speakerId && removedIds.has(dialogue.speakerId)) {
+        dialogue.speakerId = null;
+        dialogue.speakerSourceRefs = [];
+        dialogue.speakerAnswerIds = [];
+      }
+    }
+    content.manualLocks = content.manualLocks.filter((lock) => !removedIds.has(lock.targetId));
   }
   if (!changed) throw new BreakdownError(422, "ENTITY_EDITS_UNCHANGED", "没有实际修改，无需创建新版本。");
   validateStoredPlanContent(content, context.script);

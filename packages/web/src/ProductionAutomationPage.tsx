@@ -6,7 +6,7 @@ import {
   RotateCcw, Settings2, ShieldCheck, Sparkles, WalletCards, WandSparkles, Layers3, X, Zap, Dices,
 } from 'lucide-react';
 import {
-  defaultProductionForm, mergeProductionRuns, money, parseProductionRun, parseProductionRuns, parseProjectOptions,
+  defaultProductionForm, consumeStoryboardProductionIntent, mergeProductionRuns, money, parseProductionRun, parseProductionRuns, parseProjectOptions,
   parseScriptVersionOptions, productionApi, ProductionApiError, productionCreateBody, productionRunActive, productionTaskCanRetry, runTitle, taskShotId,
   validateProductionForm, type ProductionCandidate, type ProductionForm, type ProductionIssue, type ProductionRun,
   type ProductionTask, type ProjectOption, type ProductionStage, type ScriptVersionOption,
@@ -91,13 +91,16 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
   const error = validateProductionForm(form);
   return <div className="pa-create-layout">
     <section className="pa-create-card" aria-labelledby="pa-create-title">
-      <div className="pa-card-head"><div><span>NEW PRODUCTION</span><h2 id="pa-create-title">创建一次完整制作</h2></div><WandSparkles size={20} /></div>
-      <p className="pa-card-intro">选择已经保存的剧本，Lyra 会建立可恢复的生产任务；模型未接入的环节会明确停下，不会伪造完成。</p>
+      <div className="pa-card-head"><div><span>NEW PRODUCTION</span><h2 id="pa-create-title">{form.shotId ? '创建单镜视频制作' : form.storyboardRevisionId ? '创建整集制作' : '创建一次完整制作'}</h2></div><WandSparkles size={20} /></div>
+      <p className="pa-card-intro">{form.storyboardRevisionId ? '使用已保存并人工采用的分镜，确认预算后建立可恢复任务；不会在此重新生成或自动采用分镜。' : '选择已经保存的剧本，Lyra 会建立可恢复的生产任务；模型未接入的环节会明确停下，不会伪造完成。'}</p>
+      {form.sourceLabel && <div className="pa-security"><ShieldCheck size={19} /><div><strong>{form.sourceLabel}</strong><p>人物参考、首尾帧和正式视频提示词由服务端从当前采用分镜读取。</p></div></div>}
       <div className="pa-form-grid">
-        <label className="pa-wide"><span>项目</span><select aria-label="自动制作项目" value={form.projectId} disabled={loading} onChange={event => onProject(event.target.value)}><option value="">选择已有剧本项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select></label>
-        <label className="pa-wide"><span>剧本版本</span><select aria-label="自动制作剧本版本" value={form.scriptVersionId} disabled={loading || !form.projectId} onChange={event => onChange({ scriptVersionId: event.target.value })}><option value="">{form.projectId ? '选择剧本版本' : '请先选择项目'}</option>{versions.map(version => <option key={version.id} value={version.id}>版本 {version.version}{version.id === projects.find(project => project.id === form.projectId)?.currentScriptVersionId ? ' · 当前' : ''}</option>)}</select></label>
+        <label className="pa-wide"><span>项目</span><select aria-label="自动制作项目" value={form.projectId} disabled={loading || Boolean(form.storyboardRevisionId)} onChange={event => onProject(event.target.value)}><option value="">选择已有剧本项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select></label>
+        <label className="pa-wide"><span>剧本版本</span><select aria-label="自动制作剧本版本" value={form.scriptVersionId} disabled={loading || !form.projectId || Boolean(form.storyboardRevisionId)} onChange={event => onChange({ scriptVersionId: event.target.value })}><option value="">{form.projectId ? '选择剧本版本' : '请先选择项目'}</option>{versions.map(version => <option key={version.id} value={version.id}>版本 {version.version}{version.id === projects.find(project => project.id === form.projectId)?.currentScriptVersionId ? ' · 当前' : ''}</option>)}</select></label>
         <label><span>画面比例</span><select aria-label="整集画面比例" value={form.ratio} onChange={event => onChange({ ratio: event.target.value as ProductionForm['ratio'] })}><option>9:16</option><option>16:9</option></select></label>
-        <label><span>目标时长</span><select aria-label="整集目标时长" value={form.targetDurationSec} onChange={event => onChange({ targetDurationSec: Number(event.target.value) })}><option value={60}>约 1 分钟</option><option value={90}>约 1.5 分钟</option><option value={120}>约 2 分钟</option><option value={180}>约 3 分钟</option></select></label>
+        <label><span>{form.shotId ? '单镜目标时长（秒）' : '目标时长'}</span>{form.shotId
+          ? <input aria-label="单镜目标时长" type="number" min="1" max="900" step="1" value={form.targetDurationSec} onChange={event => onChange({ targetDurationSec: Number(event.target.value) })} />
+          : <select aria-label="整集目标时长" value={form.targetDurationSec} onChange={event => onChange({ targetDurationSec: Number(event.target.value) })}><option value={60}>约 1 分钟</option><option value={90}>约 1.5 分钟</option><option value={120}>约 2 分钟</option><option value={180}>约 3 分钟</option></select>}</label>
         <label className="pa-wide"><span>视觉风格</span><textarea aria-label="自动制作视觉风格" maxLength={500} value={form.visualStyle} onChange={event => onChange({ visualStyle: event.target.value })} /></label>
         <label><span>生产策略</span><select aria-label="生产策略" value={form.qualityPreset} onChange={event => onChange({ qualityPreset: event.target.value as ProductionForm['qualityPreset'] })}><option value="fast">快速试片</option><option value="balanced">均衡制作</option><option value="quality">高质量</option></select></label>
         <label><span>自动化模式</span><select aria-label="自动化模式" value={form.automationMode} onChange={event => onChange({ automationMode: event.target.value as ProductionForm['automationMode'] })}><option value="auto">全自动</option><option value="checkpoints">关键节点确认</option><option value="coDirector">共同导演</option></select></label>
@@ -117,7 +120,7 @@ function CreatePanel({ form, projects, versions, loading, consent, onConsent, on
       </div>
       <PlatformReadinessPanel />
       <label className="pa-consent"><input type="checkbox" checked={consent} onChange={event => onConsent(event.target.checked)} /><span>授权本次运行在 ¥{form.budgetYuan.toFixed(0)} 上限内调用已配置的模型和媒体服务，可能产生费用；达到上限或遇到未知提交会暂停。</span></label>
-      <button className="pa-primary" disabled={loading || !consent || Boolean(error)} onClick={onSubmit}>{loading ? <LoaderCircle size={16} className="pa-spin" /> : <Sparkles size={16} />}{loading ? '正在创建运行…' : '开始自动制作'}</button>
+      <button className="pa-primary" disabled={loading || !consent || Boolean(error)} onClick={onSubmit}>{loading ? <LoaderCircle size={16} className="pa-spin" /> : <Sparkles size={16} />}{loading ? '正在准备…' : form.shotId ? '确认并开始单镜制作' : form.storyboardRevisionId ? '确认并开始整集制作' : '开始自动制作'}</button>
       {error && <p className="pa-field-error">{error}</p>}
     </section>
     <section className="pa-preview-card" aria-labelledby="pa-preview-title">
@@ -451,7 +454,7 @@ function StageView({ run, stageKey, selectedTaskId, busy, onBack, onStage, onTas
         <button className="pa-back" onClick={onBack}><ArrowLeft size={13} />返回总览</button>
         <p className="pa-stagehero-kicker"><span>STAGE {String(index + 1).padStart(2, '0')}</span><i className={`pa-stagehero-state is-${stage.state}`}>{statusIcon(stage.state === 'succeeded' ? 'succeeded' : stage.state === 'running' ? 'running' : stage.state === 'needsAttention' ? 'needsAttention' : stage.state === 'skipped' ? 'skipped' : 'pending')} {stageStateLabels[stage.state] ?? stage.state}</i></p>
         <h1 id="pa-stagehero-title">{stage.label}</h1>
-        <p className="pa-stagehero-desc">{stage.state === 'skipped' ? tasks.find(task => task.blockingReason?.message)?.blockingReason?.message ?? stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。' : stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。'}</p>
+        <p className="pa-stagehero-desc">{stage.state === 'skipped' ? tasks.find(task => task.blockingReason?.message)?.blockingReason?.message ?? stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。' : run.storyboardRevisionId && stageKey === 'storyboard' ? `复用已采用分镜 ${run.storyboardRevisionId}，只展开本次制作范围内的镜头，不重新生成候选。` : stageDescriptions[stageKey] ?? '制作流水线中的真实任务阶段。'}</p>
         <div className="pa-stagehero-metrics">
           <span><strong>{tasks.length}</strong><small>节点</small></span>
           <span><strong>{tasks.filter(task => task.status === 'succeeded' || task.status === 'skipped').length}</strong><small>已完成</small></span>
@@ -469,8 +472,8 @@ function StageView({ run, stageKey, selectedTaskId, busy, onBack, onStage, onTas
           <TaskTable run={run} tasks={tasks} selectedTaskId={selectedTaskId} onSelect={onTask} />
         </section>
         {stageKey === 'deliver' && <section className="pa-panel pa-delivery">
-          <div className="pa-section-head"><div><span>DELIVERY</span><h2>最终交付</h2></div><Film size={16} /></div>
-          {run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}
+          <div className="pa-section-head"><div><span>DELIVERY</span><h2>{run.shotId ? '单镜交付' : '最终交付'}</h2></div><Film size={16} /></div>
+          {run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || (run.shotId ? '单镜本地视频已通过技术校验；正式对白和混音不在本次运行范围。' : '整集已通过本地技术校验，可以打开成片。')}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">{run.shotId ? '打开单镜视频' : '打开最终成片'}<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || (run.shotId ? '视频生成、入库和技术校验完成后，这里会出现单镜结果。' : '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。')}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}
         </section>}
         <div className="pa-stage-nav">
           {prev ? <button onClick={() => onStage(prev.key)}><ChevronLeft size={14} />上一阶段 · {prev.label}</button> : <span />}
@@ -518,7 +521,7 @@ function OverviewView({ run, busy, onStage, onMatrix, onTask, onResolve, onRetry
     </section>
     <div className="pa-bottom-grid">
       <section className="pa-panel pa-timeline"><div className="pa-section-head"><div><span>ACTIVITY</span><h2>运行记录</h2></div><Activity size={16} /></div>{run.timeline.length ? <ol>{run.timeline.slice(0, 10).map(item => <li key={item.id}><i /><div><strong>{item.message}</strong><small>{dateText(item.createdAt)}</small></div></li>)}</ol> : <p className="pa-empty-copy">运行建立后，真实状态变化和人工决定会记录在这里。</p>}</section>
-      <section className="pa-panel pa-delivery"><div className="pa-section-head"><div><span>DELIVERY</span><h2>最终交付</h2></div><Film size={16} /></div>{run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || '整集已通过本地技术校验，可以打开最终成片。'}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">打开最终成片<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。'}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}</section>
+      <section className="pa-panel pa-delivery"><div className="pa-section-head"><div><span>DELIVERY</span><h2>{run.shotId ? '单镜交付' : '最终交付'}</h2></div><Film size={16} /></div>{run.delivery?.status === 'ready' && run.delivery.videoUrl ? <><p>{run.delivery.message || (run.shotId ? '单镜本地视频已通过技术校验；正式对白和混音不在本次运行范围。' : '整集已通过本地技术校验，可以打开成片。')}</p><a href={run.delivery.videoUrl} target="_blank" rel="noopener noreferrer">{run.shotId ? '打开单镜视频' : '打开最终成片'}<ArrowUpRight size={14} /></a></> : <><p>{run.delivery?.message || (run.shotId ? '视频生成、入库和技术校验完成后，这里会出现单镜结果。' : '镜头选择、镜头技术复核与自动剪辑完成后，成片会出现在这里。')}</p><span className="pa-delivery-wait">{run.delivery?.status || '等待上游完成'}</span></>}</section>
     </div>
   </>;
 }
@@ -546,7 +549,7 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
       <div>
         <div className="pa-run-kicker"><span className={`pa-live pa-live-${run.status}`} />{runLabels[run.status] || run.status}<span>·</span><span>{run.ratio || '画幅已冻结'}</span>{run.candidatePolicy ? <><span>·</span><span>{run.candidatePolicy === 'direct' ? '直出版' : '抽卡版'}</span></> : null}<span>·</span><span>{run.stages.find(stage => stage.key === current)?.label ?? ''}</span></div>
         <h1>{runTitle(run, projects)}</h1>
-        <p>整集自动制作 · 剧本版本 {run.scriptVersionId.slice(-8)} · {run.summary.tasks.completed} / {run.summary.tasks.total} 个节点已完成</p>
+        <p>{run.shotId ? '单镜视频制作' : run.storyboardRevisionId ? '当前分镜整集制作' : '整集自动制作'} · 剧本版本 {run.scriptVersionId.slice(-8)} · {run.summary.tasks.completed} / {run.summary.tasks.total} 个节点已完成</p>
       </div>
       <div className="pa-run-controls">
         <label><span className="pa-sr-only">选择制作运行</span><select value={run.id} onChange={event => onRun(event.target.value)}>{runs.map(item => <option key={item.id} value={item.id}>{runTitle(item, projects)} · {dateText(item.createdAt)}</option>)}</select></label>
@@ -564,13 +567,23 @@ function RunDashboard({ run, runs, projects, busy, onRun, onAction, onResolve, o
 export default function ProductionAutomationPage({ onUnsavedChange, initialScript, initialProjectId }: {
   onUnsavedChange?: (dirty: boolean) => void; initialScript?: NovelAdaptationResult; initialProjectId?: string;
 }) {
-  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm, projectId: initialScript?.projectId ?? initialProjectId ?? '' });
+  const [storyboardIntent] = useState(() => {
+    const intent = consumeStoryboardProductionIntent();
+    return intent && (!initialProjectId || intent.projectId === initialProjectId) ? intent : null;
+  });
+  const [form, setForm] = useState<ProductionForm>({ ...defaultProductionForm,
+    projectId: storyboardIntent?.projectId ?? initialScript?.projectId ?? initialProjectId ?? '',
+    scriptVersionId: storyboardIntent?.scriptVersionId ?? initialScript?.scriptVersionId ?? '',
+    ...(storyboardIntent ? { storyboardRevisionId: storyboardIntent.storyboardRevisionId,
+      ...(storyboardIntent.shotId ? { shotId: storyboardIntent.shotId } : {}),
+      ...(storyboardIntent.targetDurationSec ? { targetDurationSec: storyboardIntent.targetDurationSec } : {}),
+      sourceLabel: storyboardIntent.sourceLabel } : {}) });
   const pinnedScript = useRef(initialScript);
   const [projects, setProjects] = useState<ProjectOption[]>([]); const [versions, setVersions] = useState<ScriptVersionOption[]>([]);
   const [runs, setRuns] = useState<ProductionRun[]>([]); const [selectedRunId, setSelectedRunId] = useState('');
   const [consent, setConsent] = useState(false); const [dirty, setDirty] = useState(false); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [loadError, setLoadError] = useState(''); const [refresh, setRefresh] = useState(0);
-  const [creating, setCreating] = useState(Boolean(initialScript));
+  const [creating, setCreating] = useState(Boolean(initialScript || storyboardIntent));
   const [pendingClientId, setPendingClientId] = useState(pendingFromSession);
   const mutation = useRef(false); const controllerRef = useRef<AbortController | null>(null);
   const explicitRejection = useRef(false);
@@ -671,6 +684,6 @@ export default function ProductionAutomationPage({ onUnsavedChange, initialScrip
         onAction={type => void action(type)} onResolve={resolve} onRetry={task => void retry(task)} onReview={(task, decision, candidate) => void review(task, decision, candidate)} />}
     {pendingClientId && <div className="pa-recovery" role="alert"><AlertCircle size={15} /><p>正在核对刚才的创建结果。暂不允许再次创建，避免重复启动一整条付费流水线。</p><button onClick={() => setRefresh(value => value + 1)}>重新读取</button><button onClick={() => { if (!window.confirm('只有确认后端没有这次运行时才应解除。确定解除待确认状态？')) return; try { sessionStorage.removeItem(pendingKey); } catch { /* no-op */ } setPendingClientId(''); setConsent(false); }}>确认未创建</button></div>}
     {(message || error || loadError) && <div className={`pa-toast-inline ${error || loadError ? 'error' : ''}`} role={error || loadError ? 'alert' : 'status'}>{error || loadError ? <AlertCircle size={15} /> : <Check size={15} />}<p>{error || loadError || message}</p>{(error || loadError) && <button onClick={() => { setError(''); setLoadError(''); setRefresh(value => value + 1); }}><RefreshCw size={12} />刷新</button>}</div>}
-    {!isCreate && <button className="pa-new-run" onClick={() => { setCreating(true); setDirty(false); setConsent(false); }}>新建一次制作</button>}
+    {!isCreate && <button className="pa-new-run" onClick={() => { setForm({ ...defaultProductionForm, projectId: initialProjectId ?? '', scriptVersionId: run?.scriptVersionId ?? '' }); setCreating(true); setDirty(false); setConsent(false); }}>新建一次制作</button>}
   </div>;
 }

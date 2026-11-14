@@ -137,6 +137,26 @@ test('PostgreSQL adapter uses parameters, preserves snapshots in flight and vali
   await assert.rejects(corruptedTime.get(record.id), error => error.code === 'ASSET_STORED_DATA_INVALID');
 });
 
+test('script metadata assets reuse same names or aliases and never overwrite existing media', async () => {
+  const service = new AssetService(new InMemoryAssetRepository());
+  const existing = await service.create(input({ name: '林澈', description: '既有定妆设定' }));
+  const reused = await service.createMetadata({ kind: 'character', name: '林澈', aliases: [], description: '模型新描述' });
+  const alias = await service.createMetadata({ kind: 'character', name: '阿澈', aliases: ['林澈'], description: '别名描述' });
+  assert.equal(reused.id, existing.id);
+  assert.equal(alias.id, existing.id);
+  assert.equal(reused.description, '既有定妆设定');
+  assert.equal(reused.resourceUrl, existing.resourceUrl);
+
+  const created = await service.createMetadata({ kind: 'character', name: '路人甲', aliases: [], description: '远处经过的人' });
+  assert.equal(created.resourceUrl, '');
+  assert.doesNotThrow(() => validateAssetRecord(created));
+  const repeated = await service.createMetadata({ kind: 'character', name: ' 路人 甲 ', aliases: [], description: '不会覆盖' });
+  assert.equal(repeated.id, created.id);
+  assert.equal(repeated.description, created.description);
+  const location = await service.createMetadata({ kind: 'location', name: '路人甲', aliases: [], description: '' });
+  assert.notEqual(location.id, created.id);
+});
+
 test('PostgreSQL driver details never escape catalogue errors and duplicate create is a conflict', async () => {
   for (const code of ['23505', 'ECONNREFUSED', '42P01']) {
     const repository = new PostgresAssetRepository({ query: async () => { throw { code, message: 'secret endpoint password raw SQL', detail: 'private-url' }; } });

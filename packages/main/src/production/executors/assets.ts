@@ -28,6 +28,7 @@ import type {
 
 export const EXECUTOR_VERSION = 'production-assets/4';
 export const MATCH_RULE_VERSION = 'production-asset-match/5';
+export const AUTO_PLACEHOLDER_DESCRIPTION = '来自剧本需求自动登记（占位图，请在资产库替换为正式素材）。';
 const PROMPT_VERSION = 'production-asset-image/1';
 const DEFAULT_IMAGE_COST_MICROS = 2_000_000;
 const STRUCTURED_RETRIEVER: AssetRetriever = {
@@ -35,7 +36,7 @@ const STRUCTURED_RETRIEVER: AssetRetriever = {
 };
 
 type BreakdownReader = Pick<BreakdownServicePort, 'getProject' | 'getPlanRevision'>;
-type AssetLibrary = Pick<AssetService, 'list' | 'importImage'>;
+type AssetLibrary = Pick<AssetService, 'list' | 'importImage' | 'replaceMedia'>;
 type StoryboardReader = Pick<StoryboardService, 'get'>;
 
 export interface ProductionImageGenerator {
@@ -93,6 +94,8 @@ export interface AssetMatch {
   ambiguous: boolean;
   alternatives: string[];
   retrieval: AssetRetrievalResult | null;
+  /** 仅对旧的自动占位图保留原资产 ID，以便已绑定镜头获得真实图片。 */
+  replaceAssetId?: string | null;
   ambiguousCandidates: Array<{
     assetId: string;
     name: string;
@@ -156,7 +159,11 @@ export class AssetsProductionExecutor implements ProductionExecutor {
     const semantic = this.retrieval.semanticProvider;
     const retrievalManifest = semantic ? { model: semantic.model, revision: semantic.revision } : null;
     if (context.task.scope.kind === 'episode') {
-      const refs = loaded.state === 'ready' ? allEntities(loaded.plan) : [];
+      let refs = loaded.state === 'ready' ? allEntities(loaded.plan) : [];
+      if (loaded.state === 'ready' && context.run.shotId) {
+        const storyboard = await this.loadStoryboard(context.run);
+        refs = storyboard.state === 'ready' ? shotEntities(loaded.plan, storyboard.storyboard, context.run.shotId) : [];
+      }
       const queryCount = this.semanticQueryCount(refs, assets);
       return { executor: EXECUTOR_VERSION, inputDigest: canonicalDigest({ rule: MATCH_RULE_VERSION,
         run: frozenRunInput(context.run), plan: loaded.state === 'ready' ? loaded.plan : loaded,
@@ -251,8 +258,14 @@ export class AssetsProductionExecutor implements ProductionExecutor {
   }
 
   private async matchEpisode(context: ProductionExecutionContext, plan: PlanRevisionRecord): Promise<ProductionExecutorOutcome> {
+    let refs = allEntities(plan);
+    if (context.run.shotId) {
+      const board = await this.loadStoryboard(context.run);
+      if (board.state === 'blocked') return blocked(board.code, board.message);
+      refs = shotEntities(plan, board.storyboard, context.run.shotId);
+    }
     const assets = await this.options.assets.list();
-    const matches = await matchEntities(allEntities(plan), assets, this.retrieval, retrievalPolicy(context.run));
+    const matches = await matchEntities(refs, assets, this.retrieval, retrievalPolicy(context.run));
     const embeddingCost = this.embeddingActualCost(matches);
     const ambiguous = matches.filter(item => item.ambiguous);
     const missing = matches.filter(item => !item.asset && !item.ambiguous);
@@ -324,8 +337,10 @@ export class AssetsProductionExecutor implements ProductionExecutor {
       prompt, responseFormat: 'b64_json', watermark: false,
     });
     const description = importDescription(ref, plan, context.run.visualStyle, connection.model);
-    const saved = await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,
-      description, contentBase64: generated.bytes.toString('base64') });
+    const saved = existing.replaceAssetId
+      ? await this.options.assets.replaceMedia(existing.replaceAssetId, { contentBase64: generated.bytes.toString('base64') }, description)
+      : await this.options.assets.importImage({ kind: ref.kind, name: ref.entity.name.value,
+        description, contentBase64: generated.bytes.toString('base64') });
     const sha256 = createHash('sha256').update(generated.bytes).digest('hex');
     return {
       state: 'succeeded', actualCostMicros: embeddingCost + this.imageCostMicros,
@@ -416,7 +431,7 @@ function normalized(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/[\s·•・　]+/gu, '');
 }
 
-export function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
+function exactAssetMatchIn(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
   const primary = normalized(ref.entity.name.value);
   const aliasEntries: Array<[string, string]> = ref.entity.aliases.map(item => [normalized(item.value), item.value]);
   const aliases = new Map(aliasEntries.filter(([key]) => Boolean(key)));
@@ -444,9 +459,27 @@ export function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMat
       resourceUrl: item.asset.resourceUrl, matchedBy: item.matchedBy, matchedTerm: item.matchedTerm })) : [] };
 }
 
+export function isAutoPlaceholderAsset(asset: AssetRecord): boolean {
+  return asset.description === AUTO_PLACEHOLDER_DESCRIPTION;
+}
+
+export function exactAssetMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
+  return exactAssetMatchIn(ref, assets.filter(asset => !isAutoPlaceholderAsset(asset)));
+}
+
+function exactPlaceholderMatch(ref: EntityRef, assets: AssetRecord[]): AssetMatch | null {
+  return exactAssetMatchIn(ref, assets.filter(isAutoPlaceholderAsset));
+}
+
 async function matchOne(ref: EntityRef, assets: AssetRecord[], retriever: AssetRetriever, policy: AssetRetrievalPolicy): Promise<AssetMatch> {
   const exact = exactAssetMatch(ref, assets);
   if (exact) return exact;
+  const placeholder = exactPlaceholderMatch(ref, assets);
+  if (placeholder) {
+    if (placeholder.ambiguous) return placeholder;
+    return { ...placeholder, asset: null, matchedBy: null, matchedTerm: null,
+      alternatives: [], ambiguousCandidates: [], replaceAssetId: placeholder.asset!.id };
+  }
   const retrieval = await retriever.retrieve({
     kind: ref.kind, name: ref.entity.name.value, aliases: ref.entity.aliases.map(item => item.value),
     description: ref.entity.description?.value ?? '', sourceQuotes: sourceQuotes(ref.entity),

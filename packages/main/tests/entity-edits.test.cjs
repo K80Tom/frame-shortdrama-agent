@@ -104,6 +104,54 @@ test('historical provider snapshots do not prevent reading and saving an offline
   assert.equal(repository.modelCalls.size, 0);
 });
 
+test('asset requirement removal creates an immutable candidate and clears only fact references', async () => {
+  const { service } = fixture();
+  const { plan } = await prepared(service);
+  const before = structuredClone(plan.content);
+  const revised = await service.createEntityEditCandidate(plan.id, {
+    expectedActivePlanRevisionId: null,
+    edits: [],
+    removeEntities: [
+      { kind: 'character', entityId: plan.content.characters[0].id },
+      { kind: 'location', entityId: plan.content.locations[0].id },
+      { kind: 'prop', entityId: plan.content.props[0].id },
+    ],
+  });
+
+  assert.notEqual(revised.id, plan.id);
+  assert.equal(revised.parentRevisionId, plan.id);
+  assert.equal(revised.createdBy, 'user');
+  assert.equal(revised.content.characters.length, 0);
+  assert.equal(revised.content.locations.length, 0);
+  assert.equal(revised.content.props.length, 0);
+  assert.deepEqual(revised.content.scenes[0].characterIds, []);
+  assert.equal(revised.content.scenes[0].locationId, null);
+  assert.equal(revised.content.dialogues[0].speakerId, null);
+  assert.deepEqual(revised.content.dialogues[0].speakerSourceRefs, []);
+  assert.deepEqual(revised.content.dialogues[0].speakerAnswerIds, []);
+  assert.deepEqual(plan.content, before);
+});
+
+test('retrying the same requirement removal resumes its unadopted candidate without weakening edit conflicts', async () => {
+  const { service, repository } = fixture();
+  const { plan } = await prepared(service);
+  const request = {
+    expectedActivePlanRevisionId: null,
+    edits: [],
+    removeEntities: [{ kind: 'character', entityId: plan.content.characters[0].id }],
+  };
+  const first = await service.createEntityEditCandidate(plan.id, request);
+  const retry = await service.createEntityEditCandidate(plan.id, request);
+  assert.equal(retry.id, first.id);
+  assert.equal((await service.listProjectPlanRevisions(plan.projectId)).length, 2);
+  await assert.rejects(service.createEntityEditCandidate(plan.id, {
+    expectedActivePlanRevisionId: null,
+    edits: [],
+    removeEntities: [{ kind: 'location', entityId: plan.content.locations[0].id }],
+  }), error => error.status === 409);
+  assert.equal((await repository.listProjectPlanRevisions(plan.projectId)).length, 2);
+});
+
 async function adopt(service, project, plan, expectedActivePlanRevisionId = null) {
   const result = await service.checkPlan(plan.id);
   assert.equal(result.check.result, 'passed');

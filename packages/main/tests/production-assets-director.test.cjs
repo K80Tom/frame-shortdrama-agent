@@ -110,6 +110,28 @@ test('episode asset matching is exact and expands only genuinely missing entitie
   const binding = outcome.artifacts[0].metadata.bindings.find(item => item.entityId === 'character_hero');
   assert.equal(binding.matchedBy, 'alias');
 });
+test('single-shot episode assets prune unrelated scenes before exact matching', async () => {
+  const r = readers(); const assets = new AssetService(new InMemoryAssetRepository());
+  await assets.create({ kind: 'character', name: '小玥', description: '已有角色资产', resourceUrl: 'https://assets.test/hero.png' });
+  const other = entity('character_other', '无关人物', [], '另一场人物', 50);
+  const otherLocation = entity('location_other', '无关场景', [], '另一场地点', 60);
+  r.plan.content.characters.push(other); r.plan.content.locations.push(otherLocation);
+  r.plan.content.scenes.push({ id: 'scene_other', order: 2, title: text('另一场'), locationId: otherLocation.id,
+    characterIds: [other.id], sourceRefs: [], timeOfDay: text('日'), shots: [] });
+  r.board.shots.push({ id: 'shot_other', sceneId: 'scene_other', order: 2,
+    design: { origin: 'designSuggestion', visualDescription: '无关人物在另一场', shotSize: '全景', cameraMovement: '固定', durationMs: 3000 },
+    sourceRefs: [], dialogueIds: [] });
+  const executor = new AssetsProductionExecutor({ ...r, assets, config: config(), imageClientFactory: () => ({
+    async generateImage() { throw new Error('must not generate in episode coordinator'); },
+  }) });
+  const run = production({ storyboardRevisionId: BOARD, shotId: 'shot_simple' });
+  const outcome = await executor.execute(context(run, run.tasks.find(item => item.stage === 'assets')));
+  assert.equal(outcome.state, 'succeeded');
+  assert.deepEqual(outcome.spawnTasks.map(item => item.scope.id).sort(), ['location_alley', 'prop_phone']);
+  assert.equal(outcome.artifacts[0].metadata.bindings.some(item => item.entityId === other.id), false);
+  assert.equal(outcome.artifacts[0].metadata.bindings.some(item => item.entityId === otherLocation.id), false);
+});
+
 test('same-priority asset matches block every asset entry point without generating another asset', async () => {
   const r = readers(); const assets = new AssetService(new InMemoryAssetRepository()); let calls = 0;
   const first = await assets.create({ kind: 'character', name: '沈玥', description: '角色候选 A',
@@ -189,6 +211,29 @@ test('asset child generates exactly one verified image, imports it, and exact re
   const replayPrepare = await executor.prepare({ run, task }); assert.equal(replayPrepare.requiresPaid, false);
   const replay = await executor.execute(context(run, task)); assert.equal(replay.state, 'succeeded'); assert.equal(calls, 1);
   assert.equal(replay.artifacts[0].metadata.generated, false);
+});
+
+test('legacy automatic placeholders are regenerated in place without replacing real assets', async () => {
+  const r = readers(); const assets = new AssetService(new InMemoryAssetRepository()); let calls = 0;
+  const placeholder = await assets.importImage({ kind: 'character', name: '沈玥',
+    description: '来自剧本需求自动登记（占位图，请在资产库替换为正式素材）。', contentBase64: png().toString('base64') });
+  const executor = new AssetsProductionExecutor({ ...r, assets, config: config(), imageClientFactory: () => ({
+    async generateImage() { calls++; return { bytes: png(), mimeType: 'image/png', source: 'b64_json' }; } }) });
+  const run = production(); const episodeTask = run.tasks.find(item => item.stage === 'assets');
+  const episode = await executor.execute(context(run, episodeTask));
+  assert.equal(episode.state, 'succeeded');
+  assert.ok(episode.spawnTasks.some(item => item.scope.id === 'character_hero'));
+  const task = scopedTask(run, 'assets', { kind: 'asset', id: 'character_hero' });
+  const prepared = await executor.prepare({ run, task }); assert.equal(prepared.requiresPaid, true);
+  const outcome = await executor.execute(context(run, task, prepared));
+  assert.equal(outcome.state, 'succeeded'); assert.equal(calls, 1);
+  assert.equal(outcome.artifacts[0].metadata.assetId, placeholder.id);
+  assert.equal(outcome.artifacts[0].metadata.generated, true);
+  const records = await assets.list(); assert.equal(records.length, 1);
+  assert.equal(records[0].id, placeholder.id); assert.match(records[0].description, /全流程自动制片生成/);
+  const replayPrepare = await executor.prepare({ run, task }); assert.equal(replayPrepare.requiresPaid, false);
+  const replay = await executor.execute(context(run, task, replayPrepare));
+  assert.equal(replay.state, 'succeeded'); assert.equal(calls, 1);
 });
 
 test('connection changes after prepare stop before the paid image request', async () => {

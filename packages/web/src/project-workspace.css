@@ -463,3 +463,55 @@
   line-height: 1.6;
   color: #b45309;
 }
+
+/* 分镜页：融光式三栏结构，沿用 Lyra 的深色灰紫视觉。 */
+.project-workspace-storyboard {
+  height: calc(100dvh - 130px);
+  min-height: 600px;
+  grid-template-columns: 210px minmax(0, 1fr);
+  border-color: rgba(255, 255, 255, .09);
+  border-radius: 20px;
+  background: #101014;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .24);
+  color: #f2f2f6;
+}
+.project-workspace-storyboard .project-rail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 17px 12px;
+  border-right: 1px solid rgba(255, 255, 255, .075);
+  background: linear-gradient(180deg, rgba(31, 31, 38, .96), rgba(20, 20, 25, .98));
+  backdrop-filter: blur(28px) saturate(1.15);
+}
+.project-workspace-storyboard .project-back { color: #9999a5; font-size: 11px; }
+.project-workspace-storyboard .project-back:hover { background: rgba(255, 255, 255, .055); color: #f0f0f5; }
+.project-workspace-storyboard .project-identity { margin: 12px 0 15px; padding: 10px 8px 17px; border: 0; border-bottom: 1px solid rgba(255, 255, 255, .075); border-radius: 0; background: transparent; }
+.project-workspace-storyboard .project-identity-mark { display: none; }
+.project-workspace-storyboard .project-identity strong { color: #f1f1f5; font-size: 16px; font-weight: 600; }
+.project-workspace-storyboard .project-identity small { color: #81818c; font-size: 10px; }
+.project-workspace-storyboard .project-progress,
+.project-workspace-storyboard .project-rail-foot { display: none; }
+.project-workspace-storyboard .project-stage-nav { gap: 4px; }
+.project-workspace-storyboard .project-stage-nav > a { min-height: 41px; padding: 6px 10px; border: 1px solid transparent; border-radius: 9px; color: #92929d; }
+.project-workspace-storyboard .project-stage-nav > a:hover { background: rgba(255, 255, 255, .045); color: #dedee5; }
+.project-workspace-storyboard .project-stage-nav > a[aria-current=page] { border-color: rgba(154, 147, 255, .16); background: linear-gradient(90deg, rgba(130, 121, 255, .17), rgba(130, 121, 255, .06)); color: #f1f1f6; }
+.project-workspace-storyboard .project-stage-icon { width: 23px; height: 23px; flex-basis: 23px; color: #858590; }
+.project-workspace-storyboard .project-stage-nav > a[aria-current=page] .project-stage-icon { background: rgba(143, 136, 255, .14); color: var(--project-accent-bright); }
+.project-workspace-storyboard .project-stage-nav strong { font-size: 12px; font-weight: 500; }
+.project-workspace-storyboard .project-stage-nav small,
+.project-workspace-storyboard .project-stage-state { display: none; }
+.project-workspace-storyboard .project-workspace-main { min-height: 0; display: flex; flex-direction: column; background: radial-gradient(circle at 90% 0%, rgba(114, 103, 255, .07), transparent 30%), #111116; }
+.project-workspace-storyboard .project-workspace-header { display: none; }
+.project-workspace-storyboard .project-section-storyboard { min-height: 0; display: flex; flex: 1; padding: 0; }
+@media (max-width: 1050px) {
+  .project-workspace-storyboard { height: auto; min-height: calc(100dvh - 130px); grid-template-columns: 1fr; }
+  .project-workspace-storyboard .project-rail { overflow: visible; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, .075); }
+  .project-workspace-storyboard .project-identity { max-width: 420px; margin-top: 3px; padding-bottom: 10px; }
+  .project-workspace-storyboard .project-stage-nav { display: flex; overflow-x: auto; }
+  .project-workspace-storyboard .project-workspace-main { min-height: 700px; }
+}
+@media (max-width: 680px) {
+  .project-workspace-storyboard { min-height: 0; }
+  .project-workspace-storyboard .project-workspace-main { min-height: 0; }
+  .project-workspace-storyboard .project-section-storyboard { display: block; }
+}

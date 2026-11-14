@@ -85,7 +85,7 @@ export default function ProjectWorkspace({ projectId, section, draft, children, 
   const context = { projectId, entry, summary, flowSection };
 
   return <WorkspaceContext.Provider value={context}>
-    <section className="project-workspace">
+    <section className={`project-workspace project-workspace-${flowSection}`}>
       <aside className="project-rail" aria-label="项目工作区导航">
         <a className="project-back" href="#/projects"><Circle size={12} />所有项目</a>
         <div className="project-identity">

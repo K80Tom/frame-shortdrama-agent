@@ -220,11 +220,11 @@ test('P0.5 records blocking issues and adopts only a checked current-script cand
     expectedActivePlanRevisionId: null,
   }), (error) => error.code === 'PLAN_ADOPTION_CONFLICT');
   await service.createScriptVersion(project.id, { rawText: '第1场 新版场景 日 内\n甲：新版对白。' });
-  assert.equal((await repository.getProject(project.id)).activePlanRevisionId, null);
+  assert.equal((await repository.getProject(project.id)).activePlanRevisionId, complete.id);
   await assert.rejects(service.adoptPlan(project.id, {
     planRevisionId: complete.id, checkId: passed.check.id,
     expectedActivePlanRevisionId: null,
-  }), (error) => error.code === 'PLAN_NOT_ADOPTABLE');
+  }), (error) => error.code === 'PLAN_ADOPTION_CONFLICT');
 });
 
 test('P0.5 allows a user to adopt after explicitly acknowledging failed-check warnings', async () => {

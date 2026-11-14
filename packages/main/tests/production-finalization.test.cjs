@@ -113,6 +113,36 @@ test('compose uses storyboard order and selected local candidates', async () => 
   assert.equal(outcome.timeline.durationSec, 8);
 });
 
+test('single-shot production reuses the verified local take without episode cards or an audio gate', async () => {
+  const value = run(); value.shotId = 'shot_one'; value.targetDurationSec = 5;
+  const video = task(value, 'video'); value.tasks.push(video);
+  value.artifacts.push(artifact(value, video.id, 'partifact_single_source', mediaA));
+  const compose = { ...value.tasks.find(item => item.stage === 'compose'), status: 'running' };
+  const composer = { async compose() { throw new Error('single-shot must not enter episode composition'); } };
+  const executor = new ComposeProductionExecutor(composer, { frameAssessment: {
+    assessor: { async assessOne() { throw new Error('single-shot must not buy frame assessment'); } }, ceilingMicrosPerShot: 1000 } });
+  const prepared = await executor.prepare({ run: value, task: compose });
+  assert.equal(prepared.requiresPaid, false); assert.equal(prepared.prerequisites, undefined);
+  const composed = await executor.execute(context(value, compose));
+  assert.equal(composed.state, 'succeeded');
+  assert.equal(composed.artifacts[0].uri, `/api/production-media/${mediaA}`);
+  assert.equal(composed.artifacts[0].metadata.singleShot, true);
+  assert.equal(composed.artifacts[0].metadata.formalAudioIncluded, false);
+  assert.equal(composed.artifacts[0].metadata.autoEdit, false);
+  value.artifacts.push({ ...composed.artifacts[0], id: 'partifact_single_timeline', runId: value.id,
+    taskId: compose.id, status: 'current', createdAt: now });
+  const deliver = { ...value.tasks.find(item => item.stage === 'deliver'), status: 'running' };
+  const noAudioStore = { async getVideo(id) { return { absolutePath: `/owned/${id}.mp4`, object: { id, sha256: id.slice(6),
+    probe: { container: 'mp4', durationSeconds: 5, width: 1080, height: 1920, videoCodec: 'h264', hasAudio: false, audioCodec: null } } }; } };
+  const delivered = await new DeliveryProductionExecutor(noAudioStore).execute(context(value, deliver));
+  assert.equal(delivered.state, 'succeeded');
+  assert.equal(delivered.artifacts[0].title, '单镜视频 MP4');
+  assert.equal(delivered.artifacts[0].metadata.shotId, 'shot_one');
+  assert.equal(delivered.artifacts[0].metadata.formalAudioIncluded, false);
+  assert.equal(delivered.qualityChecks[0].level, 'shot');
+  assert.match(delivered.qualityChecks[0].summary, /正式对白和混音不在/);
+});
+
 test('delivery only marks a locally re-probed MP4 as verified', async () => {
   const value = run(); const deliver = { ...value.tasks.find(item => item.stage === 'deliver'), status: 'running' };
   value.artifacts.push({ ...artifact(value, value.tasks.find(item => item.stage === 'compose').id,

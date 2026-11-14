@@ -151,7 +151,7 @@ function storedStoryboardFixture(validatorVersion = 'storyboard-validator/1', be
 }
 
 test('storyboard keeps legacy versions readable and preserves their shot IDs on adoption', async () => {
-  for (const version of ['storyboard-validator/1', 'storyboard-validator/2']) {
+  for (const version of ['storyboard-validator/1', 'storyboard-validator/2', 'storyboard-validator/3', 'storyboard-validator/4']) {
     const { row, service, writes } = storedStoryboardFixture(version);
     const original = structuredClone(row);
     assert.deepEqual((await service.get('storyboard_1')).shots, row.content_json.shots);
@@ -172,9 +172,9 @@ test('storyboard adoption rechecks legacy dialogue order before changing the ado
   assert.deepEqual(writes, []);
 });
 
-test('storyboard adoption still rejects project changes after immutable revision preflight', async () => {
+test('storyboard adoption still rejects plan or adopted-pointer changes after immutable revision preflight', async () => {
   for (const [field, value, code] of [
-    ['current_script_version_id', 'script_2', 'STORYBOARD_NOT_ADOPTABLE'],
+    ['active_plan_revision_id', 'plan_2', 'STORYBOARD_NOT_ADOPTABLE'],
     ['active_plan_revision_id', 'plan_2', 'STORYBOARD_NOT_ADOPTABLE'],
     ['active_storyboard_revision_id', 'storyboard_2', 'STORYBOARD_ADOPTION_CONFLICT'],
   ]) {

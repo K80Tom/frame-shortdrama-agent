@@ -31,6 +31,9 @@ import { DoubaoImageApiAdapter } from './desktop-assets/api-adapter';
 import { VideoAutomationService } from './video-automation/service';
 import { PostgresVideoAutomationRepository } from './video-automation/repository';
 import { SeedanceVideoAutomationAdapter } from './video-automation/adapter';
+import { VoiceReferenceService } from './voice-references/service';
+import { PostgresVoiceReferenceRepository } from './voice-references/repository';
+import { AudioAssetStore } from './production-media/audio/audio-store';
 import { PostgresProductionRepository } from './production/repository';
 import { ProductionService } from './production/service';
 import { BreakdownProductionExecutor, StoryboardProductionExecutor, VideoProductionExecutor } from './production/runtime';
@@ -205,6 +208,8 @@ async function main() {
   const assetRetrieval = assetVectorConfig
     ? createTenantAwareAssetRetriever(assetVectorConfig, assetVectorV2) : undefined;
   const objectStorage = createObjectStorageFromEnv(process.env);
+  const voiceReferenceService = new VoiceReferenceService(
+    new AudioAssetStore(resolve('outputs/private/voice-references')), objectStorage);
   const conversationContext = await createConversationContextRuntime<AssistantMessage>(process.env);
   const databaseConfig = readDatabaseConfig();
   let database: PostgresDatabase | undefined;
@@ -322,10 +327,13 @@ async function main() {
       }
       if (await database.hasMigrations(['009'])) {
         assetService = new AssetService(new PostgresAssetRepository(database), await database.hasMigrations(['010']));
+        if (await database.hasMigrations(['058'])) {
+          voiceReferenceService.configureAssets(new PostgresVoiceReferenceRepository(database), assetService);
+        }
       }
       if (await database.hasMigrations(['014'])) {
         videoAutomationService = new VideoAutomationService(new PostgresVideoAutomationRepository(database),
-          new SeedanceVideoAutomationAdapter(() => configForRole(config, 'video'), fetch, assetService));
+          new SeedanceVideoAutomationAdapter(() => configForRole(config, 'video'), fetch, assetService, voiceReferenceService));
       }
       const desktopJobs = await database.hasMigrations(['011', '012', '013'])
         ? new PostgresDesktopTaskRepository(database) : undefined;
@@ -351,9 +359,9 @@ async function main() {
           stageRunner = new ExtractFactsStageRunner(repository, breakdownService,
             new PiExtractFactsStageExecutor(), new MaasStageModelAdapter(config));
         }
-        storyboardService = new StoryboardService(database, breakdownService, config);
-        if (await database.hasMigrations(['056'])) {
-          scriptParseService = new ScriptParseService(database, breakdownService, config);
+        storyboardService = new StoryboardService(database, breakdownService, config, fetch, assetService ?? undefined);
+        if (await database.hasMigrations(['056', '057'])) {
+          scriptParseService = new ScriptParseService(database, breakdownService, config, fetch, assetService ?? null);
         }
       } else {
         breakdownService = new UnavailableBreakdownService(
@@ -394,6 +402,7 @@ async function main() {
           } : undefined,
           assetRetrievalPolicy: evolutionService ? () => evolutionService!.currentAssetRetrievalPolicy() : undefined,
           sourceCatalog: breakdownService,
+          storyboards: storyboardService,
           runInTenantScope: tenantResolver ? async (runId, work) => {
             const workspaceId = await database!.runAsSystem('production.tenant.lookup', () =>
               productionRepository.workspaceId(runId));
@@ -411,7 +420,8 @@ async function main() {
               { estimateCostMicros: PRODUCTION_COST_CEILINGS.storyboard }),
             new DirectorProductionExecutor({ breakdown: breakdownService, storyboards: storyboardService }),
             new VideoProductionExecutor(breakdownService, storyboardService, videoAutomationService,
-              { estimateCostMicros: PRODUCTION_COST_CEILINGS.video, mediaIngestor: productionMediaIngestor }),
+              { estimateCostMicros: PRODUCTION_COST_CEILINGS.video, mediaIngestor: productionMediaIngestor,
+                voiceReferences: voiceReferenceService }),
             new CandidateProductionExecutor(productionMediaStore),
             new ReviewProductionExecutor(productionMediaStore),
             new ComposeProductionExecutor(timelineComposer, {
@@ -798,6 +808,7 @@ async function main() {
     assetService,
     desktopAssetService,
     videoAutomationService,
+    voiceReferenceService,
     productionService,
     productionMediaStore,
     productionMediaObjectService,

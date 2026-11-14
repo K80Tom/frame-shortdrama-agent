@@ -5,6 +5,7 @@ import { SeedanceVideoClient, type SeedanceTask } from '../models/media-client';
 import { ModelError } from '@lyra/shared';
 import { createVideoModelClient } from '../models/media-runtime';
 import { VideoAutomationError, type StoredVideoRun, type VideoAvailability } from './contracts';
+import { VoiceReferenceError, type VoiceReferenceService } from '../voice-references/service';
 
 export type VideoSubmitResult = { state: 'submitted'; task: SeedanceTask }
   | { state: 'blocked' | 'unknown'; code: string; message: string };
@@ -18,7 +19,8 @@ export interface VideoAutomationAdapter {
 export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
   private readonly clients = new Map<string, SeedanceVideoClient>();
   constructor(private readonly resolveConfig: () => AppConfig, private readonly transport: typeof fetch = fetch,
-    private readonly assets?: Pick<AssetService, 'get' | 'content'>) {}
+    private readonly assets?: Pick<AssetService, 'get' | 'content'>,
+    private readonly voices?: Pick<VoiceReferenceService, 'sign'>) {}
   private client(config: AppConfig) {
     return createVideoModelClient({ executionBinding: config.modelExecution, endpoint: config.endpointUrl ?? '', model: config.defaultModel,
       authType: config.authType ?? 'api-key', apiKey: config.apiKey, timeoutMs: config.timeoutMs, fetch: this.transport });
@@ -45,13 +47,15 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
     if (references.state === 'blocked') return references;
     const controls = await this.controlFrames(run);
     if (controls.state === 'blocked') return controls;
+    const audio = await this.referenceAudio(run);
+    if (audio.state === 'blocked') return audio;
     // Keep the exact client for result queries even if settings change mid-run.
     this.clients.set(run.id, client);
     try {
       return { state: 'submitted', task: await client.submit({ prompt: run.prompt, ratio: run.ratio,
         duration: run.duration, resolution: run.resolution, generateAudio: run.generateAudio,
         firstFrameUrl: controls.firstFrameUrl ?? undefined, lastFrameUrl: controls.lastFrameUrl ?? undefined,
-        referenceImageUrls: references.sources, watermark: false }) };
+        referenceImageUrls: references.sources, referenceAudioUrls: audio.sources, watermark: false }) };
     } catch (error) {
       if (error instanceof ModelError && error.code === 'INVALID_MEDIA_REQUEST') {
         return { state: 'blocked', code: 'VIDEO_REFERENCE_ASSET_INVALID',
@@ -106,6 +110,24 @@ export class SeedanceVideoAutomationAdapter implements VideoAutomationAdapter {
       const code = error instanceof AssetError ? error.code : 'ASSET_REFERENCE_UNAVAILABLE';
       return { state: 'blocked', code: 'VIDEO_CONTROL_FRAME_UNAVAILABLE',
         message: `无法读取已采用的首尾帧资产（${code}），未调用模型。` };
+    }
+  }
+
+  private async referenceAudio(run: StoredVideoRun): Promise<{ state: 'ready'; sources: string[] }
+    | { state: 'blocked'; code: string; message: string }> {
+    const references = run.referenceAudio ?? [];
+    if (!Array.isArray(references) || references.length > 20 || references.length > 0 && !run.generateAudio) {
+      return { state: 'blocked', code: 'VIDEO_REFERENCE_AUDIO_INVALID', message: '参考音频清单或原生声音开关无效，未调用模型。' };
+    }
+    if (!references.length) return { state: 'ready', sources: [] };
+    if (!this.voices) return { state: 'blocked', code: 'VOICE_SIGNING_UNAVAILABLE', message: '当前视频执行器未连接音色签名服务，未调用模型。' };
+    try {
+      const sources: string[] = [];
+      for (const reference of references) sources.push(await this.voices.sign(reference));
+      return { state: 'ready', sources };
+    } catch (error) {
+      return { state: 'blocked', code: error instanceof VoiceReferenceError ? error.code : 'VOICE_SIGNING_FAILED',
+        message: error instanceof VoiceReferenceError ? error.message : '音色样本签名失败，未调用模型。' };
     }
   }
 
