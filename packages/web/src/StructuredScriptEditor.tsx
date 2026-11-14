@@ -13,13 +13,13 @@ const elementPlaceholders: Record<ScriptElementType, string> = {
   1: '添加台词…', 2: '添加动作或场景描述…', 3: '添加旁白…', 4: '添加镜头设计…', 5: '添加环境说明…',
 };
 
-/** 说话人下拉纠正的候选来源：当前结构里所有对白/旁白出现过的名字。 */
+/** 人物候选只来自真实对白；旁白的 characterName 是叙事标签，不是出场人物。 */
 export function collectCharacterNames(structure: ScriptStructure): string[] {
   const names = new Set<string>();
   for (const episode of structure.episodes) {
     for (const scene of episode.scenes) {
       for (const element of scene.dialogues) {
-        if (element.type !== 1 && element.type !== 3) continue;
+        if (element.type !== 1) continue;
         const name = element.characterName?.trim();
         if (name) names.add(name);
       }
@@ -142,7 +142,7 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
       <div className="structured-scenes">
         {episode.scenes.map((item, itemIndex) => {
           const speakers = [...new Set(item.dialogues
-            .filter(element => element.type === 1 || element.type === 3)
+            .filter(element => element.type === 1)
             .map(element => element.characterName?.trim() ?? '')
             .filter(Boolean))];
           const isLast = itemIndex === episode.scenes.length - 1;

@@ -37,6 +37,8 @@ import type { DesktopAssetService } from './desktop-assets/service';
 import { VIDEO_AUTOMATION_SERVICE, VideoAutomationController } from './video-automation/controller';
 import { VideoAutomationError } from './video-automation/contracts';
 import type { VideoAutomationService } from './video-automation/service';
+import { VOICE_REFERENCE_SERVICE, VoiceReferencesController } from './voice-references/controller';
+import { VoiceReferenceError, type VoiceReferenceService } from './voice-references/service';
 import { PRODUCTION_SERVICE, ProductionController } from './production/controller';
 import { ProductionError, ObjectVersionContractError } from '@lyra/shared';
 import { OBJECT_VERSIONS, ObjectVersionController, type ObjectVersionApi } from './production-media/object-version-controller';
@@ -137,6 +139,7 @@ export interface AppDependencies {
   assetService?: AssetService;
   desktopAssetService?: DesktopAssetService;
   videoAutomationService?: VideoAutomationService;
+  voiceReferenceService?: VoiceReferenceService;
   productionService?: ProductionService;
   productionMediaStore?: ProductionMediaStore;
   productionMediaObjectService?: ProductionMediaObjectService;
@@ -492,6 +495,117 @@ class ScriptParseController {
     });
   }
 
+  @Post('projects/:projectId/episodes/:episodeNumber/parse')
+  async parseEpisode(@Param('projectId') projectId: string, @Param('episodeNumber') episodeNumber: string,
+    @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).some(key => !['allowPaid', 'commandId', 'overwriteConfirmed', 'expectedModelConnectionRevision', 'scriptVersionId', 'rawText', 'episodeNumber'].includes(key))
+      || (body as Record<string, unknown>).allowPaid !== true) {
+      throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', 'AI 解析前须明确传入 allowPaid: true。');
+    }
+    const record = body as Record<string, unknown>;
+    const episodeNumberValue = Number(episodeNumber);
+    if (!Number.isInteger(episodeNumberValue) || episodeNumberValue < 1 || episodeNumberValue > 1_000) {
+      throw new BreakdownError(400, 'SCRIPT_EPISODE_INVALID', '集编号不合法。');
+    }
+    if (record.episodeNumber !== undefined && Number(record.episodeNumber) !== episodeNumberValue) {
+      throw new BreakdownError(400, 'SCRIPT_EPISODE_MISMATCH', '请求体集编号与路径不一致。');
+    }
+    if (typeof record.rawText !== 'string' || !record.rawText.trim()) {
+      throw new BreakdownError(400, 'INVALID_SCRIPT_RAW_TEXT', '待解析原文不能为空。');
+    }
+    if (Array.from(record.rawText.trim()).length > 20_000) {
+      throw new BreakdownError(400, 'INVALID_SCRIPT_RAW_TEXT', '待解析原文超出单集长度上限，请拆分后重试。');
+    }
+    if (typeof record.commandId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/.test(record.commandId)) {
+      throw new BreakdownError(400, 'INVALID_COMMAND_ID', 'commandId 格式不正确。');
+    }
+    if (record.scriptVersionId !== undefined && typeof record.scriptVersionId !== 'string') {
+      throw new BreakdownError(400, 'INVALID_SCRIPT_VERSION', 'scriptVersionId 格式不正确。');
+    }
+    if (record.expectedModelConnectionRevision !== undefined && typeof record.expectedModelConnectionRevision !== 'string') {
+      throw new BreakdownError(400, 'MODEL_SELECTION_INVALID', '模型选择版本格式不正确。');
+    }
+    return this.service().parseEpisode(parseOpaqueId(projectId, 'projectId'), {
+      episodeNumber: episodeNumberValue,
+      rawText: record.rawText.trim(),
+      commandId: record.commandId,
+      overwriteConfirmed: record.overwriteConfirmed === true,
+      allowPaid: true,
+      expectedModelConnectionRevision: record.expectedModelConnectionRevision as string | undefined,
+      scriptVersionId: record.scriptVersionId === undefined ? undefined : parseOpaqueId(record.scriptVersionId, 'scriptVersionId'),
+    });
+  }
+
+  @Post('projects/:projectId/fact-plans/rebuild-current')
+  async rebuildCurrentFactPlan(@Param('projectId') projectId: string) {
+    // 只从当前已保存结构恢复候选；不调用模型、不采用计划、不生成新剧本版本。
+    return this.service().rebuildCurrentFactPlan(parseOpaqueId(projectId, 'projectId'));
+  }
+
+  @Post('projects/:projectId/episodes/:episodeNumber/confirm-entities')
+  async confirmEpisodeEntities(@Param('projectId') projectId: string, @Param('episodeNumber') episodeNumber: string,
+    @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || !('scriptVersionId' in body) || !('selections' in body) || !('attemptId' in body)
+      || Object.keys(body).some(key => !['scriptVersionId', 'selections', 'attemptId'].includes(key))) {
+      throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', '实体确认请求不完整。');
+    }
+    const record = body as Record<string, unknown>;
+    const episodeNumberValue = Number(episodeNumber);
+    if (!Number.isInteger(episodeNumberValue) || episodeNumberValue < 1 || episodeNumberValue > 1_000) {
+      throw new BreakdownError(400, 'SCRIPT_EPISODE_INVALID', '集编号不合法。');
+    }
+    if (typeof record.scriptVersionId !== 'string') {
+      throw new BreakdownError(400, 'INVALID_SCRIPT_VERSION', 'scriptVersionId 格式不正确。');
+    }
+    if (typeof record.attemptId !== 'string' || !record.attemptId.trim()) {
+      throw new BreakdownError(400, 'INVALID_ATTEMPT_ID', 'attemptId 格式不正确。');
+    }
+    if (!Array.isArray(record.selections) || record.selections.length > 200) {
+      throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', '实体候选数量不合法。');
+    }
+    const selections = record.selections.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 格式不正确。`);
+      }
+      const entry = item as Record<string, unknown>;
+      if (entry.kind !== 'character' && entry.kind !== 'location' && entry.kind !== 'prop') {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 类型不合法。`);
+      }
+      const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+      if (!name || name.length > 160) throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 名称不合法。`);
+      const aliases = entry.aliases === undefined ? [] : entry.aliases;
+      if (!Array.isArray(aliases) || aliases.length > 32
+        || aliases.some(alias => typeof alias !== 'string' || !alias.trim())) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 别名不合法。`);
+      }
+      const description = entry.description === undefined || entry.description === null ? null : entry.description;
+      if (description !== null && (typeof description !== 'string' || description.length > 2000)) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 说明不合法。`);
+      }
+      const renameTo = entry.renameTo === undefined || entry.renameTo === null ? null : entry.renameTo;
+      if (renameTo !== null && (typeof renameTo !== 'string' || renameTo.length > 160)) {
+        throw new BreakdownError(400, 'INVALID_CHARACTER_CANDIDATE', `候选 ${index + 1} 新名称不合法。`);
+      }
+      return {
+        candidateId: typeof entry.candidateId === 'string' ? entry.candidateId : `candidate_${index + 1}`,
+        kind: entry.kind as 'character' | 'location' | 'prop',
+        name,
+        aliases: aliases.map(alias => alias.trim()),
+        description: description?.trim() || null,
+        selected: entry.selected === true,
+        renameTo,
+      };
+    });
+    return this.service().confirmEpisodeEntities(parseOpaqueId(projectId, 'projectId'), {
+      scriptVersionId: parseOpaqueId(record.scriptVersionId, 'scriptVersionId'),
+      attemptId: parseOpaqueId(record.attemptId, 'attemptId'),
+      episodeNumber: episodeNumberValue,
+      selections,
+    });
+  }
+
   @Post('projects/:projectId/script-character-candidates')
   async createCharacterCandidate(@Param('projectId') projectId: string, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
@@ -569,13 +683,32 @@ class StoryboardController {
   @Post('projects/:projectId/storyboards')
   async generate(@Param('projectId') projectId: string, @Body() body: unknown) {
     if (!body || typeof body !== 'object' || Array.isArray(body)
-      || Object.keys(body).some(key => !['allowPaid', 'expectedModelConnectionRevision'].includes(key)) || (body as Record<string, unknown>).allowPaid !== true) {
+      || Object.keys(body).some(key => !['allowPaid', 'expectedModelConnectionRevision', 'episodeNumber', 'baseRevisionId'].includes(key))
+      || (body as Record<string, unknown>).allowPaid !== true) {
       throw new BreakdownError(400, 'PAID_CALL_NOT_AUTHORIZED', '生成分镜前须明确传入 allowPaid: true。');
     }
     const expected = (body as Record<string, unknown>).expectedModelConnectionRevision;
     if (expected !== undefined && typeof expected !== 'string') throw new ModelError(400, 'MODEL_SELECTION_INVALID', '模型选择版本格式不正确。');
+    const episodeNumber = (body as Record<string, unknown>).episodeNumber;
+    if (episodeNumber !== undefined && (typeof episodeNumber !== 'number' || !Number.isInteger(episodeNumber) || episodeNumber < 1)) {
+      throw new BreakdownError(400, 'STORYBOARD_EPISODE_INVALID', '分镜分集编号无效。');
+    }
+    const baseRevisionId = (body as Record<string, unknown>).baseRevisionId;
+    if (baseRevisionId !== undefined && typeof baseRevisionId !== 'string') {
+      throw new BreakdownError(400, 'STORYBOARD_BASE_INVALID', '合并基础分镜版本 ID 不合法。');
+    }
     return this.service().generate(parseOpaqueId(projectId, 'projectId'), expected,
-      methodReference(await this.packs?.freeze(undefined, 'storyboard'), 'storyboard'));
+      methodReference(await this.packs?.freeze(undefined, 'storyboard'), 'storyboard'),
+      { episodeNumber: episodeNumber as number | undefined,
+        baseRevisionId: baseRevisionId ? parseOpaqueId(baseRevisionId, 'baseRevisionId') : undefined });
+  }
+  @Post('storyboards/:revisionId/edits')
+  revise(@Param('revisionId') revisionId: string, @Body() body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length !== 1 || !Array.isArray((body as Record<string, unknown>).shots)) {
+      throw new BreakdownError(400, 'INVALID_STORYBOARD_EDIT', '逐镜编辑请求必须只包含 shots 数组。');
+    }
+    return this.service().revise(parseOpaqueId(revisionId, 'revisionId'), body);
   }
   @Get('projects/:projectId/storyboards')
   async list(@Param('projectId') projectId: string) {
@@ -654,7 +787,8 @@ class SafeErrors implements ExceptionFilter {
       || (error instanceof Error && error.name === 'AgentContractError'
         && 'status' in error && 'code' in error);
     if (error instanceof BreakdownError || error instanceof NovelError || error instanceof AssetError
-      || error instanceof VideoAutomationError || error instanceof ProductionError || error instanceof ProductionMediaError
+      || error instanceof VideoAutomationError || error instanceof VoiceReferenceError
+      || error instanceof ProductionError || error instanceof ProductionMediaError
       || error instanceof AssistantError || error instanceof PromptPackError || error instanceof AuthError
       || error instanceof ObjectVersionContractError
       || contractLike) {
@@ -691,7 +825,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
   @Module({ controllers: [PlatformController, SystemController, AuthController, WorkspacesController,
     ModelsController, ProjectsController, BreakdownRunsController, PlanRevisionsController,
     StoryboardController, ScriptParseController, NovelController, AssetController, DesktopAssetController, VideoAutomationController,
-    ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController, ToolRegistryController,
+    VoiceReferencesController, ProductionController, ProductionMediaController, ObjectVersionController, AssistantController, CanvasController, ToolRegistryController,
     ...(dependencies.evolutionService ? [EvolutionController] : []),
     ...(dependencies.evolutionGateService ? [EvolutionGateController] : []),
     ...(dependencies.evaluationService ? [EvaluationController] : []),
@@ -716,6 +850,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     { provide: ASSET_SERVICE, useValue: dependencies.assetService ?? null },
     { provide: DESKTOP_ASSET_SERVICE, useValue: dependencies.desktopAssetService ?? null },
     { provide: VIDEO_AUTOMATION_SERVICE, useValue: dependencies.videoAutomationService ?? null },
+    { provide: VOICE_REFERENCE_SERVICE, useValue: dependencies.voiceReferenceService ?? null },
     { provide: PRODUCTION_SERVICE, useValue: dependencies.productionService ?? null },
     { provide: PRODUCTION_MEDIA_STORE, useValue: dependencies.productionMediaStore ?? null },
     { provide: PRODUCTION_MEDIA_OBJECT_SERVICE, useValue: dependencies.productionMediaObjectService ?? null },
@@ -742,6 +877,7 @@ export async function createApp(config: AppConfig, transport: typeof fetch = fet
     if (request.url.startsWith('/api/platform') || request.url.startsWith('/api/auth') || request.url.startsWith('/api/model') || request.url.startsWith('/api/provider-catalog') || request.url.startsWith('/api/desktop-assets') || request.url.startsWith('/api/video-automation')
       || request.url.startsWith('/api/asset-generation') || request.url.startsWith('/api/production-runs')
       || request.url.startsWith('/api/production-media')
+      || request.url.startsWith('/api/voice-references')
       || request.url.startsWith('/api/evolution')
       || request.url.startsWith('/api/evaluation')
       || request.url.includes('/asset-retrieval-governance')

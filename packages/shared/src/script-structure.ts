@@ -1015,7 +1015,7 @@ export function planCharacterImport(draft: ScriptStructure | null | undefined,
     for (const scene of episode.scenes) {
       const speakers = new Set<string>();
       for (const element of scene.dialogues) {
-        if (element.type !== 1 && element.type !== 3) continue;
+        if (element.type !== 1) continue;
         const key = normalizeScriptCharacterName(element.characterName ?? '');
         if (key) speakers.add(key);
       }
@@ -1040,4 +1040,125 @@ export function filterImportEntities<T extends { name: string }>(items: readonly
   options: { enabled: boolean; selectedNames: ReadonlySet<string> }): T[] {
   if (!options.enabled) return [];
   return items.filter(item => options.selectedNames.has(normalizeScriptCharacterName(item.name)));
+}
+
+/* -------------------------------------------------------------------------
+ * 阶段一：场次合并、元素拆分与当前集实体级联更名（纯函数，无副作用）。
+ *
+ * 设计约束：
+ *  - 所有函数返回全新结构，绝不修改入参；返回值再次走 validateScriptStructure，
+ *    保证 ID、场次编号与元素类型仍然合法，可直接写入不可变版本链。
+ *  - 级联更名只作用于目标集：不跨集改写说话人或地点，避免影响其他集草稿。
+ * ---------------------------------------------------------------------- */
+
+export const SCRIPT_ENTITY_KINDS = ['character', 'location', 'prop'] as const;
+export type ScriptEntityKind = (typeof SCRIPT_ENTITY_KINDS)[number];
+
+export const SCRIPT_ENTITY_ROLES = ['protagonist', 'supporting', 'background'] as const;
+export type ScriptEntityRole = (typeof SCRIPT_ENTITY_ROLES)[number];
+
+export const SCRIPT_ENTITY_ROLE_LABELS: Record<ScriptEntityRole, string> = {
+  protagonist: '主角',
+  supporting: '配角',
+  background: '路人',
+};
+
+function requireEpisode(structure: ScriptStructure, episodeNumber: number): {
+  episode: ScriptEpisode; index: number;
+} {
+  const index = structure.episodes.findIndex(item => item.episodeNumber === episodeNumber);
+  if (index < 0) fail('SCRIPT_EPISODE_NOT_FOUND', `找不到第 ${episodeNumber} 集。`);
+  return { episode: structure.episodes[index]!, index };
+}
+
+function requireScene(episode: ScriptEpisode, sceneId: string): { scene: ScriptScene; index: number } {
+  const index = episode.scenes.findIndex(item => item.id === sceneId);
+  if (index < 0) fail('SCRIPT_SCENE_NOT_FOUND', `场次 ${sceneId} 不存在。`);
+  return { scene: episode.scenes[index]!, index };
+}
+
+/** 把指定场次的全部元素向下合并到紧邻的下一场，源场次随之删除。 */
+export function mergeSceneDown(structure: ScriptStructure, episodeNumber: number, sceneId: string): ScriptStructure {
+  const clone = structuredClone(structure) as ScriptStructure;
+  const { episode, index } = requireEpisode(clone, episodeNumber);
+  const { scene, index: sceneIndex } = requireScene(episode, sceneId);
+  if (sceneIndex >= episode.scenes.length - 1) {
+    fail('SCRIPT_SCENE_NO_NEXT', '最后一场没有下一场可以向下合并。');
+  }
+  const nextScene = episode.scenes[sceneIndex + 1]!;
+  nextScene.dialogues = [...scene.dialogues, ...nextScene.dialogues];
+  episode.scenes.splice(sceneIndex, 1);
+  renumberEpisodeScenes(episode);
+  return validateScriptStructure(clone);
+}
+
+/**
+ * 在元素内容的码点索引处定点拆成两个元素：前半保留原 ID，后半生成新 ID。
+ * splitIndex 必须落在 1..length-1 之间，避免产生空元素。
+ */
+export function splitElementAt(structure: ScriptStructure, episodeNumber: number, sceneId: string,
+  elementId: string, splitIndex: number): ScriptStructure {
+  if (!Number.isInteger(splitIndex) || splitIndex < 1) fail('INVALID_SPLIT_INDEX', '拆分位置必须是非负整数。');
+  const clone = structuredClone(structure) as ScriptStructure;
+  const { episode } = requireEpisode(clone, episodeNumber);
+  const { scene, index: sceneIndex } = requireScene(episode, sceneId);
+  const elementIndex = scene.dialogues.findIndex(item => item.id === elementId);
+  if (elementIndex < 0) fail('SCRIPT_ELEMENT_NOT_FOUND', `元素 ${elementId} 不存在。`);
+  const element = scene.dialogues[elementIndex]!;
+  const codePoints = Array.from(element.content);
+  if (splitIndex >= codePoints.length) fail('INVALID_SPLIT_INDEX', '拆分位置不能落在内容末尾。');
+  const head = codePoints.slice(0, splitIndex).join('');
+  const tail = codePoints.slice(splitIndex).join('');
+  if (!head.trim() || !tail.trim()) fail('INVALID_SPLIT_INDEX', '拆分后两侧内容不能为空。');
+  const second: ScriptElement = {
+    ...structuredClone(element),
+    id: `element_${episode.episodeNumber}_${sceneIndex + 1}_${scene.dialogues.length + 1}`,
+    content: tail,
+  };
+  element.content = head;
+  scene.dialogues.splice(elementIndex + 1, 0, second);
+  return validateScriptStructure(clone);
+}
+
+export interface EntityRenameMatch {
+  /** 待匹配的当前名称。 */
+  name: string;
+  /** 待一并识别的旧别名。 */
+  aliases?: readonly string[];
+}
+
+/**
+ * 在目标集内把命中的角色说话人（对白/旁白 characterName）或场次地点
+ * （scene.location）级联更名为新名称；别名命中同样替换。只返回新结构。
+ */
+export function renameEntityInEpisode(structure: ScriptStructure, episodeNumber: number,
+  kind: 'character' | 'location', match: EntityRenameMatch, newName: string): ScriptStructure {
+  const targetName = newName.trim();
+  if (!targetName) fail('INVALID_ENTITY_NAME', '新名称不能为空。');
+  const clone = structuredClone(structure) as ScriptStructure;
+  const { episode } = requireEpisode(clone, episodeNumber);
+  const targets = new Set([match.name, ...(match.aliases ?? [])]
+    .map(normalizeScriptCharacterName).filter(Boolean));
+  if (targets.size === 0) fail('INVALID_ENTITY_NAME', '待更名名称不能为空。');
+  if (kind === 'character') {
+    for (const scene of episode.scenes) {
+      for (const element of scene.dialogues) {
+        if (element.type !== 1 && element.type !== 3) continue;
+        if (targets.has(normalizeScriptCharacterName(element.characterName ?? ''))) {
+          element.characterName = targetName;
+        }
+      }
+    }
+  } else {
+    for (const scene of episode.scenes) {
+      if (targets.has(normalizeScriptCharacterName(scene.location))) scene.location = targetName;
+    }
+  }
+  return validateScriptStructure(clone);
+}
+
+function renumberEpisodeScenes(episode: ScriptEpisode): void {
+  episode.scenes.forEach((scene, index) => {
+    scene.sceneNumber = `${episode.episodeNumber}-${index + 1}`;
+  });
 }

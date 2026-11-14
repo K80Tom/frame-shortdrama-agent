@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { compileProductionRun } = require('../dist/production/blueprint');
+const { parseCreateProductionRun } = require('@lyra/shared');
 const {
   BreakdownProductionExecutor, StoryboardProductionExecutor, VideoProductionExecutor,
 } = require('../dist/production/runtime');
@@ -23,6 +24,23 @@ function context(run, stage, overrides = {}) {
   const task = overrides.task ?? run.tasks.find(item => item.stage === stage);
   return { run, task, attemptId: 'attempt_1', inputDigest: 'a'.repeat(64), operationKey: 'b'.repeat(64), ...overrides };
 }
+
+test('assets-only scope keeps real asset tasks and cannot enter storyboard or paid video stages', () => {
+  const parsed = parseCreateProductionRun(request({ mediaScope: 'assets', storyboardRevisionId: 'storyboard_test', shotId: 'shot_test' }));
+  assert.equal(parsed.mediaScope, 'assets');
+  const run = runFor({ mediaScope: 'assets', storyboardRevisionId: 'storyboard_test', shotId: 'shot_test' });
+  assert.equal(run.tasks.find(item => item.stage === 'prepare').status, 'ready');
+  assert.equal(run.tasks.find(item => item.stage === 'assets').status, 'pending');
+  for (const stage of ['breakdown', 'storyboard', 'director', 'video', 'candidates', 'review', 'compose', 'deliver']) {
+    const task = run.tasks.find(item => item.stage === stage);
+    assert.equal(task.status, 'skipped', stage);
+    assert.equal(task.blockingReason.code, 'MEDIA_SCOPE_ASSETS_ONLY', stage);
+  }
+  const full = runFor({ clientRequestId: 'full-production' });
+  assert.equal(full.tasks.find(item => item.stage === 'breakdown').status, 'pending');
+  assert.equal(full.tasks.find(item => item.stage === 'storyboard').status, 'pending');
+  assert.throws(() => parseCreateProductionRun(request({ mediaScope: 'video' })), /PRODUCTION_REQUEST_INVALID|创建参数/);
+});
 
 function plan() {
   return { id: 'plan_1', projectId: request().projectId, scriptVersionId: request().scriptVersionId,
@@ -158,6 +176,56 @@ test('storyboard direct policy expands exactly one video per shot with no gacha 
   }
 });
 
+test('selected storyboard production reuses the adopted revision and expands only the requested shot', async () => {
+  const board = storyboardRevision();
+  const project = { id: board.projectId, currentScriptVersionId: board.scriptVersionId,
+    activePlanRevisionId: board.sourcePlanRevisionId, activeStoryboardRevisionId: board.id };
+  let generated = 0; let adopted = 0;
+  const storyboards = { async get(id) { assert.equal(id, board.id); return board; },
+    async generate() { generated++; throw new Error('must not generate'); }, async adopt() { adopted++; } };
+  const run = runFor({ storyboardRevisionId: board.id, shotId: 'shot_real_2', targetDurationSec: 4,
+    directorPolicy: 'never', candidatePolicy: 'direct', candidateLimit: 1, clientRequestId: 'storyboard-selected-shot' });
+  const executor = new StoryboardProductionExecutor({
+    async getProject() { return { ...project }; },
+    async getPlanRevision() { return { id: board.sourcePlanRevisionId, scriptVersionId: board.scriptVersionId,
+      content: { scenes: [{ id: 'scene_real_1', order: 1 }], dialogues: [] } }; },
+  }, storyboards, { estimateCostMicros: 300 });
+  const prepared = await executor.prepare(context(run, 'storyboard'));
+  assert.equal(prepared.requiresPaid, false); assert.equal(prepared.estimateCostMicros, 0);
+  const outcome = await executor.execute(context(run, 'storyboard'));
+  assert.equal(outcome.state, 'succeeded'); assert.equal(outcome.actualCostMicros, 0);
+  assert.equal(outcome.artifacts[0].metadata.storyboardRevisionId, board.id);
+  assert.deepEqual(outcome.artifacts[0].metadata.shots.map(shot => shot.id), ['shot_real_2']);
+  assert.deepEqual(outcome.spawnTasks.filter(task => task.stage === 'video').map(task => task.scope.id), ['shot_real_2']);
+  assert.ok(outcome.spawnTasks.every(task => task.scope.kind !== 'shot' || task.scope.id === 'shot_real_2'));
+  assert.equal(generated, 0); assert.equal(adopted, 0);
+});
+
+test('已采用旧剧本链可继续准备制作，但含已删除集镜头的版本必须阻断', async () => {
+  const board = storyboardRevision();
+  const project = { id: board.projectId, currentScriptVersionId: 'script_latest',
+    activePlanRevisionId: board.sourcePlanRevisionId, activeStoryboardRevisionId: board.id };
+  let currentEpisodes = [{ id: 'episode_1', episodeNumber: 1, scenes: [{ id: 'script_scene_1' }] }];
+  const adoptedEpisodes = [...currentEpisodes,
+    { id: 'episode_2', episodeNumber: 2, scenes: [{ id: 'script_scene_2' }] }];
+  const breakdown = {
+    async getProject() { return { ...project }; },
+    async getPlanRevision() { return { id: board.sourcePlanRevisionId, scriptVersionId: board.scriptVersionId,
+      content: { scenes: [{ id: 'scene_real_1', order: 1 }], dialogues: [] } }; },
+    async getScriptVersion(_project, id) { return { structure: {
+      episodes: id === 'script_latest' ? currentEpisodes : adoptedEpisodes } }; },
+  };
+  const executor = new StoryboardProductionExecutor(breakdown, {
+    async get() { return board; }, async generate() { return board; }, async adopt() {},
+  }, { estimateCostMicros: 300 });
+  const run = runFor({ storyboardRevisionId: board.id, shotId: 'shot_real_1', directorPolicy: 'never',
+    candidatePolicy: 'direct', candidateLimit: 1, clientRequestId: 'storyboard-retained-chain' });
+  const prepared = await executor.prepare(context(run, 'storyboard'));
+  assert.equal(prepared.requiresPaid, false);
+  currentEpisodes = [{ id: 'episode_2', episodeNumber: 2, scenes: [{ id: 'script_scene_2' }] }];
+  await assert.rejects(executor.prepare(context(run, 'storyboard')), /deleted episode/);
+});
+
 test('storyboard checkpoint adopts only through the user review hook', async () => {
   const board = storyboardRevision(); const adopted = [];
   const project = { id: board.projectId, currentScriptVersionId: board.scriptVersionId,
@@ -209,6 +277,10 @@ function localVideo() {
 
 const ASSET_ONE = `asset_${'a'.repeat(32)}`;
 const ASSET_TWO = `asset_${'b'.repeat(32)}`;
+const LAST_FRAME = `asset_${'c'.repeat(32)}`;
+
+const EMPTY_VIDEO_PLAN = { content: { characters: [], locations: [], props: [], dialogues: [],
+  scenes: [{ id: 'scene_real_1', sourceRefs: [], timeOfDay: { value: '夜' } }] } };
 
 function videoFixture() {
   const board = storyboardRevision(); const run = runFor({ candidatePolicy: 'gacha', candidateLimit: 2, clientRequestId: 'video-runtime' });
@@ -241,21 +313,57 @@ function videoFixture() {
 
 test('video adapter submits once, reconciles, and exposes only verified local media metadata', async () => {
   const f = videoFixture(); let creates = 0; let ingests = 0; let createdRequest;
+  const narrativePlan = { content: { characters: [{ id: 'character_1', name: { value: '林晚' } }], locations: [], props: [],
+    scenes: [{ id: 'scene_real_1', sourceRefs: [{ scriptVersionId: request().scriptVersionId, start: 0, end: 18,
+      quote: '【旁白】雨声盖住脚步。\n【动作】林晚抬手擦去眉梢雨水。' }] }],
+    dialogues: [{ id: 'dialogue_1', sceneId: 'scene_real_1', speakerId: 'character_1',
+      sourceRef: { scriptVersionId: request().scriptVersionId, start: 19, end: 25, quote: '别回头。' } }] } };
+  const { storyboardNarrativeBeats } = require('@lyra/shared');
+  const beats = storyboardNarrativeBeats(narrativePlan.content.scenes);
+  f.board.shots[0].narrativeBeatIds = beats.map(beat => beat.id);
+  f.board.shots[0].dialogueIds = ['dialogue_1'];
+  f.board.shots[0].design.visualBeats = ['林晚收住脚步，握住伞柄回头', '雨水沿伞沿滑落，林晚的视线停在巷口'];
+  f.board.shots[0].design.visualDescription += '。雨声盖住脚步。';
+  f.board.shots[0].design.atmosphere = '冷蓝夜光落在湿漉路面，巷口只剩一盏暖灯';
+  f.board.shots[0].firstFrameAssetId = ASSET_ONE;
+  f.board.shots[0].lastFrameAssetId = LAST_FRAME;
   f.run.methodPacks = [{ id: 'video-pack', digest: 'v', nodes: ['video'], excerpt: '用固定机位构图' },
     { id: 'image-only', digest: 'i', nodes: ['character-image'], excerpt: '排除的角色生图方法' }];
   const pending = { id: 'video_run_1', status: 'waitingExternal', model: 'video-model', modelConnectionRevision: 'revision_1', result: null, error: null };
   const completed = { ...pending, status: 'completed', result: { videoUrl: 'https://cdn.example.com/video.mp4' } };
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
     async create(value) { creates++; createdRequest = value; return pending; }, async get() { return completed; }, async reconcile() { return completed; } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; },
+    async getPlanRevision() { return narrativePlan; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { ingests++; return localVideo(); } } });
   const prepared = await executor.prepare({ run: f.run, task: f.task });
+  const originalBeats = f.board.shots[0].design.visualBeats;
+  f.board.shots[0].design.visualBeats = ['林晚突然转身，伞面撞开雨线'];
+  const changedVisual = await executor.prepare({ run: f.run, task: f.task });
+  assert.notEqual(prepared.inputDigest, changedVisual.inputDigest, 'visual beats must be frozen preparation inputs');
+  f.board.shots[0].design.visualBeats = originalBeats;
+  delete f.board.shots[0].firstFrameAssetId;
+  delete f.board.shots[0].lastFrameAssetId;
+  const withoutFrames = await executor.prepare({ run: f.run, task: f.task });
+  assert.notEqual(prepared.inputDigest, withoutFrames.inputDigest, 'frame bindings must be frozen preparation inputs');
+  f.board.shots[0].firstFrameAssetId = ASSET_ONE;
+  f.board.shots[0].lastFrameAssetId = LAST_FRAME;
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
   const submitted = await executor.execute(ctx);
   assert.equal(submitted.state, 'waitingExternal'); assert.equal(creates, 1); assert.equal(createdRequest.allowPaid, true);
   assert.equal(createdRequest.generateAudio, false);
-  assert.deepEqual(createdRequest.referenceAssetIds, [ASSET_ONE, ASSET_TWO]);
-  assert.match(createdRequest.prompt, /图片1：角色「林晚」、道具「雨伞」/);
+  assert.doesNotMatch(createdRequest.prompt, /旁白：|动作：|雨声盖住脚步|候选创作方向/);
+  assert.match(createdRequest.prompt, /主角走进@图片1雨巷/);
+  assert.match(createdRequest.prompt, /林晚：别回头。/);
+  assert.match(createdRequest.prompt, /林晚收住脚步，握住伞柄回头/);
+  assert.match(createdRequest.prompt, /雨水沿伞沿滑落，林晚的视线停在巷口/);
+  assert.match(createdRequest.prompt, /冷蓝夜光落在湿漉路面，巷口只剩一盏暖灯/);
+  assert.match(createdRequest.prompt, /林晚抬手擦去眉梢雨水/);
+  assert.deepEqual(createdRequest.referenceAssetIds, [ASSET_TWO]);
+  assert.equal(createdRequest.firstFrameAssetId, ASSET_ONE);
+  assert.equal(createdRequest.lastFrameAssetId, LAST_FRAME);
+  assert.match(createdRequest.prompt, /参考 @图片1雨巷，严格保持对应人物、场景、服装与道具一致/);
+  assert.doesNotMatch(createdRequest.prompt, /@图片1林晚|@图片2雨伞/);
   assert.match(createdRequest.prompt, /3D 白模构图约束/);
   assert.match(createdRequest.prompt, /用固定机位构图/);
   assert.doesNotMatch(createdRequest.prompt, /排除的角色生图方法/);
@@ -276,6 +384,54 @@ test('video adapter submits once, reconciles, and exposes only verified local me
   assert.equal(artifact.metadata.directorConstraintMode, 'prompt-only');
   assert.equal(artifact.metadata.directorSceneArtifactId, 'artifact_director_scene');
   assert.equal('remoteTemporaryUrl' in artifact.metadata, false);
+
+  const reference = { artifactId: `audio_${'e'.repeat(64)}`, provider: 's3', bucket: 'voices', key: 'voice-references/project/voice.wav',
+    versionId: null, sha256: 'e'.repeat(64), sizeBytes: 44, contentType: 'audio/wav' };
+  f.board.shots[0].voiceBindings = [{ speakerEntityId: 'character_1', reference,
+    profile: { schemaVersion: 'lyra-audio-production/1', id: 'voice_1', workspaceId: 'local-workspace', projectId: f.run.projectId,
+      displayName: '林晚音色', provider: 'seedance-reference', model: 'reference-audio', modelRevision: '1', voiceReference: reference.artifactId,
+      language: 'zh-CN', attributes: { gender: null, age: null, style: [] }, previewArtifactId: reference.artifactId,
+      authorization: { subject: '林晚', type: 'synthetic', commercialUse: true, territories: ['CN'], channels: ['online-video'],
+        validFrom: '2020-01-01T00:00:00.000Z', validUntil: null, consentRecordRef: null, revokedAt: null, cloningConsent: false },
+      scope: { workspaceWide: false, projectIds: [f.run.projectId] }, reviewStatus: 'approved', contentDigest: 'f'.repeat(64),
+      createdAt: '2026-01-01T00:00:00.000Z' } }];
+  f.board.shots[0].design.timeline = true;
+  let authorizations = 0;
+  const voiceExecutor = new VideoProductionExecutor({ async getProject() { return f.project; },
+    async getPlanRevision() { return narrativePlan; } }, { async get() { return f.board; } }, videos,
+    { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } },
+      voiceReferences: { authorize() { authorizations++; } } });
+  const voicePrepared = await voiceExecutor.prepare({ run: f.run, task: f.task });
+  assert.equal(voicePrepared.requiresPaid, true);
+  const voiceOutcome = await voiceExecutor.execute(context(f.run, 'video', { task: f.task, inputDigest: voicePrepared.inputDigest }));
+  assert.equal(voiceOutcome.state, 'waitingExternal'); assert.equal(authorizations, 2);
+  assert.equal(createdRequest.generateAudio, true); assert.deepEqual(createdRequest.referenceAudio, [reference]);
+  assert.match(createdRequest.prompt, /【0–3秒】/);
+  assert.match(createdRequest.prompt, /#林晚（音色参考音频1）：别回头。/);
+});
+
+test('对白时长不足在准备和执行阶段均阻断，且不调用视频供应商', async () => {
+  const f = videoFixture();
+  const quote = '那就是人们在焦虑和蹉跎里碎裂的时间残渣，真的值得被重新拼回来。';
+  const plan = { content: { characters: [{ id: 'character_1', name: { value: '林晚' } }], locations: [], props: [],
+    scenes: [], dialogues: [{ id: 'dialogue_long', sceneId: 'scene_1', speakerId: 'character_1',
+      sourceRef: { scriptVersionId: request().scriptVersionId, start: 0, end: quote.length, quote } }] } };
+  f.board.shots[0].dialogueIds = ['dialogue_long'];
+  f.board.shots[0].design.timeline = true;
+  let creates = 0; let statusChecks = 0;
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; },
+    async getPlanRevision() { return plan; } }, { async get() { return f.board; } }, {
+      async status() { statusChecks++; return { available: true, connectionRevision: 'revision_1' }; },
+      async create() { creates++; throw new Error('must not be called'); },
+    }, { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
+  const prepared = await executor.prepare({ run: f.run, task: f.task });
+  assert.equal(prepared.executor, 'ohao-video-dialogue-blocked-adapter/1'); assert.equal(prepared.requiresPaid, false);
+  assert.equal(prepared.estimateCostMicros, 0);
+  const blocked = await executor.execute(context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest }));
+  assert.equal(blocked.state, 'blocked'); assert.equal(blocked.actualCostMicros, 0);
+  assert.equal(blocked.issue.code, 'STORYBOARD_DIALOGUE_DURATION_SHORT');
+  assert.match(blocked.issue.message, /当前镜头 5 秒.*增加镜头时长或拆分到其他镜头/);
+  assert.equal(creates, 0); assert.equal(statusChecks, 0);
 });
 
 test('insufficient video prompt room blocks before calling the adapter and releases the estimate', async () => {
@@ -283,7 +439,8 @@ test('insufficient video prompt room blocks before calling the adapter and relea
   board.shots[0].design.visualDescription = '满'.repeat(7950);
   run.methodPacks = [{ id: 'video', nodes: ['video'], digest: 'v', excerpt: '长镜头' }];
   let calls = 0;
-  const executor = new VideoProductionExecutor({ getProject: async () => project }, { get: async () => board }, {
+  const executor = new VideoProductionExecutor({ getProject: async () => project,
+    getPlanRevision: async () => EMPTY_VIDEO_PLAN }, { get: async () => board }, {
     status: async () => ({ available: true, connectionRevision: 'revision_1' }),
     create: async () => { calls++; throw Error(); },
   }, { estimateCostMicros: 500, mediaIngestor: { ingestProviderUrl: async () => localVideo() } });
@@ -302,7 +459,7 @@ test('video localization retry reuses the completed provider run without another
   const mediaIngestor = { async ingestProviderUrl() { ingests++; if (ingests === 1) {
     throw new ProductionMediaError(502, 'REMOTE_MEDIA_FETCH_FAILED', '下载失败');
   } return localVideo(); } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor });
   const firstPrepared = await executor.prepare({ run: f.run, task: f.task });
   let ctx = context(f.run, 'video', { task: f.task, inputDigest: firstPrepared.inputDigest });
@@ -334,7 +491,7 @@ for (const late of ['resolve', 'reject']) test('real DNS deadline in video local
   } }, { dnsTimeoutMs: 10 });
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
     async create() { creates++; return completed; }, async get() { return completed; }, async reconcile() { return completed; } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor });
   const prepared = await executor.prepare({ run: f.run, task: f.task });
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
@@ -363,7 +520,7 @@ test('video references and repair requirements are frozen into a changed paid pr
     modelConnectionRevision: 'revision_1', result: null, error: null };
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
     async create(value) { creates++; requests.push(value); return pending; }, async get() { return pending; }, async reconcile() { return pending; } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
   const initialPrepared = await executor.prepare({ run: f.run, task: f.task });
   const initial = await executor.execute(context(f.run, 'video', { task: f.task, inputDigest: initialPrepared.inputDigest }));
@@ -398,7 +555,7 @@ test('missing, incomplete, or excessive shot asset bindings block before paid vi
     const f = videoFixture(); mutate(f.run); let creates = 0;
     const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
       async create() { creates++; throw new Error('must not create'); }, async get() {}, async reconcile() {} };
-    const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+    const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
       { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
     const prepared = await executor.prepare({ run: f.run, task: f.task });
     assert.equal(prepared.requiresPaid, false);
@@ -411,7 +568,7 @@ test('a busy local video slot defers without reserving budget or consuming an at
   const f = videoFixture(); let creates = 0;
   const videos = { async status() { return { available: true, busy: true, connectionRevision: 'revision_1' }; },
     async create() { creates++; throw new Error('must stay deferred'); }, async get() {}, async reconcile() {} };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
   const prepared = await executor.prepare({ run: f.run, task: f.task });
   assert.equal(prepared.defer.code, 'VIDEO_AUTOMATION_BUSY'); assert.equal(prepared.requiresPaid, false);
@@ -426,7 +583,7 @@ test('video failure before provider submission costs zero while a submitted fail
       error: { code: 'VIDEO_PROVIDER_FAILED', message: '生成失败' } };
     const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
       async create() { return failed; }, async get() { return failed; }, async reconcile() { return failed; } };
-    const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+    const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
       { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
     const prepared = await executor.prepare({ run: f.run, task: f.task });
     const outcome = await executor.execute(context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest }));
@@ -441,7 +598,7 @@ test('unknown video submission without a provider ID becomes a durable human rec
     error: { code: 'VIDEO_SUBMISSION_UNCERTAIN', message: '提交结果不明' } };
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
     async create() { return unknown; }, async get() { return unknown; }, async reconcile() { reconciles++; return unknown; } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { return localVideo(); } } });
   const prepared = await executor.prepare({ run: f.run, task: f.task });
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });
@@ -463,7 +620,7 @@ test('exhausted unknown video polling with a provider ID becomes a human gate wi
   const videos = { async status() { return { available: true, busy: false, connectionRevision: 'revision_1' }; },
     async create() { creates++; return unknown; }, async get() { return unknown; },
     async reconcile() { reconciles++; return unknown; } };
-  const executor = new VideoProductionExecutor({ async getProject() { return f.project; } }, { async get() { return f.board; } }, videos,
+  const executor = new VideoProductionExecutor({ async getProject() { return f.project; }, async getPlanRevision() { return EMPTY_VIDEO_PLAN; } }, { async get() { return f.board; } }, videos,
     { estimateCostMicros: 500, mediaIngestor: { async ingestProviderUrl() { throw new Error('must not ingest'); } } });
   const prepared = await executor.prepare({ run: f.run, task: f.task });
   const ctx = context(f.run, 'video', { task: f.task, inputDigest: prepared.inputDigest });

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { canonicalDigest } from './production';
 
 export type AssetKind = 'character' | 'location' | 'prop';
@@ -75,12 +75,24 @@ export function createAssetRecord(input: unknown): AssetRecord {
   return { ...parseAssetInput(input), id: `asset_${randomUUID().replaceAll('-', '')}`, createdAt: new Date().toISOString() };
 }
 
+/**
+ * 剧本解析产生的元数据实体：尚无图片素材，resourceUrl 为空，后续可上传本地图片。
+ * 确定性 ID 让同名同类型实体在并发写入时复用，而不是重复创建或覆盖既有设定。
+ */
+export function createMetadataAssetRecord(input: unknown): AssetRecord {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return invalid();
+  const { kind, name, description } = parseAssetMetadata(input as Record<string, unknown>);
+  const normalizedName = name.replace(/\s+/g, '').toLowerCase();
+  const id = `asset_${createHash('sha256').update(`${kind}\0${normalizedName}`).digest('hex').slice(0, 32)}`;
+  return { kind, name, description, resourceUrl: '', id, createdAt: new Date().toISOString() };
+}
+
 /** Repository boundary validation; callers cannot smuggle fields through TS casts. */
 export function validateAssetRecord(input: unknown): asserts input is AssetRecord {
   if (!objectWithKeys(input, RECORD_KEYS) || typeof input.id !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(input.id)
     || typeof input.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(input.createdAt)
     || !Number.isFinite(Date.parse(input.createdAt)) || new Date(input.createdAt).toISOString() !== input.createdAt) return invalid();
-  const parsed = input.resourceUrl === localAssetUrl(input.id)
+  const parsed = input.resourceUrl === '' || input.resourceUrl === localAssetUrl(input.id)
     ? { ...parseAssetMetadata(input), resourceUrl: input.resourceUrl }
     : parseAssetInput({ kind: input.kind, name: input.name, description: input.description, resourceUrl: input.resourceUrl });
   if (INPUT_KEYS.some(key => parsed[key as keyof AssetInput] !== input[key])) return invalid();

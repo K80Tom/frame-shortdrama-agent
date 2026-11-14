@@ -58,10 +58,7 @@ export function addEpisode(structure: ScriptStructure): ScriptStructure {
   const episodeNumber = structure.episodes.length + 1;
   return { ...structure, episodes: [...structure.episodes, {
     id: uid('episode'), episodeNumber, title: `第${episodeNumber}集`, synopsis: '',
-    scenes: [{
-      id: uid('scene'), sceneNumber: `${episodeNumber}-1`, sceneHeading: '',
-      location: '', timeOfDay: '', intExt: '', sceneDescription: '', dialogues: [],
-    }],
+    scenes: [],
   }] };
 }
 
@@ -114,7 +111,10 @@ export function removeElement(structure: ScriptStructure, episodeId: string, sce
 
 export function removeScene(structure: ScriptStructure, episodeId: string, sceneId: string): ScriptStructure {
   return updateEpisode(structure, episodeId, episode => ({
-    ...episode, scenes: episode.scenes.filter(scene => scene.id !== sceneId),
+    ...episode,
+    scenes: episode.scenes
+      .filter(scene => scene.id !== sceneId)
+      .map((scene, sceneIndex) => ({ ...scene, sceneNumber: `${episode.episodeNumber}-${sceneIndex + 1}` })),
   }));
 }
 
@@ -253,10 +253,20 @@ export function scopeEpisodeDraft(base: ScriptStructure | null, draft: ScriptStr
   if (!base || !base.episodes.some(episode => episode.id === episodeId)) return draft;
   const episode = draft.episodes.find(item => item.id === episodeId) ?? draft.episodes[0];
   if (!episode) return base;
+  const baseEpisode = base.episodes.find(item => item.id === episodeId)!;
+  const scenes = episode.scenes.map((scene, sceneIndex) => ({
+    ...scene,
+    id: `scene_${baseEpisode.episodeNumber}_${sceneIndex + 1}`,
+    sceneNumber: `${baseEpisode.episodeNumber}-${sceneIndex + 1}`,
+    dialogues: scene.dialogues.map((element, elementIndex) => ({
+      ...element,
+      id: `element_${baseEpisode.episodeNumber}_${sceneIndex + 1}_${elementIndex + 1}`,
+    })),
+  }));
   return {
     ...base,
     episodes: base.episodes.map(item => item.id === episodeId
-      ? { ...episode, id: item.id, episodeNumber: item.episodeNumber }
+      ? { ...episode, id: item.id, episodeNumber: item.episodeNumber, scenes }
       : item),
   };
 }

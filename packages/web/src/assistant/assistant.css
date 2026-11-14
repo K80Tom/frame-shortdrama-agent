@@ -201,6 +201,20 @@
   cursor: pointer;
 }
 .assistant-fab:hover { background: #fafaf9; }
+body:has(.project-workspace-storyboard) .assistant-fab {
+  right: 16px;
+  bottom: 16px;
+  width: 42px;
+  height: 42px;
+  justify-content: center;
+  padding: 0;
+  border-color: rgba(170, 166, 255, .3);
+  background: #24242d;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .32);
+  color: #c7c2ff;
+}
+body:has(.project-workspace-storyboard) .assistant-fab:hover { background: #302f3d; }
+body:has(.project-workspace-storyboard) .assistant-fab > span { display: none; }
 .spin { animation: assistant-spin 1s linear infinite; }
 @keyframes assistant-spin { to { transform: rotate(360deg); } }
 @media (max-width: 640px) {
