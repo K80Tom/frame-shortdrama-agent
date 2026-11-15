@@ -158,7 +158,7 @@ test('asset-requirements：无已采用事实返回零值 200；有事实返回�
   let response = await readModel(service).assetRequirements(project.id);
   assert.equal(response.planRevisionId, null);
   assert.equal(response.ruleVersion, 'production-asset-match/5');
-  assert.deepEqual(response.summary, { total: 0, matched: 0, missing: 0, ambiguous: 0 });
+  assert.deepEqual(response.summary, { total: 0, matched: 0, missing: 0, ambiguous: 0, placeholder: 0 });
   assert.deepEqual(response.requirements, []);
 
   const checked = await service.checkPlan(plan.id);
@@ -235,6 +235,23 @@ test('P2-2：overview 资产统计与 asset-requirements 的 summary 一致', as
   assert.equal(overview.assets.ready, requirements.summary.matched);
   assert.equal(overview.assets.missing, requirements.summary.missing);
   assert.equal(overview.assets.ambiguous, requirements.summary.ambiguous);
+});
+
+test('#196：占位资产返回待替换状态，不计作正式匹配且不能重复登记', async () => {
+  const { service } = fixture();
+  const { project, plan } = await prepared(service);
+  const checked = await service.checkPlan(plan.id);
+  await service.adoptPlan(project.id, { planRevisionId: plan.id, checkId: checked.check.id, expectedActivePlanRevisionId: null });
+  const placeholder = {
+    ...asset('asset_placeholder', 'character', '林晚'),
+    description: '来自剧本需求自动登记（占位图，请在资产库替换为正式素材）。',
+  };
+  const response = await readModel(service, { assets: { list: async () => [placeholder] } }).assetRequirements(project.id);
+  const character = response.requirements.find(item => item.name === '林晚');
+  assert.equal(character.match.assetId, null);
+  assert.equal(character.match.placeholderAssetId, 'asset_placeholder');
+  assert.equal(character.action.kind, 'none');
+  assert.deepEqual(response.summary, { total: 3, matched: 0, missing: 3, ambiguous: 0, placeholder: 1 });
 });
 
 test('P3-3：无任何分镜候选时 nextAction 不诱导「采用分镜」，落到 create-production', async () => {

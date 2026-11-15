@@ -88,6 +88,7 @@ test('splitElementAt：越界或空拆分位置报错，不产生空元素', () 
 
 test('renameEntityInEpisode：角色说话人与别名在目标集级联更名，其他集不动', () => {
   const base = twoEpisodeStructure();
+  base.episodes[0].scenes[0].characterNames = ['老掌柜', '无对白人物'];
   const snapshot = JSON.stringify(base);
   const renamed = renameEntityInEpisode(base, 1, 'character',
     { name: '老周', aliases: ['老掌柜'] }, '周掌柜');
@@ -96,6 +97,8 @@ test('renameEntityInEpisode：角色说话人与别名在目标集级联更名�
   assert.ok(ep1.scenes.every(scene => scene.dialogues
     .every(item => item.characterName !== '老周')));
   assert.equal(ep1.scenes[0].dialogues[0].characterName, '周掌柜');
+  assert.deepEqual(ep1.scenes[0].characterNames, ['周掌柜', '无对白人物']);
+  assert.equal(ep1.scenes[1].characterNames, undefined);
   // 第二集的同名角色保持不变
   assert.equal(renamed.episodes[1].scenes[0].dialogues[0].characterName, '老周');
   assert.equal(JSON.stringify(base), snapshot);

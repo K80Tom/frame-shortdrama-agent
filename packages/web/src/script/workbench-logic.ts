@@ -367,12 +367,15 @@ export function removeEpisode(structure: ScriptStructure, episodeId: string): Sc
   return { ...structure, episodes: structure.episodes.filter(episode => episode.id !== episodeId) };
 }
 
-/** 本场提炼出的说话人与地点；道具由识别清单与正文关键词匹配后传入。 */
+/** 本场实际出场人物与地点；道具由识别清单与正文关键词匹配后传入。 */
 export function summarizeScene(scene: ScriptScene): { characters: string[]; location: string } {
-  const characters = [...new Set(scene.dialogues
-    .filter(element => element.type === 1)
-    .map(element => element.characterName?.trim() ?? '')
-    .filter(Boolean))];
+  const characters = [...new Set([
+    ...(scene.characterNames ?? []).map(name => name.trim()).filter(Boolean),
+    ...scene.dialogues
+      .filter(element => element.type === 1)
+      .map(element => element.characterName?.trim() ?? '')
+      .filter(Boolean),
+  ])];
   return { characters, location: scene.location.trim() };
 }
 

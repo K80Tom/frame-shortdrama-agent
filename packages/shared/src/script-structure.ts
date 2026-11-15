@@ -37,6 +37,8 @@ export interface ScriptScene {
   timeOfDay: string;
   intExt: '内' | '外' | '内/外' | '';
   sceneDescription: string;
+  /** 本场实际出现的人物；与对白 speaker 分离，允许无对白人物进入资产事实。 */
+  characterNames?: string[];
   dialogues: ScriptElement[];
 }
 
@@ -118,6 +120,15 @@ function scene(value: unknown, field: string): ScriptScene {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_STRUCTURE', `${field} 必须是对象。`);
   const source = value as Record<string, unknown>;
   if (!Array.isArray(source.dialogues)) fail('INVALID_STRUCTURE', `${field}.dialogues 必须是数组。`);
+  if (source.characterNames !== undefined && !Array.isArray(source.characterNames)) {
+    fail('INVALID_STRUCTURE', `${field}.characterNames 必须是字符串数组。`);
+  }
+  if (Array.isArray(source.characterNames) && source.characterNames.length > MAX_ELEMENTS_PER_SCENE) {
+    fail('INVALID_STRUCTURE', `${field}.characterNames 超过上限。`);
+  }
+  const characterNames = Array.isArray(source.characterNames)
+    ? source.characterNames.map((item, index) => text(item, `${field}.characterNames[${index}]`, MAX_FIELD))
+    : undefined;
   const dialogues = source.dialogues.map((item, index) => element(item, `${field}.dialogues[${index}]`));
   const intExt = source.intExt;
   if (intExt !== '' && intExt !== '内' && intExt !== '外' && intExt !== '内/外') {
@@ -131,6 +142,7 @@ function scene(value: unknown, field: string): ScriptScene {
     timeOfDay: optionalText(source.timeOfDay, `${field}.timeOfDay`, MAX_FIELD),
     intExt: intExt as ScriptScene['intExt'],
     sceneDescription: optionalText(source.sceneDescription, `${field}.sceneDescription`),
+    ...(characterNames === undefined ? {} : { characterNames }),
     dialogues,
   };
 }
@@ -404,7 +416,7 @@ export type ScriptDiffCategory = 'episode' | 'scene' | 'element';
 export type ScriptDiffKind =
   | 'episode-inserted' | 'episode-removed' | 'episode-title' | 'episode-synopsis'
   | 'scene-inserted' | 'scene-removed'
-  | 'scene-heading' | 'scene-int-ext' | 'scene-location' | 'scene-time' | 'scene-description'
+  | 'scene-heading' | 'scene-int-ext' | 'scene-location' | 'scene-time' | 'scene-description' | 'scene-characters'
   | 'element-inserted' | 'element-removed' | 'element-type' | 'element-content'
   | 'dialogue-speaker' | 'dialogue-parenthetical';
 
@@ -443,6 +455,7 @@ export const SCRIPT_DIFF_LABELS: Record<ScriptDiffKind, string> = {
   'scene-location': '场次地点',
   'scene-time': '场次时间',
   'scene-description': '场景描述',
+  'scene-characters': '场次出场人物',
   'element-inserted': '新增元素',
   'element-removed': '删除元素',
   'element-type': '元素类型',
@@ -456,7 +469,7 @@ const SCRIPT_DIFF_CATEGORIES: Record<ScriptDiffKind, ScriptDiffCategory> = {
   'episode-title': 'episode', 'episode-synopsis': 'episode',
   'scene-inserted': 'scene', 'scene-removed': 'scene',
   'scene-heading': 'scene', 'scene-int-ext': 'scene', 'scene-location': 'scene',
-  'scene-time': 'scene', 'scene-description': 'scene',
+  'scene-time': 'scene', 'scene-description': 'scene', 'scene-characters': 'scene',
   'element-inserted': 'element', 'element-removed': 'element', 'element-type': 'element',
   'element-content': 'element', 'dialogue-speaker': 'element', 'dialogue-parenthetical': 'element',
 };
@@ -733,6 +746,15 @@ export function diffScriptStructures(base: ScriptStructure | null | undefined,
           ...sceneContext, id: sceneDiffId(kind, baseEpisode.episodeNumber, sceneAnchor), kind, before, after,
         });
       }
+      const baseCharacterNames = baseScene.characterNames ?? [];
+      const draftCharacterNames = draftScene.characterNames ?? [];
+      const rosterKey = (names: string[]) => names.map(normalized).filter(Boolean).sort().join('\n');
+      if (rosterKey(baseCharacterNames) !== rosterKey(draftCharacterNames)) {
+        push({
+          ...sceneContext, id: sceneDiffId('scene-characters', baseEpisode.episodeNumber, sceneAnchor),
+          kind: 'scene-characters', before: baseCharacterNames.join('、'), after: draftCharacterNames.join('、'),
+        });
+      }
 
       const elementNodes = alignBySimilarity(baseScene.dialogues.map(elementSignature),
         draftScene.dialogues.map(elementSignature), elementTextSimilarity, ELEMENT_MATCH_THRESHOLD);
@@ -915,6 +937,10 @@ export function applySelectedDiffs(base: ScriptStructure | null | undefined, dra
       if (selected.has(sceneDiffId('scene-int-ext', episodeNumber, sceneAnchor))) {
         mergedScene.intExt = draftScene.intExt;
       }
+      if (selected.has(sceneDiffId('scene-characters', episodeNumber, sceneAnchor))) {
+        if (draftScene.characterNames === undefined) delete mergedScene.characterNames;
+        else mergedScene.characterNames = [...draftScene.characterNames];
+      }
 
       const elementNodes = alignBySimilarity(baseScene.dialogues.map(elementSignature),
         draftScene.dialogues.map(elementSignature), elementTextSimilarity, ELEMENT_MATCH_THRESHOLD);
@@ -998,7 +1024,7 @@ export interface ScriptCharacterImportPlanItem {
   /** 勾选状态键，等于 normalizeScriptCharacterName(name)。 */
   key: string;
   name: string;
-  /** 在草稿结构中作为说话人出现的场次数（名称或别名命中即计）。 */
+  /** 在草稿结构中作为实际出场人物出现的场次数（显式名册、名称或别名命中即计）。 */
   sceneCount: number;
   /** 是否已匹配项目已有角色：命中时不重复创建，只更新引用。 */
   existing: boolean;
@@ -1013,13 +1039,17 @@ export function planCharacterImport(draft: ScriptStructure | null | undefined,
   const sceneSpeakers: Array<Set<string>> = [];
   for (const episode of draft?.episodes ?? []) {
     for (const scene of episode.scenes) {
-      const speakers = new Set<string>();
+      const present = new Set<string>();
+      for (const name of scene.characterNames ?? []) {
+        const key = normalizeScriptCharacterName(name);
+        if (key && key !== '旁白' && key !== 'narration') present.add(key);
+      }
       for (const element of scene.dialogues) {
         if (element.type !== 1) continue;
         const key = normalizeScriptCharacterName(element.characterName ?? '');
-        if (key) speakers.add(key);
+        if (key) present.add(key);
       }
-      sceneSpeakers.push(speakers);
+      sceneSpeakers.push(present);
     }
   }
   return characters.map(character => {
@@ -1086,6 +1116,9 @@ export function mergeSceneDown(structure: ScriptStructure, episodeNumber: number
     fail('SCRIPT_SCENE_NO_NEXT', '最后一场没有下一场可以向下合并。');
   }
   const nextScene = episode.scenes[sceneIndex + 1]!;
+  if (scene.characterNames !== undefined || nextScene.characterNames !== undefined) {
+    nextScene.characterNames = [...new Set([...(scene.characterNames ?? []), ...(nextScene.characterNames ?? [])])];
+  }
   nextScene.dialogues = [...scene.dialogues, ...nextScene.dialogues];
   episode.scenes.splice(sceneIndex, 1);
   renumberEpisodeScenes(episode);
@@ -1142,6 +1175,10 @@ export function renameEntityInEpisode(structure: ScriptStructure, episodeNumber:
   if (targets.size === 0) fail('INVALID_ENTITY_NAME', '待更名名称不能为空。');
   if (kind === 'character') {
     for (const scene of episode.scenes) {
+      if (scene.characterNames !== undefined) {
+        scene.characterNames = scene.characterNames.map(name =>
+          targets.has(normalizeScriptCharacterName(name)) ? targetName : name);
+      }
       for (const element of scene.dialogues) {
         if (element.type !== 1 && element.type !== 3) continue;
         if (targets.has(normalizeScriptCharacterName(element.characterName ?? ''))) {

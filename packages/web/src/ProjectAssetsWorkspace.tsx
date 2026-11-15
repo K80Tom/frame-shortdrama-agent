@@ -3,7 +3,7 @@ import {
   adoptFactPlan, checkFactPlan, fetchProjectAssetRequirements, fetchProjectWorkspaceOverview, removeFactPlanEntities,
 } from './project-workspace-api';
 import { assetApi } from './asset-library';
-import { autoRegisterCandidates, placeholderPngBase64, requirementAssetInput, unboundAssetRequirements, type AssetRequirement } from './asset-auto-register';
+import { assetGenerationCandidates, autoRegisterCandidates, placeholderPngBase64, requirementAssetInput, unboundAssetRequirements, type AssetRequirement } from './asset-auto-register';
 import type { ProjectAssetRequirementsResponse, AssetRecord } from '@lyra/shared';
 import { assetProductionCreateBody, defaultProductionForm } from './production-automation';
 import { fetchMediaModelConnections, MediaGenerationDialog, MediaRunNotice, useMediaProductionRun, type MediaModelConnections } from './media-generation';
@@ -20,6 +20,7 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
   const [registering, setRegistering] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState('');
+  const [actionError, setActionError] = useState('');
   const [scriptVersionId, setScriptVersionId] = useState('');
   const [models, setModels] = useState<MediaModelConnections | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -50,7 +51,8 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
   }, [projectId, generatedImageCount, generationStatus]);
 
   const visibleRequirements = useMemo(() => unboundAssetRequirements(data?.requirements ?? []), [data]);
-  const candidates = useMemo(() => autoRegisterCandidates(visibleRequirements), [visibleRequirements]);
+  const candidates = useMemo(() => assetGenerationCandidates(visibleRequirements), [visibleRequirements]);
+  const registerCandidates = useMemo(() => autoRegisterCandidates(visibleRequirements), [visibleRequirements]);
   useEffect(() => {
     if (!customized) setSelected(new Set(candidates.map(item => item.requirementId)));
   }, [candidates, customized]);
@@ -84,22 +86,30 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
   /** 保留原有占位登记作为无模型时的替代操作；真实图片统一走上方生产运行。 */
   async function register(items: AssetRequirement[]) {
     if (registering || removing || !items.length) return;
-    setRegistering(true); setMessage(''); setError('');
+    setRegistering(true); setMessage(''); setActionError(''); setError('');
     const failed: string[] = [];
     let saved = 0;
-    for (const item of items) {
-      try {
-        await assetApi<AssetRecord>('/api/assets/import', {
-          ...requirementAssetInput(item), contentBase64: placeholderPngBase64(item),
-        });
-        saved += 1;
-      } catch (reason) {
-        failed.push(`${item.name}（${reason instanceof Error ? reason.message : '写入失败'}）`);
+    let refreshFailure = '';
+    try {
+      for (const item of items) {
+        try {
+          await assetApi<AssetRecord>('/api/assets/import', {
+            ...requirementAssetInput(item), contentBase64: placeholderPngBase64(item),
+          });
+          saved += 1;
+        } catch (reason) {
+          failed.push(`${item.name}（${reason instanceof Error ? reason.message : '写入失败'}）`);
+        }
       }
+      try { await refresh(); } catch (reason) {
+        refreshFailure = `列表刷新失败（${reason instanceof Error ? reason.message : '请稍后手动刷新'}）`;
+      }
+    } finally {
+      setRegistering(false);
     }
-    try { await refresh(); } catch { /* 列表稍后手动刷新 */ }
-    setRegistering(false);
-    setMessage(`已把 ${saved} 项需求写入资产库并自动匹配${failed.length ? `；${failed.length} 项失败：${failed.join('、')}` : '。占位图可在资产库随时替换为正式素材。'}`);
+    if (saved > 0) setMessage(`已登记 ${saved} 项占位资产，仍需生成或上传正式图片；占位不会计作正式匹配。`);
+    const failures = [...failed, ...(refreshFailure ? [refreshFailure] : [])];
+    setActionError(failures.length ? `${failures.length} 项操作未完整成功：${failures.join('、')}` : '');
   }
 
   async function removeRequirements(items: AssetRequirement[]) {
@@ -139,6 +149,7 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
   }
 
   const chosen = candidates.filter(item => selected.has(item.requirementId));
+  const chosenRegistrations = registerCandidates.filter(item => selected.has(item.requirementId));
   const removalChosen = visibleRequirements.filter(item => selected.has(item.requirementId));
 
   return <div className="project-flow-view">
@@ -151,7 +162,8 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
     <section className="project-overview-stats" aria-label="资产匹配摘要">
       <article><span>需求总数</span><strong>{data.summary.total}</strong><small>来自已采用事实</small></article>
       <article><span>已绑定</span><strong>{data.summary.matched}</strong><small>{data.ruleVersion}</small></article>
-      <article><span>缺失</span><strong>{data.summary.missing}</strong><small>未匹配到资产</small></article>
+      <article><span>缺失</span><strong>{data.summary.missing}</strong><small>含占位，仍待正式素材</small></article>
+      <article><span>已登记占位</span><strong>{data.summary.placeholder}</strong><small>待 AI 或上传正式图片替换</small></article>
       <article><span>歧义</span><strong>{data.summary.ambiguous}</strong><small>同优先级候选，需人工选择</small></article>
     </section>
 
@@ -174,9 +186,9 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
             onClick={() => { setCustomized(true); setSelected(new Set(visibleRequirements.map(item => item.requirementId))); }}>全选</button>
           <button className="button-secondary" type="button" disabled={registering || removing}
             onClick={() => { setCustomized(true); setSelected(new Set()); }}>全消</button>
-          {candidates.length > 0 && <button className="button-secondary" type="button" disabled={registering || removing || !chosen.length}
-            onClick={() => void register(chosen)}>
-            {registering ? '正在写入资产库…' : `占位登记（${chosen.length}）`}
+          {registerCandidates.length > 0 && <button className="button-secondary" type="button" disabled={registering || removing || !chosenRegistrations.length}
+            onClick={() => void register(chosenRegistrations)}>
+            {registering ? '正在写入资产库…' : `占位登记（${chosenRegistrations.length}）`}
           </button>}
           <button className="button-secondary" type="button" data-testid="asset-requirement-remove"
             disabled={registering || removing || !removalChosen.length} onClick={() => void removeRequirements(removalChosen)}>
@@ -185,6 +197,7 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
         </div>}
       </div>
       {message && <p className="muted" role="status" data-testid="asset-register-message">{message}</p>}
+      {actionError && <p className="production-message" role="alert" data-testid="asset-register-error">{actionError}</p>}
       {!visibleRequirements.length && <p className="muted" role="status">当前没有未绑定资产的需求；已绑定资产不会显示在这里。</p>}
       {visibleRequirements.length > 0 && <table className="project-assets-table">
         <thead><tr><th aria-label="选择" /><th>类型</th><th>名称</th><th>出现场次</th><th>匹配</th><th>操作</th></tr></thead>
@@ -198,15 +211,19 @@ export default function ProjectAssetsWorkspace({ projectId }: { projectId: strin
               <td><small>{item.sceneIds.length} 场</small></td>
               <td>{item.match.assetId
                 ? <span className="asset-tag ok">已绑定 · {item.match.matchedBy}</span>
-                : item.match.ambiguous
-                  ? <span className="asset-tag warn">{item.match.alternatives.length} 个同优先级候选</span>
-                  : <span className="asset-tag missing">未匹配</span>}</td>
+                : item.match.placeholderAssetId
+                  ? <span className="asset-tag warn">已登记占位 · 待正式素材</span>
+                  : item.match.ambiguous
+                    ? <span className="asset-tag warn">{item.match.alternatives.length} 个同优先级候选</span>
+                    : <span className="asset-tag missing">未匹配</span>}</td>
               <td>{item.match.assetId
                 ? <a className="text-button" href="#/assets">查看资产库</a>
-                : item.action.kind === 'choose'
-                  ? <a className="text-button" href="#/assets">在候选中选择</a>
-                  : <button className="text-button" type="button" disabled={registering || removing}
-                    onClick={() => void register([item])}>占位登记</button>}</td>
+                : item.match.placeholderAssetId
+                  ? <a className="text-button" href="#/assets">查看占位资产</a>
+                  : item.action.kind === 'choose'
+                    ? <a className="text-button" href="#/assets">在候选中选择</a>
+                    : <button className="text-button" type="button" disabled={registering || removing}
+                      onClick={() => void register([item])}>占位登记</button>}</td>
             </tr>;
           })}
         </tbody>

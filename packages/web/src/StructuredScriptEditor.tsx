@@ -13,11 +13,15 @@ const elementPlaceholders: Record<ScriptElementType, string> = {
   1: '添加台词…', 2: '添加动作或场景描述…', 3: '添加旁白…', 4: '添加镜头设计…', 5: '添加环境说明…',
 };
 
-/** 人物候选只来自真实对白；旁白的 characterName 是叙事标签，不是出场人物。 */
+/** 人物候选来自实际出场名册与真实对白；旁白的 characterName 是叙事标签，不是出场人物。 */
 export function collectCharacterNames(structure: ScriptStructure): string[] {
   const names = new Set<string>();
   for (const episode of structure.episodes) {
     for (const scene of episode.scenes) {
+      for (const name of scene.characterNames ?? []) {
+        const trimmed = name.trim();
+        if (trimmed && trimmed !== '旁白') names.add(trimmed);
+      }
       for (const element of scene.dialogues) {
         if (element.type !== 1) continue;
         const name = element.characterName?.trim();
@@ -203,6 +207,15 @@ export default function StructuredScriptEditor({ structure, onChange, onSaveScen
               <span>场景描述</span>
               <textarea value={item.sceneDescription} disabled={disabled} placeholder="本场环境、调度或整体画面描述（可选）"
                 onChange={event => onChange(patchScene(structure, episode.id, item.id, { sceneDescription: event.target.value }))} />
+            </label>
+
+            <label className="structured-field structured-scene-description">
+              <span>实际出场人物</span>
+              <input aria-label="出场人物" value={(item.characterNames ?? []).join('、')} disabled={disabled}
+                placeholder="用逗号分隔，包含本场无对白人物；仅被提及不算出场"
+                onChange={event => onChange(patchScene(structure, episode.id, item.id, {
+                  characterNames: event.target.value.split(/[、,，\n]/).map(name => name.trim()).filter(Boolean),
+                }))} />
             </label>
 
             <div className="structured-blocks">

@@ -21,6 +21,7 @@ function withoutIds(structure) {
       location: scene.location,
       timeOfDay: scene.timeOfDay,
       sceneDescription: scene.sceneDescription,
+      characterNames: scene.characterNames,
       dialogues: scene.dialogues.map(element => ({
         type: element.type,
         characterName: element.characterName,
@@ -126,6 +127,19 @@ test('采纳场次切分后按顺序重排场次编号，且元素 ID 不重复'
   ]));
   assert.equal(new Set(ids).size, ids.length);
   assert.doesNotThrow(() => validateScriptStructure(merged));
+});
+
+test('非对白出场人物名册可校验、比较并选择性合并', () => {
+  const draft = structuredClone(base);
+  draft.episodes[0].scenes[0].characterNames = ['林澈', '黑衣人甲'];
+  const validated = validateScriptStructure(draft);
+  assert.deepEqual(validated.episodes[0].scenes[0].characterNames, ['林澈', '黑衣人甲']);
+  const item = diffScriptStructures(base, validated).find(diff => diff.kind === 'scene-characters');
+  assert.ok(item);
+  const merged = applySelectedDiffs(base, validated, [item.id]);
+  assert.deepEqual(merged.episodes[0].scenes[0].characterNames, ['林澈', '黑衣人甲']);
+  const unchanged = applySelectedDiffs(base, validated, []);
+  assert.equal(unchanged.episodes[0].scenes[0].characterNames, undefined);
 });
 
 test('缺少正式结构且一项都不采纳时拒绝产出空剧本', () => {

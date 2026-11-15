@@ -4,7 +4,7 @@ const { readConfig } = require('../dist/config');
 const { InMemoryBreakdownRepository } = require('../dist/breakdown/repository');
 const { BreakdownService } = require('../dist/breakdown/service');
 const { ScriptParseService } = require('../dist/breakdown/script-parse');
-const { emptyScriptStructure } = require('@lyra/shared');
+const { emptyScriptStructure, serializeScriptStructure } = require('@lyra/shared');
 
 const rawText = [
   '深夜的旧钟表店，老周把放大镜推到额头上，抬头看见推门进来的林澈。',
@@ -22,6 +22,7 @@ const modelOutput = {
   scenes: [{
     sceneHeading: '旧钟表店·重逢', location: '旧钟表店', timeOfDay: '夜', intExt: '内',
     sceneDescription: '林澈推门进入旧钟表店。',
+    characterNames: ['林澈', '老周'],
     elements: [
       { type: 2, content: '老周把放大镜推到额头上，抬头看见推门进来的林澈。' },
       { type: 1, characterName: '林澈', parenthetical: '', content: '这块表，你还认得吗？' },
@@ -63,6 +64,7 @@ test('AI parse normalizes a heading-less script and candidate passes completenes
   assert.equal(parsed.structure.episodes.length, 1);
   assert.equal(parsed.structure.episodes[0].scenes.length, 1);
   assert.equal(parsed.structure.episodes[0].scenes[0].sceneNumber, '1-1');
+  assert.deepEqual(parsed.structure.episodes[0].scenes[0].characterNames, ['林澈', '老周']);
   assert.equal(parsed.characters.length, 2);
   assert.equal(calls.some(call => /succeeded/.test(call.sql)), true);
 
@@ -294,4 +296,92 @@ test('AI dialogue repair can preview a sourced non-dialogue exclusion and rechec
   const checked = await breakdown.checkPlan(savedCandidate.id);
   assert.equal(checked.check.result, 'passed');
   assert.equal(checked.issues.length, 0);
+});
+
+test('#197：只有动作出场的非对白人物通过显式名册进入场次事实', async () => {
+  let ordinal = 0;
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
+    now: () => new Date('2026-10-01T08:00:00.000Z'),
+    nextId: (prefix) => `${prefix}_${String(++ordinal).padStart(4, '0')}`,
+  });
+  const project = await breakdown.createProject({ title: '非对白人物出场' });
+  const structure = emptyScriptStructure();
+  const scene = structure.episodes[0].scenes[0];
+  scene.location = '破庙';
+  scene.characterNames = ['黑衣人甲', '黑衣人乙'];
+  scene.dialogues = [{ id: 'action_1', type: 2, content: '两名黑衣人冲进破庙，没有说话。' }];
+  const script = await breakdown.createScriptVersion(project.id, { rawText: '两名黑衣人冲进破庙，没有说话。', structure });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig(), async () => { throw new Error('不应调用模型'); });
+  const candidate = await service.createCharacterCandidate(project.id, script.id, [
+    { name: '黑衣人甲', aliases: [], description: null },
+    { name: '黑衣人乙', aliases: [], description: null },
+  ]);
+  assert.deepEqual(script.structure.episodes[0].scenes[0].characterNames, ['黑衣人甲', '黑衣人乙']);
+  const ids = candidate.content.scenes[0].characterIds;
+  assert.equal(ids?.length ?? 0, 2);
+  assert.deepEqual(new Set(candidate.content.characters.filter(item => ids.includes(item.id)).map(item => item.name.value)), new Set(['黑衣人甲', '黑衣人乙']));
+});
+
+test('#197：旧候选入口生成全集场次而不是只读第一集', async () => {
+  let ordinal = 0;
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
+    now: () => new Date('2026-10-01T08:00:00.000Z'),
+    nextId: (prefix) => `${prefix}_${String(++ordinal).padStart(4, '0')}`,
+  });
+  const project = await breakdown.createProject({ title: '跨集资产场次' });
+  const structure = emptyScriptStructure();
+  const first = structure.episodes[0].scenes[0];
+  first.location = '破庙';
+  first.sceneHeading = '1-1';
+  first.dialogues = [{ id: 'line_1', type: 1, characterName: '林砚', parenthetical: '', content: '第一集台词。' }];
+  const secondEpisode = structuredClone(structure.episodes[0]);
+  secondEpisode.id = 'episode_2';
+  secondEpisode.episodeNumber = 2;
+  secondEpisode.title = '第2集';
+  secondEpisode.scenes[0].id = 'scene_2_1';
+  secondEpisode.scenes[0].sceneNumber = '2-1';
+  secondEpisode.scenes[0].sceneHeading = '2-1';
+  secondEpisode.scenes[0].dialogues = [{ id: 'line_2', type: 1, characterName: '林砚', parenthetical: '', content: '第二集台词。' }];
+  structure.episodes.push(secondEpisode);
+  const script = await breakdown.createScriptVersion(project.id, { rawText: serializeScriptStructure(structure), structure });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig(), async () => { throw new Error('不应调用模型'); });
+  const candidate = await service.createCharacterCandidate(project.id, script.id,
+    [{ name: '林砚', aliases: [], description: null }], [{ name: '破庙', aliases: [], description: null }]);
+  assert.equal(candidate.content.scenes.length, 2);
+  assert.deepEqual(candidate.content.scenes.map(item => item.title.value), ['1-1', '2-1']);
+  assert.ok(candidate.content.scenes.every(item => item.characterIds.length === 1 && item.locationId));
+});
+
+test('#197：同一道具在多个场景的所有直接证据都进入候选', async () => {
+  let ordinal = 0;
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
+    now: () => new Date('2026-10-01T08:00:00.000Z'),
+    nextId: (prefix) => `${prefix}_${String(++ordinal).padStart(4, '0')}`,
+  });
+  const project = await breakdown.createProject({ title: '道具多场景出场' });
+  const structure = emptyScriptStructure();
+  const episode = structure.episodes[0];
+  episode.scenes[0].title = episode.scenes[0].sceneNumber;
+  episode.scenes[0].sceneHeading = episode.scenes[0].sceneNumber;
+  episode.scenes[0].dialogues = [
+    { id: 'line_1', type: 1, characterName: '林砚', parenthetical: '', content: '第一场台词。' },
+    { id: 'action_1', type: 2, content: '林砚拔出手中的长剑。' },
+  ];
+  episode.scenes.push({
+    ...structuredClone(episode.scenes[0]), id: 'scene_1_2', sceneNumber: '1-2', title: '1-2', sceneHeading: '1-2',
+    dialogues: [
+      { id: 'line_2', type: 1, characterName: '林砚', parenthetical: '', content: '第二场台词。' },
+      { id: 'action_2', type: 2, content: '林砚把长剑收回鞘中。' },
+    ],
+  });
+  const script = await breakdown.createScriptVersion(project.id, { rawText: serializeScriptStructure(structure), structure });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig(), async () => { throw new Error('不应调用模型'); });
+  const candidate = await service.createCharacterCandidate(project.id, script.id,
+    [{ name: '林砚', aliases: [], description: null }], [], [{ name: '长剑', aliases: [], description: null }]);
+  const prop = candidate.content.props[0];
+  assert.equal(prop.sourceRefs.length, 2);
+  const overlaps = (left, right) => left.scriptVersionId === right.scriptVersionId && left.start <= right.end && right.start <= left.end;
+  for (const scene of candidate.content.scenes) {
+    assert.ok(scene.sourceRefs.some(sceneRef => prop.sourceRefs.some(propRef => overlaps(sceneRef, propRef))));
+  }
 });

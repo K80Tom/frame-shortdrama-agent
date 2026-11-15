@@ -213,10 +213,11 @@ test('场次提炼角色/地点，道具按正文关键词识别，对白缺失�
   const structure = parseScriptStructure(raw);
   const scene = structure.episodes[0].scenes[0];
   scene.dialogues.push({ id: 'narration_1', type: 3, characterName: '旁白', parenthetical: '', content: '时间留下残渣。' });
+  scene.characterNames = ['黑衣人甲'];
   const summary = logic.summarizeScene(scene);
-  assert.deepEqual(summary.characters, ['老周', '林澈']);
+  assert.deepEqual(summary.characters, ['黑衣人甲', '老周', '林澈']);
   assert.ok(!summary.characters.includes('旁白'));
-  assert.deepEqual(collectCharacterNames(structure), ['老周', '林澈']);
+  assert.deepEqual(collectCharacterNames(structure), ['黑衣人甲', '老周', '林澈']);
   const cardHtml = renderToStaticMarkup(createElement(SceneCardList, {
     episode: structure.episodes[0], selectedSceneId: scene.id, characterOptions: [],
     onSelectScene: () => undefined, onSaveScene: async () => true, onSaveEpisode: async () => true,

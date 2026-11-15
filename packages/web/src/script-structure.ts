@@ -124,7 +124,7 @@ export function patchEpisode(structure: ScriptStructure, episodeId: string,
 }
 
 export function patchScene(structure: ScriptStructure, episodeId: string, sceneId: string,
-  patch: Partial<Pick<ScriptScene, 'sceneNumber' | 'sceneHeading' | 'location' | 'timeOfDay' | 'intExt' | 'sceneDescription'>>): ScriptStructure {
+  patch: Partial<Pick<ScriptScene, 'sceneNumber' | 'sceneHeading' | 'location' | 'timeOfDay' | 'intExt' | 'sceneDescription' | 'characterNames'>>): ScriptStructure {
   return updateScene(structure, episodeId, sceneId, scene => ({ ...scene, ...patch }));
 }
 
@@ -142,6 +142,9 @@ export function mergeScenes(structure: ScriptStructure, episodeId: string, scene
       timeOfDay: current.timeOfDay.trim() || next.timeOfDay,
       intExt: current.intExt || next.intExt,
       sceneDescription: [current.sceneDescription.trim(), next.sceneDescription.trim()].filter(Boolean).join('\n'),
+      ...((current.characterNames === undefined && next.characterNames === undefined) ? {} : {
+        characterNames: [...new Set([...(current.characterNames ?? []), ...(next.characterNames ?? [])])],
+      }),
       dialogues: [...current.dialogues, ...next.dialogues],
     };
     return {
@@ -172,6 +175,8 @@ export function splitScene(structure: ScriptStructure, episodeId: string, sceneI
       ...current,
       id: uid('scene'),
       sceneDescription: '',
+      // 拆分时不能猜无对白人物落在哪一半；说话人仍会从元素自动合并，可在新场次补录名册。
+      characterNames: [],
       dialogues: current.dialogues.slice(at),
     };
     return {
@@ -190,6 +195,10 @@ export function summarizeScriptStructure(structure: ScriptStructure): { scenes: 
   for (const episode of structure.episodes) {
     scenes += episode.scenes.length;
     for (const scene of episode.scenes) {
+      for (const name of scene.characterNames ?? []) {
+        const trimmed = name.trim();
+        if (trimmed && trimmed !== '旁白') names.add(trimmed);
+      }
       for (const element of scene.dialogues) {
         if (element.type === 1) dialogues += 1;
         if (element.type !== 1 && element.type !== 3) continue;
@@ -232,6 +241,12 @@ export function buildStructureFactCandidate(structure: ScriptStructure): {
       if (location) {
         const key = normalizeScriptCharacterName(location);
         if (!locations.has(key)) locations.set(key, { name: location, aliases: [], description: null });
+      }
+      for (const name of scene.characterNames ?? []) {
+        const trimmed = name.trim();
+        const key = normalizeScriptCharacterName(trimmed);
+        if (!trimmed || key === normalizeScriptCharacterName('旁白') || characters.has(key)) continue;
+        characters.set(key, { name: trimmed, aliases: [], description: null });
       }
       for (const element of scene.dialogues) {
         const name = element.characterName?.trim();

@@ -52,6 +52,14 @@ test('planCharacterImport：旁白叙事标签不计作真实人物出场', () =
   assert.equal(item.sceneCount, 0);
 });
 
+test('planCharacterImport：非对白出场名册计入实际场次，旁白仍不计入', () => {
+  const structure = parseScriptStructure(raw);
+  structure.episodes[0].scenes[2].characterNames = ['黑衣人甲', '旁白'];
+  const plan = planCharacterImport(structure, [{ name: '黑衣人甲' }, { name: '旁白' }], []);
+  assert.equal(plan[0].sceneCount, 1);
+  assert.equal(plan[1].sceneCount, 0);
+});
+
 test('filterImportEntities：总开关关闭时一个角色都不导入', () => {
   const characters = [{ name: '林澈' }, { name: '前台小妹' }];
   assert.deepEqual(filterImportEntities(characters, { enabled: false, selectedNames: new Set(['林澈', '前台小妹']) }), []);
