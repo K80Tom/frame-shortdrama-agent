@@ -273,6 +273,27 @@ test('需求匹配：已绑定 / 歧义 / 未匹配 / 无需求分别给状态�
   assert.equal(logic.matchRequirement('天台', 'location', requirements), null);
 });
 
+test('占位资产在剧情详情中保留引用，但不冒充正式绑定', () => {
+  const scene = parseScriptStructure(raw).episodes[0].scenes[0];
+  const requirements = [{
+    requirementId: 'placeholder', kind: 'character', name: '老周', sceneIds: [],
+    match: { assetId: null, placeholderAssetId: 'asset_p', matchedBy: null, matchedTerm: null, ambiguous: false, alternatives: [] },
+  }];
+  const assets = [{
+    id: 'asset_p', kind: 'character', name: '老周', description: '自动登记占位',
+    resourceUrl: '/api/assets/asset_p/content', createdAt: '2026-01-01T00:00:00.000Z',
+  }];
+  const view = logic.matchRequirement('老周', 'character', requirements);
+  assert.equal(view.state, 'placeholder');
+  assert.equal(view.assetId, 'asset_p');
+  const html = renderToStaticMarkup(createElement(SceneDetailPanel, {
+    scene, episodeNumber: 1, requirements, assets, recognizedProps: [],
+  }));
+  assert.match(html, /已引用占位 · 老周/);
+  assert.match(html, /script-detail-asset-image/);
+  assert.doesNotMatch(html, /已绑定 · 老周/);
+});
+
 test('命令 ID 一次生成、格式稳定，重试可复用同一值', () => {
   const first = logic.newCommandId();
   assert.match(first, /^cmd_[a-z0-9]+$/);

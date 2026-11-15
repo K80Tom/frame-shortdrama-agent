@@ -419,7 +419,8 @@ export function newCommandId(): string {
 }
 
 export interface RequirementMatchView {
-  state: 'matched' | 'missing' | 'ambiguous';
+  state: 'matched' | 'placeholder' | 'missing' | 'ambiguous';
+  /** 正式或占位资产 ID；占位只用于只读引用展示，不会被标成正式绑定。 */
   assetId: string | null;
   matchedBy: string | null;
   label: string;
@@ -433,7 +434,12 @@ export function matchRequirement(
     requirementId: string;
     kind: string;
     name: string;
-    match: { assetId: string | null; matchedBy: 'name' | 'alias' | 'retrieval' | null; ambiguous: boolean };
+    match: {
+      assetId: string | null;
+      placeholderAssetId?: string | null;
+      matchedBy: 'name' | 'alias' | 'retrieval' | null;
+      ambiguous: boolean;
+    };
   }> | null,
 ): RequirementMatchView | null {
   if (!requirements) return null;
@@ -449,6 +455,12 @@ export function matchRequirement(
     };
   }
   if (requirement.match.ambiguous) return { state: 'ambiguous', assetId: null, matchedBy: null, label: '存在多个候选，需人工选择' };
+  if (requirement.match.placeholderAssetId) {
+    return {
+      state: 'placeholder', assetId: requirement.match.placeholderAssetId,
+      matchedBy: null, label: '已引用占位，待正式素材',
+    };
+  }
   return { state: 'missing', assetId: null, matchedBy: null, label: '尚未绑定资产' };
 }
 

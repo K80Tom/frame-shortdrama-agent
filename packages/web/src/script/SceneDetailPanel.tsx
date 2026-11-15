@@ -6,8 +6,12 @@ type RequirementList = ProjectAssetRequirementsResponse['requirements'];
 
 function MatchBadge({ match, assetName }: { match: RequirementMatchView | null; assetName?: string }) {
   if (!match) return <span className="asset-tag missing">未关联资产</span>;
-  const className = match.state === 'matched' ? 'ok' : match.state === 'ambiguous' ? 'warn' : 'missing';
-  const label = match.state === 'matched' ? (assetName ? `已绑定 · ${assetName}` : '已绑定资产') : match.label;
+  const className = match.state === 'matched' ? 'ok' : match.state === 'missing' ? 'missing' : 'warn';
+  const label = match.state === 'matched'
+    ? (assetName ? `已绑定 · ${assetName}` : '已绑定资产')
+    : match.state === 'placeholder'
+      ? (assetName ? `已引用占位 · ${assetName}` : '已引用占位，待正式素材')
+      : match.label;
   return <span className={`asset-tag ${className}`}>{label}</span>;
 }
 function DetailRow({ name, match, asset }: { name: string; match: RequirementMatchView | null; asset?: AssetRecord }) {
@@ -84,6 +88,6 @@ export function SceneDetailPanel({ scene, episodeNumber, requirements, recognize
     {scene.sceneDescription && <section className="script-detail-group"><h4>场景描述</h4>
       <p className="script-detail-description">{scene.sceneDescription}</p></section>}
     <div className="script-detail-stats"><span>对白 {dialogueCount}</span><span>角色 {characterMatches.length}</span><span>元素 {scene.dialogues.length}</span></div>
-    <p className="script-detail-foot muted">资产状态来自 Lyra 正式资产链；此面板只读，不自动生成素材。</p>
+    <p className="script-detail-foot muted">资产状态来自 Lyra 资产链；占位只表示已引用，不代表正式素材。此面板只读，不自动生成素材。</p>
   </aside>;
 }
