@@ -31,6 +31,8 @@ export interface ProductionServiceOptions {
   pollIntervalMs?: number;
   executors?: ProductionExecutor[];
   sourceCatalog?: ProductionSourceCatalog;
+  /** 当前分镜制作的只读来源；只允许采用版本，不由制作服务生成或采用候选。 */
+  storyboards?: { get(id: string): Promise<{ id: string; projectId: string; scriptVersionId: string; shots: Array<{ id: string }> }> };
   /** Resolved once for a new run; replay of an idempotent request keeps its original frozen policy. */
   assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   methodPacks?: (project: unknown) => Promise<FrozenMethodPack[]>;
@@ -66,6 +68,7 @@ export class ProductionService {
   private readonly pollIntervalMs: number;
   private readonly executors = new Map<ProductionStage, ProductionExecutor>();
   private readonly sourceCatalog?: ProductionSourceCatalog;
+  private readonly storyboards?: ProductionServiceOptions['storyboards'];
   private readonly assetRetrievalPolicy?: () => Promise<FrozenAssetRetrievalPolicy>;
   private readonly methodPacks?: ProductionServiceOptions['methodPacks'];
   private readonly methodProfile?: ProductionServiceOptions['methodProfile'];
@@ -80,6 +83,7 @@ export class ProductionService {
     this.now = options.now ?? (() => new Date());
     this.pollIntervalMs = Math.max(250, options.pollIntervalMs ?? 2_000);
     this.sourceCatalog = options.sourceCatalog;
+    this.storyboards = options.storyboards;
     this.assetRetrievalPolicy = options.assetRetrievalPolicy;
     this.methodPacks = options.methodPacks;
     this.methodProfile = options.methodProfile;
@@ -102,6 +106,24 @@ export class ProductionService {
     }
     const project = await this.sourceCatalog?.getProject(input.projectId);
     await this.sourceCatalog?.getScriptVersion(input.projectId, input.scriptVersionId);
+    if (input.mediaScope === 'assets') {
+      const current = project as { currentScriptVersionId?: string | null; activePlanRevisionId?: string | null } | undefined;
+      if (!current?.activePlanRevisionId || current.currentScriptVersionId !== input.scriptVersionId) {
+        conflict('ADOPTED_FACTS_REQUIRED', '请先采用当前剧本的事实拆解，再生成图片资产；本次不会重新解析剧本或生成分镜。');
+      }
+    }
+    if (input.storyboardRevisionId) {
+      if (!this.storyboards) conflict('PRODUCTION_STORYBOARD_UNAVAILABLE', '分镜制作依赖尚未就绪，不能创建分镜制作运行。');
+      const board = await this.storyboards.get(input.storyboardRevisionId);
+      const activeId = (project as { activeStoryboardRevisionId?: string | null } | undefined)?.activeStoryboardRevisionId;
+      if (board.projectId !== input.projectId || board.scriptVersionId !== input.scriptVersionId) {
+        conflict('PRODUCTION_STORYBOARD_MISMATCH', '所选分镜与本次项目或剧本版本不匹配。');
+      }
+      if (activeId !== board.id) conflict('PRODUCTION_STORYBOARD_NOT_ADOPTED', '请先在分镜工作台保存并人工采用这一版分镜，再进入制作。');
+      if (input.shotId && !board.shots.some(shot => shot.id === input.shotId)) {
+        conflict('PRODUCTION_SHOT_NOT_FOUND', '所选镜头不在当前采用的分镜版本中。');
+      }
+    }
     const policy = this.assetRetrievalPolicy ? await this.assetRetrievalPolicy() : undefined;
     const draft = compileProductionRun(input, this.timestamp(), undefined, policy);
     let frozenProfile: FrozenMethodProfile | null = null;

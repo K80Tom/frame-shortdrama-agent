@@ -2,6 +2,11 @@ import type { ProjectAssetRequirementsResponse } from '@lyra/shared';
 
 export type AssetRequirement = ProjectAssetRequirementsResponse['requirements'][number];
 
+/** 需求清单只处理尚未绑定资产的项；已绑定资产保留在汇总，但不进入列表或批量操作。 */
+export function unboundAssetRequirements(requirements: AssetRequirement[]): AssetRequirement[] {
+  return requirements.filter(item => !item.match.assetId);
+}
+
 /** 只有「未匹配且无歧义候选」的需求允许一键自动入库；歧义项仍需人工选择。 */
 export function autoRegisterCandidates(requirements: AssetRequirement[]): AssetRequirement[] {
   return requirements.filter(item => !item.match.assetId && !item.match.ambiguous);

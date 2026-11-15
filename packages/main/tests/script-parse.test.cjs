@@ -89,6 +89,7 @@ test('AI parse preserves editable locations and props through the facts candidat
     id: 'chatcmpl-entities', model: 'parse-stub',
     choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({
       ...modelOutput,
+      characters: [...modelOutput.characters, { name: '旁白', aliases: [], description: '叙事声音。' }],
       locations: [{ name: '旧钟表店', aliases: ['钟表店'], description: '林澈与老周重逢的地点。' }],
       props: [{ name: '放大镜', aliases: [], description: '老周修表使用的工具。' }],
     }) }, finish_reason: 'stop' }],
@@ -100,6 +101,7 @@ test('AI parse preserves editable locations and props through the facts candidat
   assert.equal(parsed.locations[0].aliases[0], '钟表店');
   assert.equal(parsed.props.length, 1);
   assert.equal(parsed.props[0].name, '放大镜');
+  assert.ok(!parsed.characters.some(item => item.name === '旁白'));
 
   const saved = await breakdown.createScriptVersion(project.id, { rawText, structure: parsed.structure });
   const candidate = await service.createCharacterCandidate(project.id, saved.id,
@@ -110,6 +112,16 @@ test('AI parse preserves editable locations and props through the facts candidat
   assert.equal(candidate.content.props.length, 1);
   assert.equal(candidate.content.props[0].name.value, '放大镜');
   assert.equal(candidate.content.scenes.length, 1);
+});
+
+test('事实候选拒绝把旁白叙事标签保存为人物', async () => {
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig());
+  const project = await breakdown.createProject({ title: '旁白不是人物' });
+  const script = await breakdown.createScriptVersion(project.id, { rawText });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig());
+  await assert.rejects(service.createCharacterCandidate(project.id, script.id, [
+    { name: '旁白', aliases: [], description: '叙事声音。' },
+  ]), error => error.code === 'SCRIPT_NARRATION_CHARACTER_INVALID');
 });
 
 test('AI parse history returns success and failure records with reusable entity output', async () => {

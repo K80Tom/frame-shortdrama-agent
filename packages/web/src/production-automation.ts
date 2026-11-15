@@ -11,6 +11,9 @@ export type ProductionStageState = typeof productionStageStates[number];
 export type ProductionForm = {
   projectId: string;
   scriptVersionId: string;
+  storyboardRevisionId?: string;
+  shotId?: string;
+  sourceLabel?: string;
   ratio: '9:16' | '16:9';
   targetDurationSec: number;
   visualStyle: string;
@@ -27,6 +30,38 @@ export const defaultProductionForm: ProductionForm = {
   visualStyle: '现实主义电影感，人物自然表演，统一光影与色彩', qualityPreset: 'balanced',
   automationMode: 'auto', candidatePolicy: 'direct', candidateLimit: 1, directorPolicy: 'auto', budgetYuan: 50,
 };
+
+export type StoryboardProductionIntent = {
+  projectId: string;
+  scriptVersionId: string;
+  storyboardRevisionId: string;
+  shotId?: string;
+  targetDurationSec?: number;
+  sourceLabel: string;
+};
+const STORYBOARD_PRODUCTION_INTENT_KEY = 'lyra:storyboard-production-intent:v1';
+const intentId = /^[A-Za-z][A-Za-z0-9_-]{2,127}$/u;
+export function saveStoryboardProductionIntent(intent: StoryboardProductionIntent): boolean {
+  if (typeof window === 'undefined') return false;
+  try { window.sessionStorage.setItem(STORYBOARD_PRODUCTION_INTENT_KEY, JSON.stringify(intent)); return true; }
+  catch { return false; }
+}
+export function consumeStoryboardProductionIntent(): StoryboardProductionIntent | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORYBOARD_PRODUCTION_INTENT_KEY);
+    window.sessionStorage.removeItem(STORYBOARD_PRODUCTION_INTENT_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<StoryboardProductionIntent>;
+    if (![value.projectId, value.scriptVersionId, value.storyboardRevisionId].every(item => typeof item === 'string' && intentId.test(item))
+      || (value.shotId !== undefined && (typeof value.shotId !== 'string' || !intentId.test(value.shotId)))
+      || typeof value.sourceLabel !== 'string' || !value.sourceLabel.trim()) return null;
+    return { projectId: value.projectId!, scriptVersionId: value.scriptVersionId!, storyboardRevisionId: value.storyboardRevisionId!,
+      ...(value.shotId ? { shotId: value.shotId } : {}),
+      ...(Number.isInteger(value.targetDurationSec) && Number(value.targetDurationSec) >= 1 && Number(value.targetDurationSec) <= 900
+        ? { targetDurationSec: Number(value.targetDurationSec) } : {}), sourceLabel: value.sourceLabel.slice(0, 120) };
+  } catch { return null; }
+}
 
 export type ProjectOption = { id: string; title: string; currentScriptVersionId: string | null };
 export type ScriptVersionOption = { id: string; version: number; createdAt?: string };
@@ -61,6 +96,7 @@ export type ProductionSummary = {
 };
 export type ProductionRun = {
   id: string; clientRequestId: string; projectId: string; scriptVersionId: string; status: ProductionRunStatus; version: number;
+  storyboardRevisionId?: string; shotId?: string; mediaScope?: 'assets';
   projectTitle?: string; ratio?: string; targetDurationSec?: number; visualStyle?: string; qualityPreset?: string;
   automationMode?: string; candidatePolicy?: string; candidateLimit?: number; directorPolicy?: string; createdAt: string; updatedAt: string; pausedAt: string | null;
   assetRetrievalPolicy?: FrozenAssetRetrievalPolicy;
@@ -167,6 +203,9 @@ export function parseProductionRun(value: unknown): ProductionRun {
   return {
     id: text(row.id), clientRequestId: text(row.clientRequestId), projectId: text(row.projectId), scriptVersionId: text(row.scriptVersionId),
     status: enumValue(row.status, productionRunStatuses, 'queued'), version: Math.max(0, Math.floor(number(row.version))),
+    ...(text(row.storyboardRevisionId) ? { storyboardRevisionId: text(row.storyboardRevisionId) } : {}),
+    ...(text(row.shotId) ? { shotId: text(row.shotId) } : {}),
+    ...(row.mediaScope === 'assets' ? { mediaScope: 'assets' as const } : {}),
     ...(text(row.projectTitle) ? { projectTitle: text(row.projectTitle) } : {}), ...(text(row.ratio) ? { ratio: text(row.ratio) } : {}),
     ...(number(row.targetDurationSec, -1) >= 0 ? { targetDurationSec: number(row.targetDurationSec) } : {}), ...(text(row.visualStyle) ? { visualStyle: text(row.visualStyle) } : {}),
     ...(text(row.qualityPreset) ? { qualityPreset: text(row.qualityPreset) } : {}), ...(text(row.automationMode) ? { automationMode: text(row.automationMode) } : {}),
@@ -193,14 +232,21 @@ export function parseProductionRuns(value: unknown) {
 }
 export function productionCreateBody(form: ProductionForm, clientRequestId: string) {
   const error = validateProductionForm(form); if (error) throw new Error(error);
-  const { budgetYuan, ...input } = form;
+  const { budgetYuan, sourceLabel: _sourceLabel, ...input } = form;
   return { ...input, visualStyle: form.visualStyle.trim(), targetDurationSec: Math.floor(form.targetDurationSec),
     budgetMicros: Math.round(budgetYuan * 1_000_000), currency: 'CNY', allowPaid: true as const, clientRequestId };
+}
+export function assetProductionCreateBody(form: ProductionForm, clientRequestId: string) {
+  return { ...productionCreateBody({ ...form, automationMode: 'auto' as const, candidatePolicy: 'direct' as const,
+    candidateLimit: 1, directorPolicy: 'never' as const }, clientRequestId), mediaScope: 'assets' as const };
 }
 export function validateProductionForm(form: ProductionForm) {
   if (!form.projectId || !form.scriptVersionId) return '请选择已有剧本项目和剧本版本。';
   if (!form.visualStyle.trim() || form.visualStyle.trim().length > 500) return '请填写 1–500 字的视觉风格。';
-  if (!Number.isInteger(form.targetDurationSec) || form.targetDurationSec < 15 || form.targetDurationSec > 900) return '目标时长须为 15–900 秒。';
+  if (form.shotId && !form.storyboardRevisionId) return '单镜制作必须绑定当前采用的分镜版本。';
+  if (!Number.isInteger(form.targetDurationSec) || form.targetDurationSec < (form.shotId ? 1 : 15) || form.targetDurationSec > 900) {
+    return form.shotId ? '单镜目标时长须为 1–900 秒。' : '目标时长须为 15–900 秒。';
+  }
   if (!['direct', 'gacha'].includes(form.candidatePolicy)) return '请选择直出版或抽卡版流程。';
   if (form.candidatePolicy === 'direct' && form.candidateLimit !== 1) return '直出版每镜只生成 1 条视频。';
   if (form.candidatePolicy === 'gacha' && (!Number.isInteger(form.candidateLimit) || form.candidateLimit < 2 || form.candidateLimit > 4)) return '抽卡版每镜候选须为 2–4 个。';

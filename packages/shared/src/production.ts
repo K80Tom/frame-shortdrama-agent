@@ -31,6 +31,12 @@ export class ProductionError extends Error {
 export interface CreateProductionRun {
   projectId: string;
   scriptVersionId: string;
+  /** 已人工采用的分镜；指定后制作只复用该不可变版本，不再生成另一套分镜。 */
+  storyboardRevisionId?: string;
+  /** 可选单镜范围；省略时展开所指定分镜的全部镜头。 */
+  shotId?: string;
+  /** 仅匹配并补齐图片资产；缺省保持完整视频生产链，兼容历史运行。 */
+  mediaScope?: 'assets';
   ratio: '9:16' | '16:9';
   targetDurationSec: number;
   visualStyle: string;
@@ -251,7 +257,7 @@ export const CREATE_KEYS: Array<keyof CreateProductionRun> = ['projectId', 'scri
   'visualStyle', 'qualityPreset', 'automationMode', 'candidatePolicy', 'candidateLimit', 'directorPolicy', 'budgetMicros', 'currency',
   'allowPaid', 'clientRequestId'];
 const safeId = /^[A-Za-z][A-Za-z0-9_-]{2,127}$/u;
-const RUN_OPTIONAL_KEYS = ['methodProfileRevisionId', 'methodProfileDigest'] as const;
+const RUN_OPTIONAL_KEYS = ['storyboardRevisionId', 'shotId', 'mediaScope', 'methodProfileRevisionId', 'methodProfileDigest'] as const;
 
 function invalid(message = '创建参数不完整或超出限制。'): never {
   throw new ProductionError(400, 'PRODUCTION_REQUEST_INVALID', message);
@@ -274,7 +280,10 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
   const clientRequestId = safeText(input.clientRequestId, 100);
   if (!safeId.test(projectId) || !safeId.test(scriptVersionId) || !/^[A-Za-z0-9_-]{1,100}$/u.test(clientRequestId)
     || !['9:16', '16:9'].includes(input.ratio as string)
-    || !Number.isInteger(input.targetDurationSec) || Number(input.targetDurationSec) < 15 || Number(input.targetDurationSec) > 900
+    || (input.storyboardRevisionId !== undefined && (typeof input.storyboardRevisionId !== 'string' || !safeId.test(input.storyboardRevisionId)))
+    || (input.shotId !== undefined && (typeof input.shotId !== 'string' || !safeId.test(input.shotId) || input.storyboardRevisionId === undefined))
+    || (input.mediaScope !== undefined && input.mediaScope !== 'assets')
+    || !Number.isInteger(input.targetDurationSec) || Number(input.targetDurationSec) < (input.shotId === undefined ? 15 : 1) || Number(input.targetDurationSec) > 900
     || !['fast', 'balanced', 'quality'].includes(input.qualityPreset as string)
     || !['auto', 'checkpoints', 'coDirector'].includes(input.automationMode as string)
     || !['direct', 'gacha'].includes(input.candidatePolicy as string)
@@ -296,7 +305,11 @@ export function parseCreateProductionRun(value: unknown): CreateProductionRun {
     methodSelection = { methodProfileRevisionId: revisionId, methodProfileDigest: digest };
   }
   return {
-    projectId, scriptVersionId, ratio: input.ratio as CreateProductionRun['ratio'],
+    projectId, scriptVersionId,
+    ...(input.storyboardRevisionId === undefined ? {} : { storyboardRevisionId: input.storyboardRevisionId as string }),
+    ...(input.shotId === undefined ? {} : { shotId: input.shotId as string }),
+    ...(input.mediaScope === undefined ? {} : { mediaScope: 'assets' as const }),
+    ratio: input.ratio as CreateProductionRun['ratio'],
     targetDurationSec: Number(input.targetDurationSec), visualStyle: safeText(input.visualStyle, 1000),
     qualityPreset: input.qualityPreset as QualityPreset, automationMode: input.automationMode as AutomationMode,
     candidatePolicy: input.candidatePolicy as CandidatePolicy,
@@ -375,6 +388,9 @@ export function canonicalDigest(value: unknown): string {
 
 export function sameProductionRequest(run: StoredProductionRun, input: CreateProductionRun): boolean {
   return CREATE_KEYS.every(key => run[key] === input[key])
+    && run.storyboardRevisionId === input.storyboardRevisionId
+    && run.shotId === input.shotId
+    && run.mediaScope === input.mediaScope
     && run.methodProfileRevisionId === input.methodProfileRevisionId
     && run.methodProfileDigest === input.methodProfileDigest;
 }

@@ -1,4 +1,5 @@
 import { METHOD_SECTION } from '../prompt-packs/runtime';
+import { canonicalDigest, sanitizeStoryboardVoiceObjectReference, type StoryboardVoiceObjectReference } from '@lyra/shared';
 
 export type VideoRunStatus = 'queued' | 'submitting' | 'generating' | 'completed' | 'failed' | 'unknown';
 export type VideoNodeId = 'input' | 'model' | 'submit' | 'generate' | 'deliver';
@@ -18,6 +19,8 @@ export interface CreateVideoRun {
   generateAudio: boolean;
   /** Ordered immutable catalogue references used as Seedance reference images. */
   referenceAssetIds?: string[];
+  /** Ordered voice references matching 音色参考音频N in the prompt. */
+  referenceAudio?: StoryboardVoiceObjectReference[];
   /** Workspace-scoped immutable asset IDs; the adapter resolves them to short-lived inputs. */
   firstFrameAssetId?: string;
   lastFrameAssetId?: string;
@@ -55,7 +58,7 @@ function invalid(): never {
 }
 export function parseCreateVideoRun(value: unknown): CreateVideoRun {
   const required = ['prompt', 'ratio', 'duration', 'resolution', 'generateAudio', 'clientRequestId', 'expectedModelConnectionRevision', 'allowPaid'];
-  const keys = [...required, 'referenceAssetIds', 'firstFrameAssetId', 'lastFrameAssetId'];
+  const keys = [...required, 'referenceAssetIds', 'referenceAudio', 'firstFrameAssetId', 'lastFrameAssetId'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(key => !keys.includes(key)) || required.some(key => !Object.hasOwn(value, key))) invalid();
   const input = value as Record<string, unknown>;
@@ -67,6 +70,10 @@ export function parseCreateVideoRun(value: unknown): CreateVideoRun {
   if (first !== undefined && (typeof first !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(first))) invalid();
   if (last !== undefined && (typeof last !== 'string' || !/^asset_[a-f0-9]{32}$/u.test(last))) invalid();
   if (last !== undefined && first === undefined) invalid();
+  const referenceAudio = input.referenceAudio;
+  if (referenceAudio !== undefined && (!Array.isArray(referenceAudio) || referenceAudio.length > 20
+    || referenceAudio.some(item => !sanitizeStoryboardVoiceObjectReference(item)))) invalid();
+  if (referenceAudio !== undefined && referenceAudio.length > 0 && input.generateAudio !== true) invalid();
   if (first !== undefined && last !== undefined && first === last) invalid();
   if (references !== undefined && [first, last].some(id => typeof id === 'string' && references.includes(id))) invalid();
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 8000
@@ -79,7 +86,8 @@ export function parseCreateVideoRun(value: unknown): CreateVideoRun {
     || typeof input.expectedModelConnectionRevision !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(input.expectedModelConnectionRevision)
     || input.allowPaid !== true) invalid();
   return { ...(input as unknown as CreateVideoRun), prompt: input.prompt.trim(),
-    ...(references === undefined ? {} : { referenceAssetIds: [...references] as string[] }) };
+    ...(references === undefined ? {} : { referenceAssetIds: [...references] as string[] }),
+    ...(referenceAudio === undefined ? {} : { referenceAudio: (referenceAudio as unknown[]).map(item => sanitizeStoryboardVoiceObjectReference(item)!) }) };
 }
 export function parseVideoRunId(id: string): string {
   if (!/^video_[a-f0-9]{32}$/.test(id)) throw new VideoAutomationError(400, 'VIDEO_ID_INVALID', '视频任务 ID 不正确。');
@@ -89,6 +97,7 @@ export function sameVideoRequest(run: StoredVideoRun, input: CreateVideoRun): bo
   return run.prompt === input.prompt && run.ratio === input.ratio && run.duration === input.duration
     && run.resolution === input.resolution && run.generateAudio === input.generateAudio
     && sameReferences(run.referenceAssetIds, input.referenceAssetIds)
+    && canonicalDigest(run.referenceAudio ?? []) === canonicalDigest(input.referenceAudio ?? [])
     && run.firstFrameAssetId === input.firstFrameAssetId && run.lastFrameAssetId === input.lastFrameAssetId
     && run.clientRequestId === input.clientRequestId && run.modelConnectionRevision === input.expectedModelConnectionRevision;
 }
@@ -132,5 +141,8 @@ export function publicVideoRun(run: StoredVideoRun) {
     visible.prompt = visible.prompt.slice(0, visible.prompt.indexOf(METHOD_SECTION));
     visible.title = Array.from(visible.prompt.replace(/\s+/gu, ' ')).slice(0, 40).join('');
   }
-  return { ...visible, nodes, progress: { completed: nodes.filter(node => node.state === 'succeeded').length, total: 5 as const } };
+  return { ...visible,
+    referenceAudio: visible.referenceAudio?.map(reference => ({ artifactId: reference.artifactId,
+      sha256: reference.sha256, sizeBytes: reference.sizeBytes, contentType: reference.contentType })),
+    nodes, progress: { completed: nodes.filter(node => node.state === 'succeeded').length, total: 5 as const } };
 }

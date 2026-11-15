@@ -292,6 +292,19 @@ export class BreakdownService implements BreakdownServicePort {
     const script = await this.getScriptVersion(base.projectId, base.scriptVersionId);
     const revisionId = this.nextId("plan");
     const content = materializeEntityEdits(base.content, request, { script, revisionId });
+    // Removing requirements is an idempotent user action: after canceling warning
+    // acknowledgement, retrying the same removal must resume that exact candidate
+    // instead of being blocked by the linear manual-editing conflict guard.
+    if (request.edits.length === 0 && request.synopsis === undefined && (request.removeEntities?.length ?? 0) > 0) {
+      const latest = (await this.repository.listProjectPlanRevisions(base.projectId)).at(-1);
+      const project = await this.requireProject(base.projectId);
+      if (latest?.status === "candidate" && latest.createdBy === "user" && latest.reason === "manualEdit"
+        && latest.parentRevisionId === base.id && latest.scriptVersionId === base.scriptVersionId
+        && latest.runId === base.runId && latest.sourceTaskId === base.sourceTaskId
+        && project.currentScriptVersionId === base.scriptVersionId
+        && project.activePlanRevisionId === request.expectedActivePlanRevisionId
+        && canonicalJsonSha256(latest.content) === canonicalJsonSha256(content)) return latest;
+    }
     return this.repository.createEntityEditRevision({
       id: revisionId,
       projectId: base.projectId,

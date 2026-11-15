@@ -418,7 +418,9 @@ export class PostgresBreakdownRepository implements BreakdownRepository {
         RETURNING id, project_id, version, raw_text, content_sha256, source_index_json, structure_json, created_at
       `, [input.id, input.projectId, version, input.rawText, input.contentSha256, JSON.stringify(index),
         input.structure ? JSON.stringify(input.structure) : null, input.createdAt]);
-      await client.query("UPDATE projects SET current_script_version_id = $1, active_plan_revision_id = NULL, active_storyboard_revision_id = NULL WHERE id = $2", [input.id, input.projectId]);
+      // A new draft script does not erase the last adopted production chain. The
+      // storyboard workspace keeps using that chain until another fact plan is adopted.
+      await client.query("UPDATE projects SET current_script_version_id = $1 WHERE id = $2", [input.id, input.projectId]);
       return toStoredScript(saved.rows[0]!);
     });
   }
@@ -919,8 +921,6 @@ export class InMemoryBreakdownRepository implements BreakdownRepository {
     };
     this.scripts.set(script.id, clone(script));
     project.currentScriptVersionId = script.id;
-    project.activePlanRevisionId = null;
-    project.activeStoryboardRevisionId = null;
     this.projects.set(project.id, clone(project));
     return clone(script);
   }

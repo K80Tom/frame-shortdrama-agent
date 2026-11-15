@@ -1,4 +1,5 @@
-import { AssetError, createAssetRecord, localAssetUrl, parseAssetMetadata, type AssetRecord } from '@lyra/shared';
+import { AssetError, createAssetRecord, createMetadataAssetRecord, localAssetUrl,
+  normalizeScriptCharacterName, parseAssetMetadata, type AssetRecord } from '@lyra/shared';
 import type { AssetRepository } from './repository';
 import { parseAssetImport, parseAssetMediaReplacement, type AssetMedia } from './media';
 
@@ -6,6 +7,28 @@ export class AssetService {
   constructor(private readonly repository: AssetRepository, private readonly mediaReady = true) {}
   list(): Promise<AssetRecord[]> { return this.repository.list(); }
   async create(input: unknown): Promise<AssetRecord> { return this.repository.create(createAssetRecord(input)); }
+
+  /** 剧本解析自动写入的元数据实体；同名或别名命中时复用，不修改既有描述与素材。 */
+  async createMetadata(input: unknown): Promise<AssetRecord> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new AssetError(400, 'INVALID_ASSET_INPUT', '解析实体资产信息无效。');
+    }
+    const value = input as Record<string, unknown>;
+    const metadata = parseAssetMetadata(value);
+    const aliases = Array.isArray(value.aliases) ? value.aliases
+      .filter((item): item is string => typeof item === 'string')
+      .map(item => item.trim()).filter(Boolean).slice(0, 32) : [];
+    const names = new Set([metadata.name, ...aliases].map(normalizeScriptCharacterName));
+    const existing = (await this.list()).find(asset => asset.kind === metadata.kind
+      && names.has(normalizeScriptCharacterName(asset.name)));
+    if (existing) return existing;
+    const record = createMetadataAssetRecord(metadata);
+    try { return await this.repository.create(record); }
+    catch (error) {
+      if (!(error instanceof AssetError) || error.code !== 'ASSET_ALREADY_EXISTS') throw error;
+      return this.get(record.id);
+    }
+  }
   private requireMedia() {
     if (!this.mediaReady) throw new AssetError(503, 'ASSET_MEDIA_MIGRATION_REQUIRED', '本地图片导入需先执行 npm run db:migrate（包含 010），然后重启后端。');
   }
@@ -37,12 +60,14 @@ export class AssetService {
     return this.repository.update({ ...existing, ...metadata });
   }
 
-  /** 重新上传图片：同一资产 ID 就地替换媒体字节，外部链接资产转为本地图片。 */
-  async replaceMedia(id: string, input: unknown): Promise<AssetRecord> {
+  /** 重新上传图片：同一资产 ID 就地替换媒体字节；服务端生成替换可同时更新说明。 */
+  async replaceMedia(id: string, input: unknown, description?: string): Promise<AssetRecord> {
     this.requireMedia();
     const existing = await this.get(id);
     const media = parseAssetMediaReplacement(input);
-    return this.repository.replaceMedia({ ...existing, resourceUrl: localAssetUrl(existing.id) }, media);
+    const metadata = description === undefined ? existing
+      : parseAssetMetadata({ kind: existing.kind, name: existing.name, description });
+    return this.repository.replaceMedia({ ...existing, ...metadata, resourceUrl: localAssetUrl(existing.id) }, media);
   }
 
   async content(id: string): Promise<AssetMedia> {

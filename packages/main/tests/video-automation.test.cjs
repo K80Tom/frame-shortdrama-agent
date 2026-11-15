@@ -539,10 +539,12 @@ test('real video adapter treats network and malformed successful-submit response
   assert.equal(queryCalls, 1);
 });
 
-test('real video adapter resolves ordered HTTPS and local assets before Seedance submission', async t => {
+test('real video adapter resolves ordered HTTPS, local assets and signed voice references before Seedance submission', async t => {
+  const reference = { artifactId: `audio_${'e'.repeat(64)}`, provider: 's3', bucket: 'voices', key: 'voice-references/project/voice.wav',
+    versionId: null, sha256: 'e'.repeat(64), sizeBytes: 44, contentType: 'audio/wav' };
   const f = await fixture(t);
   const stored = await f.stored(await f.service.create(input('video-with-references', {
-    referenceAssetIds: [REF_EXTERNAL, REF_LOCAL], generateAudio: true,
+    referenceAssetIds: [REF_EXTERNAL, REF_LOCAL], referenceAudio: [reference], generateAudio: true,
   })));
   const config = { ...readConfig({}), endpointUrl: 'https://video.example.test/v1/tasks', defaultModel: HEALTH.model,
     connectionRevision: HEALTH.connectionRevision, apiKey: 'synthetic-reference-key', authType: 'bearer' };
@@ -552,19 +554,26 @@ test('real video adapter resolves ordered HTTPS and local assets before Seedance
       ? 'https://cdn.example.test/character.png?sig=stable' : `/api/assets/${id}/content` }; },
     async content(id) { assert.equal(id, REF_LOCAL); return { mimeType: 'image/png', bytes: png() }; },
   };
+  const voiceReferences = { async sign(value) { assert.deepEqual(value, reference); return 'https://cdn.example.test/voice.wav?sig=short-lived'; } };
   const adapter = new SeedanceVideoAutomationAdapter(() => config, async (url, init) => {
     calls.push({ url, init }); return new Response(JSON.stringify({ id: 'provider_reference_task' }));
-  }, assets);
+  }, assets, voiceReferences);
   const result = await adapter.submit(stored);
-  assert.equal(result.state, 'submitted'); assert.equal(calls.length, 1);
+  assert.equal(result.state, 'submitted', JSON.stringify(result)); assert.equal(calls.length, 1);
   const request = JSON.parse(calls[0].init.body);
   const references = request.content.filter(item => item.role === 'reference_image').map(item => item.image_url.url);
   assert.equal(references[0], 'https://cdn.example.test/character.png?sig=stable');
   assert.equal(references[1], `data:image/png;base64,${png().toString('base64')}`);
+  const audioReferences = request.content.filter(item => item.role === 'reference_audio').map(item => item.audio_url.url);
+  assert.deepEqual(audioReferences, ['https://cdn.example.test/voice.wav?sig=short-lived']);
   assert.equal(request.generate_audio, true);
+  const publicView = require('../dist/video-automation/contracts').publicVideoRun({ ...stored, status: 'queued' });
+  assert.equal(publicView.referenceAudio[0].artifactId, reference.artifactId);
+  assert.equal('key' in publicView.referenceAudio[0], false); assert.equal('bucket' in publicView.referenceAudio[0], false);
+
 
   let blockedCalls = 0;
-  const disconnected = new SeedanceVideoAutomationAdapter(() => config, async () => { blockedCalls++; return new Response(); });
+  const disconnected = new SeedanceVideoAutomationAdapter(() => config, async () => { blockedCalls++; return new Response(); }, undefined, voiceReferences);
   const blocked = await disconnected.submit(stored);
   assert.equal(blocked.state, 'blocked'); assert.equal(blocked.code, 'VIDEO_REFERENCE_ASSETS_UNAVAILABLE');
   assert.equal(blockedCalls, 0);

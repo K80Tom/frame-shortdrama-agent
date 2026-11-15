@@ -5,12 +5,16 @@ import type { ExtractFactsStageRunner } from '../breakdown/execution';
 import { BreakdownError, PaidModelExecutionError } from '../breakdown/errors';
 import { describePlanCheckFailure, type PlanCheckRecord } from '../breakdown/quality';
 import type { PlanRevisionRecord } from '../breakdown/plan';
-import type { StoryboardRevision, StoryboardService } from '../breakdown/storyboard';
+import type { StoryboardRevision, StoryboardService, StoryboardShot } from '../breakdown/storyboard';
+import { retainedStoryboardSceneIds } from '../breakdown/storyboard';
 import { ProductionMediaError, type LocalVideoObject } from '../production-media/contracts';
 import type { ProductionMediaIngestor } from '../production-media/ingestor';
 import type { VideoAutomationService } from '../video-automation/service';
 import { VideoAutomationError } from '../video-automation/contracts';
-import { canonicalDigest, type FrozenProductionInput, type ProductionReviewInput, type ProductionTask, type StoredProductionRun } from '@lyra/shared';
+import { VoiceReferenceError, type VoiceReferenceService } from '../voice-references/service';
+import { buildStoryboardVideoBasePrompt, canonicalDigest, storyboardDialogueTimingIssue, storyboardNarrativeBeats,
+  storyboardSceneAtmosphere, type FrozenProductionInput, type ProductionReviewInput, type ProductionTask, type StoredProductionRun,
+  type StoryboardVideoReference, type StoryboardVoiceBinding } from '@lyra/shared';
 import { requireFrozenExecutionInput } from './frozen-execution-input';
 import type {
   PreparedProductionExecution, ProductionExecutionContext, ProductionExecutor, ProductionExecutorOutcome, SpawnTaskDraft,
@@ -19,8 +23,10 @@ import type {
 export interface RuntimeOptions { estimateCostMicros: number }
 export interface VideoRuntimeOptions extends RuntimeOptions {
   mediaIngestor: Pick<ProductionMediaIngestor, 'ingestProviderUrl'>;
+  voiceReferences?: Pick<VoiceReferenceService, 'authorize'>;
 }
-interface VideoReferenceAssets { state: 'ready'; assetIds: string[]; promptLines: string[] }
+interface VideoReferenceAssets { state: 'ready'; assetIds: string[]; references: StoryboardVideoReference[] }
+interface VideoVoiceReferences { state: 'ready'; bindings: StoryboardVoiceBinding[] }
 interface VideoDirectorConstraint { state: 'ready'; artifactId: string | null; promptLines: string[] }
 interface VideoRepairRequirements { artifactId: string | null; repairRound: number | null; promptLines: string[] }
 function validEstimate(value: number) {
@@ -35,7 +41,8 @@ function metadataArtifact(run: StoredProductionRun, task: ProductionTask, key: s
   return run.artifacts.find(item => item.taskId === task.id && item.status === 'current' && item.metadata.key === key) ?? null;
 }
 function safeFailure(error: unknown, fallbackCode: string, fallbackMessage: string) {
-  if ((error instanceof BreakdownError || error instanceof VideoAutomationError || error instanceof ProductionMediaError)
+  if ((error instanceof BreakdownError || error instanceof VideoAutomationError || error instanceof ProductionMediaError
+    || error instanceof VoiceReferenceError)
     && typeof error.code === 'string' && typeof error.message === 'string') {
     return { state: 'failed' as const, code: error.code, message: error.message, retryable: false };
   }
@@ -186,6 +193,14 @@ export class BreakdownProductionExecutor implements ProductionExecutor {
   }
 }
 
+async function assertRetainedStoryboard(breakdown: BreakdownServicePort, projectId: string,
+  plan: PlanRevisionRecord, board: StoryboardRevision): Promise<void> {
+  const retained = await retainedStoryboardSceneIds(breakdown, projectId, plan);
+  if (board.shots.some(shot => !retained.has(shot.sceneId))) {
+    throw new Error('The adopted storyboard still contains a deleted episode. Save and adopt the pruned revision first.');
+  }
+}
+
 export class StoryboardProductionExecutor implements ProductionExecutor {
   readonly stage = 'storyboard' as const;
   readonly frozenInputVersion = 1 as const;
@@ -198,10 +213,19 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
       return prepared('storyboard-frozen',{snapshotDigest:input.snapshot.snapshotDigest,shots:input.snapshot.shots},0,false,'local');
     }
     const project = await this.breakdown.getProject(run.projectId);
-    if (!project.activePlanRevisionId || project.currentScriptVersionId !== run.scriptVersionId) throw new Error('Current adopted plan is required.');
+    if (!project.activePlanRevisionId) throw new Error('Current adopted plan is required.');
+    const activePlan = await this.breakdown.getPlanRevision(project.activePlanRevisionId);
+    if (activePlan.scriptVersionId !== run.scriptVersionId) throw new Error('The selected storyboard script does not match the adopted plan.');
     let alreadyAdopted = false;
-    if (project.activeStoryboardRevisionId) {
+    if (run.storyboardRevisionId) {
+      const board = await this.storyboards.get(run.storyboardRevisionId);
+      await assertRetainedStoryboard(this.breakdown, run.projectId, activePlan, board);
+      alreadyAdopted = project.activeStoryboardRevisionId === board.id && board.scriptVersionId === run.scriptVersionId
+        && board.sourcePlanRevisionId === project.activePlanRevisionId;
+      if (!alreadyAdopted) throw new Error('The selected storyboard is no longer adopted for this script and plan.');
+    } else if (project.activeStoryboardRevisionId) {
       const board = await this.storyboards.get(project.activeStoryboardRevisionId);
+      await assertRetainedStoryboard(this.breakdown, run.projectId, activePlan, board);
       alreadyAdopted = board.scriptVersionId === run.scriptVersionId && board.sourcePlanRevisionId === project.activePlanRevisionId;
     }
     return prepared('storyboard', { projectId: run.projectId, scriptVersionId: run.scriptVersionId,
@@ -221,8 +245,25 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
     const { run } = context;
     try {
       const project = await this.breakdown.getProject(run.projectId);
+      if (run.storyboardRevisionId) {
+        if (project.activeStoryboardRevisionId !== run.storyboardRevisionId) {
+          return { state: 'blocked', issue: { code: 'PRODUCTION_STORYBOARD_NOT_ADOPTED', title: '指定分镜尚未采用',
+            message: '当前采用版本已变化，本次运行不会改生成或自动采用另一套分镜。', severity: 'error' } };
+        }
+        const selected = await this.storyboards.get(run.storyboardRevisionId);
+        const activePlan = await this.breakdown.getPlanRevision(project.activePlanRevisionId!);
+        await assertRetainedStoryboard(this.breakdown, run.projectId, activePlan, selected);
+        if (selected.scriptVersionId !== run.scriptVersionId || selected.sourcePlanRevisionId !== project.activePlanRevisionId
+          || (run.shotId && !selected.shots.some(shot => shot.id === run.shotId))) {
+          return { state: 'blocked', issue: { code: 'PRODUCTION_STORYBOARD_MISMATCH', title: '分镜制作范围不匹配',
+            message: '指定分镜与当前剧本、事实计划或镜头不一致，请回到分镜工作台重新选择。', severity: 'error' } };
+        }
+        return this.adopted(run, selected, 0);
+      }
       if (project.activeStoryboardRevisionId) {
         const active = await this.storyboards.get(project.activeStoryboardRevisionId);
+        const activePlan = await this.breakdown.getPlanRevision(project.activePlanRevisionId!);
+        await assertRetainedStoryboard(this.breakdown, run.projectId, activePlan, active);
         if (active.scriptVersionId === run.scriptVersionId && active.sourcePlanRevisionId === project.activePlanRevisionId) {
           return this.adopted(run, active, 0);
         }
@@ -253,24 +294,26 @@ export class StoryboardProductionExecutor implements ProductionExecutor {
     await this.storyboards.adopt(run.projectId, revisionId, expected as string | null);
   }
   private adopted(run: StoredProductionRun, board: StoryboardRevision, actualCostMicros = 0): ProductionExecutorOutcome {
-    return { state: 'succeeded', artifacts: [this.artifact(board, true)], spawnTasks: this.shotTasks(run, board.shots),
-      qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/2',
-        summary: '镜号、引用、对白覆盖和顺序检查已通过' }], actualCostMicros };
+    const shots = run.shotId ? board.shots.filter(shot => shot.id === run.shotId) : board.shots;
+    return { state: 'succeeded', artifacts: [this.artifact(board, true, shots)], spawnTasks: this.shotTasks(run, shots),
+      qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/3',
+        summary: run.shotId ? '已冻结当前采用分镜，仅展开指定镜头' : '已冻结当前采用分镜，展开全部镜头' }], actualCostMicros };
   }
   private reviewable(run: StoredProductionRun, board: StoryboardRevision, expected: string | null,
     actualCostMicros: number): ProductionExecutorOutcome {
     return { state: 'waitingHuman', artifacts: [{ ...this.artifact(board, false),
       metadata: { ...this.artifact(board, false).metadata, expectedActiveStoryboardRevisionId: expected } }],
     actualCostMicros,
-    qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/2',
+    qualityChecks: [{ level: 'episode', result: 'pass', ruleVersion: 'storyboard-validator/3',
       summary: '镜号、引用、对白覆盖和顺序检查已通过' }], spawnTasks: this.shotTasks(run, board.shots),
     issue: { code: 'CHECKPOINT_REVIEW_REQUIRED', title: '请确认分镜方案',
       message: `${board.shots.length} 个镜头已形成候选，采用后才会推进各镜头生产。`, severity: 'info' } };
   }
-  private artifact(board: StoryboardRevision, adopted: boolean) {
+  private artifact(board: StoryboardRevision, adopted: boolean,
+    shots: ReadonlyArray<StoryboardRevision['shots'][number]> = board.shots) {
     return { key: 'storyboard', kind: 'text' as const, title: adopted ? '已采用的分镜' : '分镜候选', metadata: {
       storyboardRevisionId: board.id, scriptVersionId: board.scriptVersionId, sourcePlanRevisionId: board.sourcePlanRevisionId,
-      adopted, shotCount: board.shots.length, shots: board.shots.map(shot => ({ id: shot.id, sceneId: shot.sceneId,
+      adopted, shotCount: shots.length, shots: shots.map(shot => ({ id: shot.id, sceneId: shot.sceneId,
         order: shot.order, durationMs: shot.design.durationMs, shotSize: shot.design.shotSize,
         cameraMovement: shot.design.cameraMovement, visualDescription: shot.design.visualDescription })) } };
   }
@@ -327,12 +370,24 @@ export class VideoProductionExecutor implements ProductionExecutor {
       code: director.code }, 0, false, 'local');
     const repair = this.repairRequirements(run as StoredProductionRun, task as ProductionTask);
     const { board, shot } = await this.shotContext({ run, task });
+    const controlledReferences = this.controlledReferences(shot, references);
+    const plan = shot.dialogueIds.length || shot.voiceBindings?.length
+      ? await this.breakdown.getPlanRevision(board.sourcePlanRevisionId) : null;
+    const dialogueIds = new Set(shot.dialogueIds);
+    const dialogues = plan?.content.dialogues.filter(line => dialogueIds.has(line.id))
+      .map(line => ({ quote: line.sourceRef.quote })) ?? [];
+    const timingIssue = storyboardDialogueTimingIssue(shot.design.durationMs, dialogues);
+    if (timingIssue) return prepared('video-dialogue-blocked', { runId: run.id, taskId: task.id,
+      code: 'STORYBOARD_DIALOGUE_DURATION_SHORT', message: timingIssue }, 0, false, 'local');
+    const voices = this.voiceReferences(shot, plan, run.projectId);
+    if (voices.state === 'blocked') return prepared('video-voice-blocked', { runId: run.id, taskId: task.id,
+      code: voices.code }, 0, false, 'local');
     const status = await this.videos.status();
     if (!status.available || !status.connectionRevision) throw new Error('Video capability is unavailable.');
-    if (status.busy) return { ...prepared('video-deferred', this.videoPreparation(run, task, board.id, shot, references,
-      director, repair, status.connectionRevision), 0, false, 'local'),
+    if (status.busy) return { ...prepared('video-deferred', this.videoPreparation(run, task, board.id, shot, controlledReferences,
+      voices, director, repair, status.connectionRevision), 0, false, 'local'),
     defer: { code: 'VIDEO_AUTOMATION_BUSY', message: '本机视频生成通道正在处理另一个镜头，将保留任务并稍后再试。' } };
-    return prepared('video', this.videoPreparation(run, task, board.id, shot, references, director, repair,
+    return prepared('video', this.videoPreparation(run, task, board.id, shot, controlledReferences, voices, director, repair,
       status.connectionRevision),
       this.options.estimateCostMicros, true, 'configured-video-model');
   }
@@ -362,6 +417,10 @@ export class VideoProductionExecutor implements ProductionExecutor {
       const run = await this.videos.create(request);
       return await this.videoOutcome(run, context);
     } catch (error) {
+      if (error instanceof BreakdownError && error.code === 'STORYBOARD_DIALOGUE_DURATION_SHORT') {
+        return { state: 'blocked', actualCostMicros: 0, issue: { code: error.code, title: '对白超出当前镜头时长',
+          message: error.message, severity: 'error', recommendedActions: ['增加镜头时长或拆分到其他镜头后局部重试'] } };
+      }
       if (error instanceof MethodReferenceSpaceError) return { state: 'blocked', actualCostMicros: 0,
         issue: { code: 'PROMPT_PACK_INPUT_LIMIT', title: '镜头提示词过长', message: error.message, severity: 'error' } };
       return safeFailure(error, 'VIDEO_TASK_CREATE_FAILED', '镜头视频任务创建失败，未自动重试。');
@@ -376,34 +435,80 @@ export class VideoProductionExecutor implements ProductionExecutor {
       return await this.videoOutcome(run, context);
     } catch (error) { return safeFailure(error, 'VIDEO_RECONCILIATION_FAILED', '无法确认原视频任务状态，未重新提交。'); }
   }
+  private controlledReferences(shot: StoryboardShot, references: VideoReferenceAssets): VideoReferenceAssets {
+    const frameAssetIds = new Set([shot.firstFrameAssetId, shot.lastFrameAssetId].filter((assetId): assetId is string => Boolean(assetId)));
+    if (!frameAssetIds.size) return references;
+    const keptIndexes = references.assetIds.map((assetId, index) => frameAssetIds.has(assetId) ? -1 : index).filter(index => index >= 0);
+    return { state: 'ready', assetIds: keptIndexes.map(index => references.assetIds[index]!),
+      references: keptIndexes.map(index => references.references[index]!) };
+  }
   private async videoRequest(context: ProductionExecutionContext,
     references: VideoReferenceAssets, director: VideoDirectorConstraint, repair: VideoRepairRequirements) {
     const { run, task } = context; if (task.scope.kind !== 'shot') throw new Error('Shot scope required.');
     const { board, shot } = await this.shotContext(context);
+    const controlledReferences = this.controlledReferences(shot, references);
+    const dialogueIds = new Set(shot.dialogueIds);
+    const plan = await this.breakdown.getPlanRevision(board.sourcePlanRevisionId);
+    const scene = plan.content.scenes.find(item => item.id === shot.sceneId);
+    const narrativeBeatIds = new Set(shot.narrativeBeatIds ?? []);
+    const sceneBeats = scene ? storyboardNarrativeBeats([scene]) : [];
+    const narrativeBeats = sceneBeats.filter(beat => narrativeBeatIds.has(beat.id));
+    const narrativeExclusions = sceneBeats.filter(beat => beat.kind === 'narration').map(beat => beat.text);
+    const atmosphere = storyboardSceneAtmosphere(scene);
+    const dialogues = plan.content.dialogues.filter(line => dialogueIds.has(line.id)).map(line => ({
+      speaker: plan.content.characters.find(character => character.id === line.speakerId)?.name.value ?? null,
+      quote: line.sourceRef.quote }));
+    const timingIssue = storyboardDialogueTimingIssue(shot.design.durationMs, dialogues);
+    if (timingIssue) throw new BreakdownError(422, 'STORYBOARD_DIALOGUE_DURATION_SHORT', timingIssue);
+    const voices = this.voiceReferences(shot, plan, run.projectId);
+    if (voices.state === 'blocked') throw new VoiceReferenceError(422, voices.code, voices.message);
     const status = await this.videos.status();
     if (!status.available || !status.connectionRevision) throw new Error('Video model unavailable.');
-    if (canonicalDigest(this.videoPreparation(run, task, board.id, shot, references, director, repair,
+    if (canonicalDigest(this.videoPreparation(run, task, board.id, shot, controlledReferences, voices, director, repair,
       status.connectionRevision)) !== context.inputDigest) {
       throw new Error('Video inputs changed after durable preparation.');
     }
-    const coordinates = this.candidateCoordinates(task);
-    const candidateDirections = ['保持表演克制、人物一致和镜头稳定', '在不改变构图关系的前提下增强运镜节奏',
-      '在不改变实体设定的前提下增强光影层次', '保持连续性并强化叙事节奏'];
-    const basePrompt = [run.visualStyle, shot.design.visualDescription, `景别：${shot.design.shotSize}`,
-      `运镜：${shot.design.cameraMovement}`, '参考图片对应关系（按传入顺序）：', ...references.promptLines,
-      '严格按照图片序号对应的已确认实体，保持人物、场景、服装和道具一致，不得互换身份。',
-      `候选创作方向 ${coordinates.candidateIndex + 1}：${candidateDirections[coordinates.candidateIndex % candidateDirections.length]}`,
-      ...director.promptLines, ...repair.promptLines].join('\n');
+    const voiceBindings = voices.bindings.map(binding => ({ speakerName: plan?.content.characters
+      .find(character => character.id === binding.speakerEntityId)?.name.value ?? '', profileId: binding.profile.id }));
+    const basePrompt = buildStoryboardVideoBasePrompt({ visualStyle: run.visualStyle, shot, dialogues,
+      narrativeBeats, narrativeExclusions, atmosphere, references: controlledReferences.references, voiceBindings,
+      directorPromptLines: director.promptLines, repairPromptLines: repair.promptLines });
     const prompt = basePrompt + runMethodReference(run, 'video', Math.min(4000, 8000 - basePrompt.length));
     return { prompt, ratio: run.ratio, duration: Math.max(4, Math.min(30, Math.ceil(shot.design.durationMs / 1000))),
       resolution: run.qualityPreset === 'fast' ? '720p' as const : '1080p' as const,
-      // Video-provider audio is a temporary scratch track, never the formal voice
-      // deliverable. The independent voice graph owns formal dialogue/mix/subtitles.
-      generateAudio: false,
-      referenceAssetIds: references.assetIds,
+      // 原生音轨只在本镜头存在已授权参考音色时开启；正式混音与字幕仍由独立声音链负责。
+      generateAudio: voices.bindings.length > 0,
+      referenceAssetIds: controlledReferences.assetIds,
+      ...(voices.bindings.length ? { referenceAudio: voices.bindings.map(binding => binding.reference) } : {}),
+      ...(shot.firstFrameAssetId ? { firstFrameAssetId: shot.firstFrameAssetId } : {}),
+      ...(shot.lastFrameAssetId ? { lastFrameAssetId: shot.lastFrameAssetId } : {}),
       clientRequestId: `prod_${context.operationKey ?? canonicalDigest({ runId: run.id, taskId: task.id })}`.slice(0, 100),
       expectedModelConnectionRevision: status.connectionRevision, allowPaid: true as const };
   }
+  private voiceReferences(shot: StoryboardShot, plan: PlanRevisionRecord | null, projectId: string): VideoVoiceReferences
+    | { state: 'blocked'; code: string; message: string } {
+    const bindings = shot.voiceBindings ?? [];
+    if (!bindings.length) return { state: 'ready', bindings: [] };
+    if (!plan || !this.options.voiceReferences) return { state: 'blocked', code: 'VOICE_AUTHORIZATION_UNAVAILABLE',
+      message: '当前制作运行时未连接音色授权服务，未发起生视频。' };
+    const speakerOrder = new Map<string, number>();
+    for (const dialogueId of shot.dialogueIds) {
+      const speakerId = plan.content.dialogues.find(line => line.id === dialogueId)?.speakerId;
+      if (speakerId && !speakerOrder.has(speakerId)) speakerOrder.set(speakerId, speakerOrder.size);
+    }
+    const seen = new Set<string>();
+    for (const binding of bindings) {
+      if (!speakerOrder.has(binding.speakerEntityId) || seen.has(binding.speakerEntityId)
+        || !plan.content.characters.some(character => character.id === binding.speakerEntityId)) {
+        return { state: 'blocked', code: 'STORYBOARD_VOICE_INVALID', message: '音色绑定必须唯一并对应该镜头有对白的人物。' };
+      }
+      seen.add(binding.speakerEntityId);
+      this.options.voiceReferences.authorize(binding, projectId);
+    }
+    return { state: 'ready', bindings: [...bindings].sort((left, right) =>
+      speakerOrder.get(left.speakerEntityId)! - speakerOrder.get(right.speakerEntityId)!) };
+  }
+
   private async videoOutcome(video: PublicVideoRun, context: ProductionExecutionContext): Promise<ProductionExecutorOutcome> {
     if (video.status === 'completed' && video.result?.videoUrl) {
       const { board, shot } = await this.shotContext(context);
@@ -536,12 +641,27 @@ export class VideoProductionExecutor implements ProductionExecutor {
   }
 
   private videoPreparation(run: Readonly<StoredProductionRun>, task: Readonly<ProductionTask>, storyboardRevisionId: string,
-    shot: StoryboardRevision['shots'][number], references: VideoReferenceAssets, director: VideoDirectorConstraint,
+    shot: StoryboardRevision['shots'][number], references: VideoReferenceAssets, voices: VideoVoiceReferences,
+    director: VideoDirectorConstraint,
     repair: VideoRepairRequirements, connectionRevision: string) {
     return { runId: run.id, taskId: task.id, shotId: task.scope.id, scriptVersionId: run.scriptVersionId,
       storyboardRevisionId, shotDesign: { visualDescription: shot.design.visualDescription, shotSize: shot.design.shotSize,
-        cameraMovement: shot.design.cameraMovement, durationMs: shot.design.durationMs },
-      referenceAssetIds: [...references.assetIds], referencePromptLines: [...references.promptLines],
+        cameraMovement: shot.design.cameraMovement, durationMs: shot.design.durationMs,
+        ...(shot.design.cameraAngle?.trim() ? { cameraAngle: shot.design.cameraAngle.trim() } : {}),
+        ...(shot.design.sound?.trim() ? { sound: shot.design.sound.trim() } : {}),
+        ...(shot.design.visualBeats?.length ? { visualBeats: shot.design.visualBeats.map(beat => beat.trim()) } : {}),
+        ...(shot.design.atmosphere?.trim() ? { atmosphere: shot.design.atmosphere.trim() } : {}),
+        ...(shot.design.timeline ? { timeline: true } : {}),
+        dialogueIds: [...shot.dialogueIds], narrativeBeatIds: [...shot.narrativeBeatIds ?? []] },
+      referenceAssetIds: [...references.assetIds], references: references.references.map(reference => ({ assetId: reference.assetId,
+        names: [...reference.names] })),
+      referenceAudio: voices.bindings.map(binding => binding.reference),
+      voiceProfiles: voices.bindings.map(binding => ({ speakerEntityId: binding.speakerEntityId,
+        profileId: binding.profile.id, contentDigest: binding.profile.contentDigest,
+        validUntil: binding.profile.authorization.validUntil, revokedAt: binding.profile.authorization.revokedAt })),
+      ...(shot.firstFrameAssetId || shot.lastFrameAssetId ? {
+        firstFrameAssetId: shot.firstFrameAssetId ?? null, lastFrameAssetId: shot.lastFrameAssetId ?? null,
+      } : {}),
       directorSceneArtifactId: director.artifactId, directorPromptLines: [...director.promptLines],
       repairReportArtifactId: repair.artifactId, repairRound: repair.repairRound, repairPromptLines: [...repair.promptLines],
       ...(run.methodProfile ? { methodManifestDigest: run.methodProfile.manifestDigest,
@@ -582,7 +702,8 @@ export class VideoProductionExecutor implements ProductionExecutor {
       message: '该镜头引用超过 30 张参考图片，请先缩小资产范围。' };
     const assetIds = [...grouped.keys()];
     return { state: 'ready', assetIds,
-      promptLines: assetIds.map((id, index) => `图片${index + 1}：${grouped.get(id)!.join('、')}`) };
+      references: assetIds.map(id => ({ assetId: id,
+        names: grouped.get(id)!.map(label => label.replace(/^[^「]*「|」$/gu, '')) })) };
   }
 
   private directorConstraint(run: StoredProductionRun, task: ProductionTask): VideoDirectorConstraint

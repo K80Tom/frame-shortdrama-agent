@@ -31,17 +31,21 @@ export function compileProductionRun(input: CreateProductionRun, now: string, id
   const requestDigest = canonicalDigest(input);
   const taskIds = Object.fromEntries(productionStageOrder.map(stage => [stage, productionId('ptask')])) as Record<ProductionStage, string>;
   const tasks: ProductionTask[] = productionStageOrder.map((stage, index) => {
+    const assetsOnly = input.mediaScope === 'assets';
+    const outsideAssetScope = assetsOnly && stage !== 'prepare' && stage !== 'assets';
     const skippedDirector = stage === 'director' && input.directorPolicy === 'never';
     const skippedCandidates = stage === 'candidates' && input.candidatePolicy === 'direct';
+    const skipped = outsideAssetScope || skippedDirector || skippedCandidates;
     return {
       id: taskIds[stage], runId: id, stage, label: productionStageLabels[stage], scope: { kind: 'episode', id: null },
-      status: skippedDirector || skippedCandidates ? 'skipped' : index === 0 ? 'ready' : 'pending',
+      status: skipped ? 'skipped' : index === 0 ? 'ready' : 'pending',
       dependencies: index === 0 ? []
         : stage === 'video' && input.directorPolicy === 'never' ? [taskIds.storyboard, taskIds.director]
         : stage === 'review' && input.candidatePolicy === 'direct' ? [taskIds.video]
         : [taskIds[productionStageOrder[index - 1]!]],
       attemptCount: 0, maxAttempts: stage === 'prepare' ? 1 : maxAttempts(input), version: 0,
-      blockingReason: skippedDirector ? { code: 'DIRECTOR_POLICY_DISABLED', message: '本次运行已选择不使用 3D 预演。' }
+      blockingReason: outsideAssetScope ? { code: 'MEDIA_SCOPE_ASSETS_ONLY', message: '本次仅匹配并生成图片资产，不进入分镜、视频或成片阶段。' }
+        : skippedDirector ? { code: 'DIRECTOR_POLICY_DISABLED', message: '本次运行已选择不使用 3D 预演。' }
         : skippedCandidates ? { code: 'CANDIDATE_POLICY_DISABLED', message: '本次运行选择了直出版：每镜直接生成 1 条视频，跳过候选抽卡与选优。' } : null,
       inputManifest: [
         { kind: 'script', id: input.scriptVersionId, revisionId: input.scriptVersionId, digest: requestDigest },

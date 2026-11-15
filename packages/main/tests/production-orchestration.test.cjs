@@ -31,6 +31,7 @@ async function make(options = {}) {
   let time = 0;
   const service = new ProductionService(repo, { pollIntervalMs: 60_000,
     now: () => new Date(Date.UTC(2026, 9, 23, 12, 0, time++)), executors: options.executors ?? [],
+    sourceCatalog: options.sourceCatalog, storyboards: options.storyboards,
     diagnosticSink: options.diagnosticSink, runInTenantScope: options.runInTenantScope });
   return { repo, service };
 }
@@ -67,6 +68,27 @@ test('creation freezes policy, compiles the complete DAG, and deduplicates the c
   assert.ok(first.tasks.slice(1).every(task => task.status === 'pending'));
   assert.equal(first.summary.tasks.total, 10);
   await assert.rejects(service.create(input({ visualStyle: '另一种风格' })), error => error.code === 'PRODUCTION_REQUEST_REUSED');
+});
+
+test('current storyboard creation requires an exact adopted revision and binds shot idempotency', async () => {
+  const board = { id: 'storyboard_0123456789abcdef0123456789abcdef', projectId: input().projectId,
+    scriptVersionId: input().scriptVersionId, shots: [{ id: 'shot_one' }, { id: 'shot_two' }] };
+  const project = { activeStoryboardRevisionId: board.id };
+  const { repo, service } = await make({ sourceCatalog: { async getProject() { return project; }, async getScriptVersion() { return {}; } },
+    storyboards: { async get(id) { assert.equal(id, board.id); return board; } } });
+  const created = await service.create(input({ storyboardRevisionId: board.id, shotId: 'shot_two', targetDurationSec: 4,
+    clientRequestId: 'selected-shot-production' }));
+  assert.equal(created.storyboardRevisionId, board.id); assert.equal(created.shotId, 'shot_two'); assert.equal(created.targetDurationSec, 4);
+  assert.equal((await service.create(input({ storyboardRevisionId: board.id, shotId: 'shot_two', targetDurationSec: 4,
+    clientRequestId: 'selected-shot-production' }))).id, created.id);
+  await assert.rejects(service.create(input({ storyboardRevisionId: board.id, shotId: 'shot_one', targetDurationSec: 4,
+    clientRequestId: 'selected-shot-production' })), error => error.code === 'PRODUCTION_REQUEST_REUSED');
+  await assert.rejects(service.create(input({ storyboardRevisionId: board.id, shotId: 'shot_missing', targetDurationSec: 4,
+    clientRequestId: 'missing-shot-production' })), error => error.code === 'PRODUCTION_SHOT_NOT_FOUND');
+  project.activeStoryboardRevisionId = null;
+  await assert.rejects(service.create(input({ storyboardRevisionId: board.id, targetDurationSec: 90,
+    clientRequestId: 'unadopted-storyboard-production' })), error => error.code === 'PRODUCTION_STORYBOARD_NOT_ADOPTED');
+  assert.equal((await repo.list()).length, 1);
 });
 
 test('the built-in preflight is real while an unavailable capability stops honestly', async () => {

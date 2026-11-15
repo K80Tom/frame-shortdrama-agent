@@ -45,9 +45,10 @@ export function AssetRecordDetails({ asset, onEdit, previewNonce = 0 }: { asset:
   return <div className="alib-detail">
     {preview && <img className="alib-image-preview" src={`${preview}?v=${previewNonce}`} alt={`${asset.name}预览`} />}
     <div className="alib-detail-summary"><span className="alib-detail-icon" aria-hidden="true"><ImageIcon size={31} strokeWidth={1.2} /></span><div><span className="alib-detail-kind">{assetKindLabels[asset.kind]}</span><h3>{asset.name}</h3></div></div>
-    <dl className="alib-detail-fields"><div><dt>素材说明</dt><dd className="alib-description">{asset.description || '未填写说明'}</dd></div><div><dt>资产 ID</dt><dd><code>{asset.id}</code></dd></div><div><dt>登记时间</dt><dd>{formatDate(asset.createdAt, true)} · 北京时间</dd></div><div><dt>素材链接</dt><dd className="alib-resource-url">{asset.resourceUrl}</dd></div></dl>
+    <dl className="alib-detail-fields"><div><dt>素材说明</dt><dd className="alib-description">{asset.description || '未填写说明'}</dd></div><div><dt>资产 ID</dt><dd><code>{asset.id}</code></dd></div><div><dt>登记时间</dt><dd>{formatDate(asset.createdAt, true)} · 北京时间</dd></div><div><dt>素材链接</dt><dd className="alib-resource-url">{asset.resourceUrl || '待补素材（由剧本解析创建）'}</dd></div></dl>
     <p className="alib-detail-note">登记记录未自动质检。打开素材后，请人工确认内容与适用性。</p>
-    {link ? <a className="alib-open-link" href={link} target="_blank" rel="noreferrer noopener">打开已登记素材 <ArrowUpRight size={14} /></a> : <p className="alib-form-errors" role="alert">素材链接无效，请勿使用。</p>}
+    {!asset.resourceUrl ? <p className="alib-detail-note">这是剧本解析创建的元数据实体，尚未登记图片素材；可重新上传图片，不会自动生成定妆。</p>
+      : link ? <a className="alib-open-link" href={link} target="_blank" rel="noreferrer noopener">打开已登记素材 <ArrowUpRight size={14} /></a> : <p className="alib-form-errors" role="alert">素材链接无效，请勿使用。</p>}
     {preview && <a className="alib-download-link" href={`${preview}?download=1`} download>下载本地原图</a>}
     {onEdit && <button type="button" className="alib-secondary" onClick={onEdit}>编辑说明 / 重新上传图片</button>}
   </div>;

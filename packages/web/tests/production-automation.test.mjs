@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { createServer } from 'vite';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
@@ -35,6 +37,65 @@ test('create body freezes the production policy and omits the UI-only yuan field
   assert.deepEqual(Object.keys(body).sort(), ['allowPaid', 'automationMode', 'budgetMicros', 'candidateLimit', 'candidatePolicy', 'clientRequestId', 'currency', 'directorPolicy', 'projectId', 'qualityPreset', 'ratio', 'scriptVersionId', 'targetDurationSec', 'visualStyle'].sort());
 });
 
+test('asset generation body is isolated from storyboard and video spend while retaining optional shot scope', () => {
+  const body = production.assetProductionCreateBody({ ...production.defaultProductionForm,
+    projectId: 'project_demo', scriptVersionId: 'script_demo', storyboardRevisionId: 'storyboard_demo', shotId: 'shot_demo', targetDurationSec: 5, budgetYuan: 20 }, 'client_assets_1');
+  assert.equal(body.mediaScope, 'assets');
+  assert.equal(body.automationMode, 'auto');
+  assert.equal(body.directorPolicy, 'never');
+  assert.equal(body.candidatePolicy, 'direct');
+  assert.equal(body.candidateLimit, 1);
+  assert.equal(body.storyboardRevisionId, 'storyboard_demo');
+  assert.equal(body.shotId, 'shot_demo');
+  assert.equal(body.budgetMicros, 20_000_000);
+  const value = snapshot(); value.mediaScope = 'assets';
+  assert.equal(production.parseProductionRun(value).mediaScope, 'assets');
+});
+
+test('media confirmation is simple and honestly blocks an unconfigured provider', async () => {
+  const { MediaGenerationDialog } = await server.ssrLoadModule('/src/media-generation.tsx');
+  const html = renderToStaticMarkup(createElement(MediaGenerationDialog, { open: true, kind: 'video', title: '生成镜 1 视频',
+    description: '使用当前正式分镜。', facts: [{ label: '生成范围', value: '仅镜 1' }], model: { configured: false, model: '' },
+    busy: false, onClose() {}, onConfirm() {} }));
+  assert.match(html, /本次预算上限/); assert.match(html, /授权本次真实模型调用/);
+  assert.match(html, /当前视频模型尚未配置/); assert.match(html, /去配置/);
+  assert.doesNotMatch(html, /candidatePolicy|directorPolicy|3D 预演|抽卡次数/);
+});
+
+test('storyboard production body carries the exact adopted revision and optional shot without UI labels', () => {
+  const body = production.productionCreateBody({ ...production.defaultProductionForm,
+    projectId: 'project_demo', scriptVersionId: 'script_demo', storyboardRevisionId: 'storyboard_demo',
+    shotId: 'shot_demo', sourceLabel: '单镜制作 · 镜 1', targetDurationSec: 5 }, 'client_shot_1');
+  assert.equal(body.storyboardRevisionId, 'storyboard_demo');
+  assert.equal(body.shotId, 'shot_demo');
+  assert.equal(body.targetDurationSec, 5);
+  assert.equal('sourceLabel' in body, false);
+  assert.equal(production.validateProductionForm({ ...production.defaultProductionForm,
+    projectId: 'project_demo', scriptVersionId: 'script_demo', storyboardRevisionId: 'storyboard_demo', shotId: 'shot_demo', targetDurationSec: 5 }), '');
+  assert.match(production.validateProductionForm({ ...production.defaultProductionForm,
+    projectId: 'project_demo', scriptVersionId: 'script_demo', targetDurationSec: 5 }), /15–900/);
+});
+
+test('storyboard intent opens the locked single-shot create view even when run history exists', async () => {
+  const previous = globalThis.window;
+  const intent = { projectId: 'project_demo', scriptVersionId: 'script_demo', storyboardRevisionId: 'storyboard_demo',
+    shotId: 'shot_demo', targetDurationSec: 5, sourceLabel: '单镜制作 · 镜 1' };
+  globalThis.window = { sessionStorage: { getItem: key => key === 'lyra:storyboard-production-intent:v1' ? JSON.stringify(intent) : null,
+    removeItem() {}, setItem() {} } };
+  try {
+    const { default: Page } = await server.ssrLoadModule('/src/ProductionAutomationPage.tsx');
+    const html = renderToStaticMarkup(createElement(Page, { initialProjectId: 'project_demo' }));
+    assert.match(html, /创建单镜视频制作/); assert.match(html, /单镜制作 · 镜 1/);
+    assert.match(html, /aria-label="单镜目标时长"[^>]*value="5"/);
+    assert.match(html, /aria-label="自动制作项目"[^>]*disabled/);
+    assert.match(html, /aria-label="自动制作剧本版本"[^>]*disabled/);
+    assert.match(html, /正在准备…/);
+    assert.match(html, /人物参考、首尾帧和正式视频提示词由服务端从当前采用分镜读取/);
+  } finally {
+    if (previous === undefined) delete globalThis.window; else globalThis.window = previous;
+  }
+});
+
 test('run overview preserves the frame estimate within spent and accepts older summaries', () => {
   const old = snapshot();
   assert.equal(production.parseProductionRun(old).summary.budget.frameAssessmentEstimateMicros, 0);
@@ -52,7 +113,10 @@ test('gacha flow keeps multiple candidates in the create body', () => {
 });
 
 test('public production snapshot preserves server counts, attention and durable provenance', () => {
-  const run = production.parseProductionRun(snapshot());
+  const value = snapshot(); value.storyboardRevisionId = 'storyboard_demo'; value.shotId = 'shot_demo';
+  const run = production.parseProductionRun(value);
+  assert.equal(run.storyboardRevisionId, 'storyboard_demo');
+  assert.equal(run.shotId, 'shot_demo');
   assert.equal(run.status, 'waitingHuman');
   assert.equal(run.candidatePolicy, 'gacha');
   assert.equal(run.summary.tasks.completed, 1);
