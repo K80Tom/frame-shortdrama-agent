@@ -9,7 +9,7 @@ after(() => server.close());
 
 const logic = await server.ssrLoadModule('/src/script/workbench-logic.ts');
 const { EpisodeTree } = await server.ssrLoadModule('/src/script/EpisodeTree.tsx');
-const { SceneCardList } = await server.ssrLoadModule('/src/script/SceneCardList.tsx');
+const { SceneCardList, parseCharacterRoster } = await server.ssrLoadModule('/src/script/SceneCardList.tsx');
 const { collectCharacterNames } = await server.ssrLoadModule('/src/StructuredScriptEditor.tsx');
 const { SceneDetailPanel } = await server.ssrLoadModule('/src/script/SceneDetailPanel.tsx');
 const { EpisodeParseDialog, getEpisodeParseValidationError } = await server.ssrLoadModule('/src/script/EpisodeParseDialog.tsx');
@@ -224,6 +224,9 @@ test('场次提炼角色/地点，道具按正文关键词识别，对白缺失�
     onInsertSceneAfter: () => undefined, onDeleteScene: () => undefined, onDirtyChange: () => undefined,
   }));
   assert.match(cardHtml, /时间留下残渣/);
+  assert.match(cardHtml, /script-card-character-tag[^>]*>黑衣人甲/);
+  assert.match(cardHtml, /aria-label="出场人物"[^>]*value="黑衣人甲"/);
+  assert.deepEqual(parseCharacterRoster('林澈、老周, 林澈\n黑衣人甲'), ['林澈', '老周', '黑衣人甲']);
   assert.doesNotMatch(cardHtml, /script-card-character-tag[^>]*>旁白/);
   assert.equal(summary.location, '旧钟表店');
   assert.deepEqual(logic.recognizeSceneProps(scene, ['手表', '天台']), []);

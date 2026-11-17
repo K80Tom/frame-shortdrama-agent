@@ -189,6 +189,7 @@ test('长场次可一键拆分为两场并继承时空、重排编号', () => {
   const episode = structure.episodes[0];
   const target = episode.scenes[0];
   target.characterNames = ['无对白人物'];
+  target.dialogues[2].content = '无对白人物随林澈起身。';
   const elementIds = target.dialogues.map(item => item.id);
   const split = splitScene(structure, episode.id, target.id);
   const scenes = split.episodes[0].scenes;
@@ -199,13 +200,30 @@ test('长场次可一键拆分为两场并继承时空、重排编号', () => {
   assert.equal(scenes[1].location, target.location);
   assert.equal(scenes[1].intExt, target.intExt);
   assert.equal(scenes[1].timeOfDay, target.timeOfDay);
-  assert.deepEqual(scenes[0].characterNames, ['无对白人物']);
-  assert.deepEqual(scenes[1].characterNames, []);
+  assert.deepEqual(scenes[0].characterNames, []);
+  assert.deepEqual(scenes[1].characterNames, ['无对白人物']);
   assert.notEqual(scenes[1].id, target.id);
   assert.deepEqual([...scenes[0].dialogues, ...scenes[1].dialogues].map(item => item.id), elementIds);
   // 只有一个元素的场次不可拆分。
   const single = splitScene(structure, episode.id, episode.scenes[1].id);
   assert.equal(single.episodes[0].scenes.length, 2);
+});
+
+test('拆场按拆分点分配前后半场的无对白人物', () => {
+  const structure = parseScriptStructure(`第1集
+
+1-1 内景 客厅 日
+甲：前半场。
+【动作】甲坐下。
+【动作】乙推门进来。
+乙：后半场。`);
+  const episode = structure.episodes[0];
+  const target = episode.scenes[0];
+  target.characterNames = ['甲', '乙'];
+  const split = splitScene(structure, episode.id, target.id);
+  const scenes = split.episodes[0].scenes;
+  assert.deepEqual(scenes[0].characterNames, ['甲']);
+  assert.deepEqual(scenes[1].characterNames, ['乙']);
 });
 
 test('步骤二概览统计场次数、核心角色与对白句数', () => {

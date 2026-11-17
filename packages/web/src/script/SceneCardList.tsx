@@ -105,6 +105,10 @@ function InsertElement({ index, onInsert }: { index: number; onInsert: (index: n
   </div>;
 }
 
+export function parseCharacterRoster(value: string): string[] {
+  return [...new Set(value.split(/[、，,\n]/).map(name => name.trim()).filter(Boolean))];
+}
+
 function SceneCard({ scene, selected, disabled, onSelect, onSave, onDelete, onDirtyChange }: {
   scene: ScriptScene;
   selected: boolean;
@@ -143,6 +147,7 @@ function SceneCard({ scene, selected, disabled, onSelect, onSave, onDelete, onDi
 
   const speakers = [...new Set(draft.dialogues.filter(item => item.type === 1)
     .map(item => item.characterName?.trim() ?? '').filter(Boolean))];
+  const roster = [...new Set([...(draft.characterNames ?? []), ...speakers])];
   const incomplete = incompleteDialogues(draft);
   return <article id={`script-scene-${scene.id}`} onClick={onSelect}
     className={`script-card ${selected ? 'is-active' : ''} ${incomplete.length ? 'has-warning' : ''}`}>
@@ -170,8 +175,12 @@ function SceneCard({ scene, selected, disabled, onSelect, onSave, onDelete, onDi
     </header>
     <label className="script-card-heading"><Clapperboard size={15} /><input aria-label="场景标题" value={draft.sceneHeading}
       disabled={disabled || saving} placeholder="场景标题" onChange={event => patch({ sceneHeading: event.target.value })} /></label>
-    {speakers.length > 0 && <div className="script-card-speakers"><Users size={12} />
-      {speakers.map(name => <span className="script-card-character-tag" key={name}>{name}</span>)}</div>}
+    {roster.length > 0 && <div className="script-card-speakers"><Users size={12} />
+      {roster.map(name => <span className="script-card-character-tag" key={name}>{name}</span>)}</div>}
+    <label className="script-card-heading script-card-roster"><Users size={15} /><input aria-label="出场人物"
+      list="script-card-character-options" value={(draft.characterNames ?? []).join('、')} disabled={disabled || saving}
+      placeholder="实际出场人物，顿号或逗号分隔"
+      onChange={event => patch({ characterNames: parseCharacterRoster(event.target.value) })} /></label>
     <textarea className="script-card-description" aria-label="场景描述" value={draft.sceneDescription}
       disabled={disabled || saving} placeholder="添加场景描述…" onChange={event => patch({ sceneDescription: event.target.value })} />
     {incomplete.length > 0 && <p className="script-card-warning" role="note">有 {incomplete.length} 条对白缺少说话人或台词内容。</p>}

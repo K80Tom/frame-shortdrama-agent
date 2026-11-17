@@ -187,6 +187,40 @@ test('asset-requirements：无已采用事实返回零值 200；有事实返回�
   assert.ok(hall.sceneIds.length >= 1);
 });
 
+test('#198：读模型排除对白及别名仅提及的旧道具证据', async () => {
+  const { service } = fixture();
+  const project = await service.createProject({ title: '道具对白提及边界' });
+  const rawText = '第1场 破庙 夜 内\r\n林砚拔出长剑。\r\n第2场 破庙 夜 内\r\n林砚：那把青锋只是传说，这里根本没有剑和传说之剑。\r\n';
+  const script = await service.createScriptVersion(project.id, { rawText });
+  const action = sourceRef(script, '林砚拔出长剑。');
+  const mention = sourceRef(script, '那把青锋只是传说，这里根本没有剑和传说之剑。');
+  const firstScene = sourceRef(script, '第1场 破庙 夜 内\r\n林砚拔出长剑。');
+  const secondScene = sourceRef(script, '第2场 破庙 夜 内\r\n林砚：那把青锋只是传说，这里根本没有剑和传说之剑。');
+  const run = await service.createDraftRun(project.id, { maxModelCalls: 1, maxOutputTokens: 4096 });
+  const plan = await service.createExtractFactsCandidate(run.id, {
+    synopsis: sourced('长剑的实际使用与传说。', [firstScene, secondScene]),
+    characters: [{ tempId: 'tmp_lin', name: sourced('林砚', [action, mention]), aliases: [], description: null, sourceRefs: [action, mention] }],
+    locations: [],
+    props: [
+      { tempId: 'tmp_sword', name: sourced('长剑', [action]), aliases: [sourced('青锋', [mention])], description: null, sourceRefs: [action, mention] },
+      { tempId: 'tmp_legend', name: sourced('传说之剑', [mention]), aliases: [], description: null, sourceRefs: [mention] },
+    ],
+    scenes: [
+      { tempId: 'tmp_scene_1', order: 1, title: sourced('实际用剑', [firstScene]), locationTempId: null,
+        characterTempIds: ['tmp_lin'], sourceRefs: [firstScene], timeOfDay: null },
+      { tempId: 'tmp_scene_2', order: 2, title: sourced('只谈传说', [secondScene]), locationTempId: null,
+        characterTempIds: ['tmp_lin'], sourceRefs: [secondScene], timeOfDay: null },
+    ],
+    dialogues: [{ tempId: 'tmp_dialogue', sceneTempId: 'tmp_scene_2', speakerTempId: 'tmp_lin',
+      speakerSourceRefs: [mention], speakerAnswerIds: [], sourceRef: mention }],
+  });
+  const checked = await service.checkPlan(plan.id);
+  await service.adoptPlan(project.id, { planRevisionId: plan.id, checkId: checked.check.id, expectedActivePlanRevisionId: null });
+  const response = await readModel(service).assetRequirements(project.id);
+  assert.deepEqual(response.requirements.find(item => item.name === '长剑').sceneIds, [plan.content.scenes[0].id]);
+  assert.deepEqual(response.requirements.find(item => item.name === '传说之剑').sceneIds, []);
+});
+
 test('decideNextAction 纯逻辑尾部：handle-todos / view-delivery / null', () => {
   const base = {
     hasScript: true, hasRuns: true, adoptedPlan: { id: 'p1' }, freshAdoptedPlan: true,

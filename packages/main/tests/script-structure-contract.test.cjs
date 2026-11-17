@@ -22,6 +22,7 @@ test('createScriptVersion accepts a structured script and derives canonical rawT
   structure.episodes[0].scenes[0].timeOfDay = '夜';
   structure.episodes[0].scenes[0].intExt = '外';
   structure.episodes[0].scenes[0].sceneDescription = '风很大。';
+  structure.episodes[0].scenes[0].characterNames = ['林澈', '无对白路人'];
   structure.episodes[0].scenes[0].dialogues.push({
     id: 'element_1', type: 1, characterName: '林澈', parenthetical: '低声', content: '我会等你。',
   });
@@ -34,8 +35,10 @@ test('createScriptVersion accepts a structured script and derives canonical rawT
   const saved = await service.createScriptVersion(project.id, parsed);
   assert.equal(saved.structure.episodes[0].scenes[0].location, '天台');
   assert.equal(saved.rawText, parsed.rawText);
+  assert.deepEqual(saved.structure.episodes[0].scenes[0].characterNames, ['林澈', '无对白路人']);
   const loaded = await service.getScriptVersion(project.id, saved.id);
   assert.equal(loaded.structure.episodes[0].scenes[0].dialogues[0].characterName, '林澈');
+  assert.deepEqual(loaded.structure.episodes[0].scenes[0].characterNames, ['林澈', '无对白路人']);
 });
 
 test('createScriptVersion preserves supplied raw text beside its structure', async () => {
