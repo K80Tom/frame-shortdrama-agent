@@ -159,6 +159,23 @@ export function mergeScenes(structure: ScriptStructure, episodeId: string, scene
   });
 }
 
+function splitCharacterRoster(names: string[], first: ScriptScene['dialogues'], second: ScriptScene['dialogues']) {
+  const hasEvidence = (name: string, elements: ScriptScene['dialogues']) => {
+    const normalized = normalizeScriptCharacterName(name);
+    return elements.some(element => element.type === 1
+      ? Boolean(normalized) && normalizeScriptCharacterName(element.characterName ?? '') === normalized
+      : Boolean(name.trim()) && element.content.includes(name.trim()));
+  };
+  const firstMatches = new Set(names.filter(name => hasEvidence(name, first)));
+  const secondMatches = new Set(names.filter(name => hasEvidence(name, second)));
+  const unresolved = new Set(names.filter(name => !firstMatches.has(name) && !secondMatches.has(name)));
+  // 无定位证据时保留到两半供人工确认，避免拆场静默删除显式名册。
+  return {
+    first: names.filter(name => firstMatches.has(name) || unresolved.has(name)),
+    second: names.filter(name => secondMatches.has(name) || unresolved.has(name)),
+  };
+}
+
 /**
  * 把长场次拆成两场：默认按元素列表中段切分，第二场继承原场次的时空与标题，
  * 元素 id 保持不变（只是移动归属），随后按顺序重排整场编号。
@@ -170,14 +187,16 @@ export function splitScene(structure: ScriptStructure, episodeId: string, sceneI
     const current = episode.scenes[index];
     if (!current || current.dialogues.length < 2) return episode;
     const at = Math.min(Math.max(splitIndex ?? Math.floor(current.dialogues.length / 2), 1), current.dialogues.length - 1);
-    const first: ScriptScene = { ...current, dialogues: current.dialogues.slice(0, at) };
+    const firstElements = current.dialogues.slice(0, at);
+    const secondElements = current.dialogues.slice(at);
+    const roster = splitCharacterRoster(current.characterNames ?? [], firstElements, secondElements);
+    const first: ScriptScene = { ...current, dialogues: firstElements, characterNames: roster.first };
     const second: ScriptScene = {
       ...current,
       id: uid('scene'),
       sceneDescription: '',
-      // 拆分时不能猜无对白人物落在哪一半；说话人仍会从元素自动合并，可在新场次补录名册。
-      characterNames: [],
-      dialogues: current.dialogues.slice(at),
+      characterNames: roster.second,
+      dialogues: secondElements,
     };
     return {
       ...episode,

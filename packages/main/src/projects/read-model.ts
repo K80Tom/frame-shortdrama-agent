@@ -112,7 +112,7 @@ function allEntities(plan: PlanRevisionRecord): EntityRef[] {
   ];
 }
 
-/** 与生产执行器一致的保守归属规则：人物/地点按场次声明，道具按原文引用重叠。 */
+/** 与生产执行器一致的保守归属规则：人物/地点按场次声明，道具按非对白实际使用证据。 */
 function sceneIdsOf(plan: PlanRevisionRecord, entityId: string, kind: EntityRef['kind']): string[] {
   const sceneIds: string[] = [];
   for (const scene of plan.content.scenes) {
@@ -122,8 +122,12 @@ function sceneIdsOf(plan: PlanRevisionRecord, entityId: string, kind: EntityRef[
   if (kind === 'prop') {
     const prop = plan.content.props.find(item => item.id === entityId);
     if (prop) {
+      const terms = [prop.name.value, ...prop.aliases.map(alias => alias.value)].map(term => term.trim()).filter(Boolean);
+      const appearanceRefs = prop.sourceRefs.filter(ref => terms.some(term => ref.quote.includes(term))
+        && !plan.content.dialogues.some(dialogue => dialogue.sourceRef.scriptVersionId === ref.scriptVersionId
+          && dialogue.sourceRef.start <= ref.start && dialogue.sourceRef.end >= ref.end));
       for (const scene of plan.content.scenes) {
-        const overlap = prop.sourceRefs.some(ref => scene.sourceRefs.some(sceneRef =>
+        const overlap = appearanceRefs.some(ref => scene.sourceRefs.some(sceneRef =>
           ref.scriptVersionId === sceneRef.scriptVersionId && ref.start < sceneRef.end && sceneRef.start < ref.end));
         if (overlap) sceneIds.push(scene.id);
       }

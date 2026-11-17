@@ -880,20 +880,40 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
     codePointRef(script.rawText, quote, script.id, searchStart, episodeEnd);
   const episodeFirstRef = () => episodeRef(Array.from(episodeText).slice(0, 200).join(''))
     ?? firstRef(script.rawText, script.id);
-  const episodeEvidenceRefs = (terms: string[]) => {
-    const needles = [...new Set(terms.map(term => term.trim()).filter(Boolean))];
+  const scenePropEvidenceRefs = (prop: { name: string; aliases: string[] }) => {
+    const needles = [...new Set([prop.name, ...prop.aliases].map(term => term.trim()).filter(Boolean))];
     const refs: NonNullable<ReturnType<typeof codePointRef>>[] = [];
-    let cursor = episodeStart;
-    while (cursor < episodeEnd && refs.length < 1_000) {
-      const matches = needles.map(term => episodeRef(term, cursor))
-        .filter((ref): ref is NonNullable<ReturnType<typeof codePointRef>> => Boolean(ref))
-        .sort((left, right) => left.start - right.start || right.end - left.end);
-      const next = matches[0];
-      if (!next) break;
-      refs.push(next);
-      cursor = Math.max(cursor + 1, next.end);
+    const collect = (contentRef: NonNullable<ReturnType<typeof codePointRef>>) => {
+      for (const needle of needles) {
+        let cursor = contentRef.start;
+        while (cursor < contentRef.end) {
+          const hit = codePointRef(script.rawText, needle, script.id, cursor, contentRef.end);
+          if (!hit) break;
+          refs.push(hit);
+          cursor = hit.end;
+        }
+      }
+    };
+    for (const [index, scene] of episode.scenes.entries()) {
+      const span = sceneSpans[index];
+      if (scene.sceneDescription?.trim()) {
+        const descriptionRef = codePointRef(script.rawText, scene.sceneDescription.trim(), script.id,
+          span?.start ?? episodeStart, span?.end ?? episodeEnd);
+        if (descriptionRef) collect(descriptionRef);
+      }
+      for (const element of scene.dialogues) {
+        if (element.type === 1) continue;
+        const elementRef = elementRefById.get(element.id);
+        if (elementRef) collect(elementRef);
+      }
     }
-    return refs;
+    const seen = new Set<string>();
+    return refs.filter(ref => {
+      const key = `${ref.start}:${ref.end}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 1_000);
   };
   const characterTempIds = new Map<string, string>();
   const characterEntities = characters
@@ -949,22 +969,6 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
         sourceRefs: [ref],
       };
     });
-  const props = propEntities
-    .map(prop => ({ ...prop, name: prop.name.trim() }))
-    .filter(prop => prop.name)
-    .filter((prop, index, all) => all.findIndex(item => item.name === prop.name) === index)
-    .map((prop, index) => {
-      const evidenceRefs = episodeEvidenceRefs([prop.name, ...prop.aliases]);
-      const ref = episodeRef(prop.name) ?? evidenceRefs[0] ?? episodeFirstRef();
-      return {
-        tempId: `prop_candidate_${index + 1}`,
-        name: sourced(prop.name, ref),
-        aliases: prop.aliases.map(alias => alias.trim()).filter(Boolean)
-          .map(alias => sourced(alias, episodeRef(alias) ?? ref)),
-        description: prop.description ? sourced(prop.description, ref) : null,
-        sourceRefs: evidenceRefs.length ? evidenceRefs : [ref],
-      };
-    });
 
   // 同集不同场次也可能重复同一句台词，按元素顺序推进游标并保存逐元素引用。
   let sceneCursor = episodeStart;
@@ -989,6 +993,25 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
     return { scriptVersionId: script.id, start, end: safeEnd,
       quote: rawChars.slice(start, safeEnd).join('') };
   });
+  // 道具出场只采信各场的场景描述和非对白实际内容；对白中的名称或别名仅作事实溯源。
+  const props = propEntities
+    .map(prop => ({ ...prop, name: prop.name.trim() }))
+    .filter(prop => prop.name)
+    .filter((prop, index, all) => all.findIndex(item => item.name === prop.name) === index)
+    .map((prop, index) => {
+      const evidenceRefs = scenePropEvidenceRefs(prop);
+      const ref = episodeRef(prop.name)
+        ?? prop.aliases.map(alias => episodeRef(alias)).find(Boolean)
+        ?? evidenceRefs[0] ?? episodeFirstRef();
+      return {
+        tempId: `prop_candidate_${index + 1}`,
+        name: sourced(prop.name, ref),
+        aliases: prop.aliases.map(alias => alias.trim()).filter(Boolean)
+          .map(alias => sourced(alias, episodeRef(alias) ?? ref)),
+        description: prop.description ? sourced(prop.description, ref) : null,
+        sourceRefs: evidenceRefs.length ? evidenceRefs : [ref],
+      };
+    });
   const scenes = episode.scenes.map((scene, sceneIndex) => {
     const elementRefs = sceneElementRefs[sceneIndex] ?? [];
     const title = scene.sceneHeading.trim() || scene.location.trim() || `第${sceneIndex + 1}场`;
@@ -1108,6 +1131,14 @@ function mergeFactsCandidates(candidates: CreateExtractFactsCandidateRequest[]):
       });
     }
     merged.dialogueExclusions?.push(...(candidate.dialogueExclusions ?? []));
+  }
+  for (const prop of merged.props) {
+    const terms = [prop.name.value, ...prop.aliases.map(alias => alias.value)].map(term => term.trim()).filter(Boolean);
+    const appearanceRefs = prop.sourceRefs.filter(ref => terms.some(term => ref.quote.includes(term))
+      && !merged.dialogues.some(dialogue => dialogue.sourceRef.scriptVersionId === ref.scriptVersionId
+        && dialogue.sourceRef.start <= ref.start && dialogue.sourceRef.end >= ref.end));
+    // 跨集合并时，实际使用证据优先于仅用于溯源的对白回退；全集仅提及时仍保留非空引用满足事实契约。
+    if (appearanceRefs.length > 0) prop.sourceRefs = appearanceRefs;
   }
   return merged;
 }

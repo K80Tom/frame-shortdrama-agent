@@ -352,6 +352,67 @@ test('#197：旧候选入口生成全集场次而不是只读第一集', async (
   assert.ok(candidate.content.scenes.every(item => item.characterIds.length === 1 && item.locationId));
 });
 
+async function twoScenePropCandidate(mentionedLine) {
+  let ordinal = 0;
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
+    now: () => new Date('2026-10-01T08:00:00.000Z'),
+    nextId: (prefix) => `${prefix}_${String(++ordinal).padStart(4, '0')}`,
+  });
+  const project = await breakdown.createProject({ title: '道具实际出场边界' });
+  const structure = emptyScriptStructure();
+  const episode = structure.episodes[0];
+  Object.assign(episode.scenes[0], { location: '破庙', sceneHeading: '1-1', title: '1-1' });
+  episode.scenes[0].dialogues = [{ id: 'action_1', type: 2, content: '林砚拔出手中的长剑。' }];
+  episode.scenes.push({
+    ...structuredClone(episode.scenes[0]), id: 'scene_1_2', sceneNumber: '1-2', sceneHeading: '1-2', title: '1-2',
+    dialogues: [{ id: 'line_2', type: 1, characterName: '林砚', parenthetical: '', content: mentionedLine }],
+  });
+  const script = await breakdown.createScriptVersion(project.id, { rawText: serializeScriptStructure(structure), structure });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig(), async () => { throw new Error('不应调用模型'); });
+  return service.createCharacterCandidate(project.id, script.id,
+    [{ name: '林砚', aliases: [], description: null }], [], [{ name: '长剑', aliases: ['青锋'], description: null }]);
+}
+
+function overlappingSceneTitles(candidate, prop) {
+  const overlaps = (left, right) => left.scriptVersionId === right.scriptVersionId
+    && left.start < right.end && right.start < left.end;
+  return candidate.content.scenes.filter(scene => scene.sourceRefs.some(sceneRef =>
+    prop.sourceRefs.some(propRef => overlaps(sceneRef, propRef)))).map(scene => scene.title.value);
+}
+
+test('#198：道具被对白仅提及时不计为实际出场', async () => {
+  const candidate = await twoScenePropCandidate('那把长剑只是传说，这里根本没有剑。');
+  assert.deepEqual(overlappingSceneTitles(candidate, candidate.content.props[0]), ['1-1']);
+});
+
+test('#198：道具别名被对白仅提及时不计为实际出场', async () => {
+  const candidate = await twoScenePropCandidate('青锋只是传说，这里根本没有剑。');
+  assert.deepEqual(overlappingSceneTitles(candidate, candidate.content.props[0]), ['1-1']);
+});
+
+test('#198：跨集同名道具只保留实际使用集的证据', async () => {
+  let ordinal = 0;
+  const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
+    now: () => new Date('2026-10-01T08:00:00.000Z'),
+    nextId: (prefix) => `${prefix}_${String(++ordinal).padStart(4, '0')}`,
+  });
+  const project = await breakdown.createProject({ title: '跨集同名道具' });
+  const structure = emptyScriptStructure();
+  const first = structure.episodes[0].scenes[0];
+  Object.assign(first, { location: '破庙', sceneHeading: '1-1', title: '1-1' });
+  first.dialogues = [{ id: 'line_1', type: 1, characterName: '林砚', parenthetical: '', content: '长剑只是传说。' }];
+  const secondEpisode = structuredClone(structure.episodes[0]);
+  Object.assign(secondEpisode, { id: 'episode_2', episodeNumber: 2, title: '第2集' });
+  Object.assign(secondEpisode.scenes[0], { id: 'scene_2_1', sceneNumber: '2-1', sceneHeading: '2-1', title: '2-1' });
+  secondEpisode.scenes[0].dialogues = [{ id: 'action_2', type: 2, content: '林砚在第二集拔出长剑。' }];
+  structure.episodes.push(secondEpisode);
+  const script = await breakdown.createScriptVersion(project.id, { rawText: serializeScriptStructure(structure), structure });
+  const service = new ScriptParseService({ query: async () => ({ rows: [], rowCount: 1 }) }, breakdown, createConfig(), async () => { throw new Error('不应调用模型'); });
+  const candidate = await service.createCharacterCandidate(project.id, script.id,
+    [{ name: '林砚', aliases: [], description: null }], [], [{ name: '长剑', aliases: [], description: null }]);
+  assert.deepEqual(overlappingSceneTitles(candidate, candidate.content.props[0]), ['2-1']);
+});
+
 test('#197：同一道具在多个场景的所有直接证据都进入候选', async () => {
   let ordinal = 0;
   const breakdown = new BreakdownService(new InMemoryBreakdownRepository(), createConfig(), {
