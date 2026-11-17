@@ -82,7 +82,7 @@ export interface ProjectAssetRequirementsResponse {
   projectId: string;
   planRevisionId: string | null;
   ruleVersion: typeof PROJECT_ASSET_MATCH_RULE_VERSION;
-  summary: { total: number; matched: number; missing: number; ambiguous: number };
+  summary: { total: number; matched: number; missing: number; ambiguous: number; placeholder: number };
   requirements: Array<{
     requirementId: string;
     kind: ProjectAssetRequirementKind;
@@ -90,6 +90,8 @@ export interface ProjectAssetRequirementsResponse {
     sceneIds: string[];
     match: {
       assetId: string | null;
+      /** 已登记的自动占位资产；不是正式匹配，AI 生成成功后按此 ID 替换媒体。 */
+      placeholderAssetId: string | null;
       matchedBy: 'name' | 'alias' | 'retrieval' | null;
       matchedTerm: string | null;
       ambiguous: boolean;

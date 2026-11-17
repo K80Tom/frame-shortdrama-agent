@@ -7,7 +7,7 @@
  */
 import type { ScriptEntityKind, ScriptEntityRole, ScriptStructure } from './script-structure';
 
-export const SCRIPT_PARSE_PROMPT_VERSION = 'script-parse/2' as const;
+export const SCRIPT_PARSE_PROMPT_VERSION = 'script-parse/3' as const;
 export const SCRIPT_DIALOGUE_REPAIR_PROMPT_VERSION = 'script-dialogue-repair/1' as const;
 
 export interface ScriptDialogueSourceRef {
@@ -165,6 +165,8 @@ function entityPresentInDraft(draft: ScriptStructure | null | undefined, kind: S
         if (names.has(normalizeEntityName(scene.location))) return true;
         continue;
       }
+      if (kind === 'character'
+        && (scene.characterNames ?? []).some(name => names.has(normalizeEntityName(name)))) return true;
       for (const element of scene.dialogues) {
         if (kind === 'character') {
           if (element.type === 1

@@ -7,8 +7,13 @@ export function unboundAssetRequirements(requirements: AssetRequirement[]): Asse
   return requirements.filter(item => !item.match.assetId);
 }
 
-/** 只有「未匹配且无歧义候选」的需求允许一键自动入库；歧义项仍需人工选择。 */
+/** 只有从未登记占位、未正式匹配且无歧义的需求允许一键自动入库。 */
 export function autoRegisterCandidates(requirements: AssetRequirement[]): AssetRequirement[] {
+  return requirements.filter(item => !item.match.assetId && !item.match.placeholderAssetId && !item.match.ambiguous);
+}
+
+/** 占位资产不算正式匹配，但仍可作为 AI 正式图片的原 ID 替换目标。 */
+export function assetGenerationCandidates(requirements: AssetRequirement[]): AssetRequirement[] {
   return requirements.filter(item => !item.match.assetId && !item.match.ambiguous);
 }
 

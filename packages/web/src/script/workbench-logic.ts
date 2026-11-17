@@ -367,12 +367,15 @@ export function removeEpisode(structure: ScriptStructure, episodeId: string): Sc
   return { ...structure, episodes: structure.episodes.filter(episode => episode.id !== episodeId) };
 }
 
-/** 本场提炼出的说话人与地点；道具由识别清单与正文关键词匹配后传入。 */
+/** 本场实际出场人物与地点；道具由识别清单与正文关键词匹配后传入。 */
 export function summarizeScene(scene: ScriptScene): { characters: string[]; location: string } {
-  const characters = [...new Set(scene.dialogues
-    .filter(element => element.type === 1)
-    .map(element => element.characterName?.trim() ?? '')
-    .filter(Boolean))];
+  const characters = [...new Set([
+    ...(scene.characterNames ?? []).map(name => name.trim()).filter(Boolean),
+    ...scene.dialogues
+      .filter(element => element.type === 1)
+      .map(element => element.characterName?.trim() ?? '')
+      .filter(Boolean),
+  ])];
   return { characters, location: scene.location.trim() };
 }
 
@@ -416,7 +419,8 @@ export function newCommandId(): string {
 }
 
 export interface RequirementMatchView {
-  state: 'matched' | 'missing' | 'ambiguous';
+  state: 'matched' | 'placeholder' | 'missing' | 'ambiguous';
+  /** 正式或占位资产 ID；占位只用于只读引用展示，不会被标成正式绑定。 */
   assetId: string | null;
   matchedBy: string | null;
   label: string;
@@ -430,7 +434,12 @@ export function matchRequirement(
     requirementId: string;
     kind: string;
     name: string;
-    match: { assetId: string | null; matchedBy: 'name' | 'alias' | 'retrieval' | null; ambiguous: boolean };
+    match: {
+      assetId: string | null;
+      placeholderAssetId?: string | null;
+      matchedBy: 'name' | 'alias' | 'retrieval' | null;
+      ambiguous: boolean;
+    };
   }> | null,
 ): RequirementMatchView | null {
   if (!requirements) return null;
@@ -446,6 +455,12 @@ export function matchRequirement(
     };
   }
   if (requirement.match.ambiguous) return { state: 'ambiguous', assetId: null, matchedBy: null, label: '存在多个候选，需人工选择' };
+  if (requirement.match.placeholderAssetId) {
+    return {
+      state: 'placeholder', assetId: requirement.match.placeholderAssetId,
+      matchedBy: null, label: '已引用占位，待正式素材',
+    };
+  }
   return { state: 'missing', assetId: null, matchedBy: null, label: '尚未绑定资产' };
 }
 

@@ -147,12 +147,15 @@ test('相邻场次合并后拼接元素并按顺序重排编号', () => {
 1-3 内景 走廊 晨
 旁白：第三场。`);
   const episode = structure.episodes[0];
+  episode.scenes[0].characterNames = ['黑衣人甲'];
+  episode.scenes[1].characterNames = ['黑衣人乙'];
   const merged = mergeScenes(structure, episode.id, episode.scenes[0].id);
   const scene = merged.episodes[0].scenes[0];
   assert.equal(merged.episodes[0].scenes.length, 2);
   assert.equal(scene.sceneNumber, '1-1');
   assert.equal(scene.dialogues.length, episode.scenes[0].dialogues.length + episode.scenes[1].dialogues.length);
   assert.equal(scene.location, '客厅');
+  assert.deepEqual(scene.characterNames, ['黑衣人甲', '黑衣人乙']);
   assert.deepEqual(merged.episodes[0].scenes.map(item => item.sceneNumber), ['1-1', '1-2']);
 });
 
@@ -185,6 +188,7 @@ test('长场次可一键拆分为两场并继承时空、重排编号', () => {
 老周：另一场。`);
   const episode = structure.episodes[0];
   const target = episode.scenes[0];
+  target.characterNames = ['无对白人物'];
   const elementIds = target.dialogues.map(item => item.id);
   const split = splitScene(structure, episode.id, target.id);
   const scenes = split.episodes[0].scenes;
@@ -195,6 +199,8 @@ test('长场次可一键拆分为两场并继承时空、重排编号', () => {
   assert.equal(scenes[1].location, target.location);
   assert.equal(scenes[1].intExt, target.intExt);
   assert.equal(scenes[1].timeOfDay, target.timeOfDay);
+  assert.deepEqual(scenes[0].characterNames, ['无对白人物']);
+  assert.deepEqual(scenes[1].characterNames, []);
   assert.notEqual(scenes[1].id, target.id);
   assert.deepEqual([...scenes[0].dialogues, ...scenes[1].dialogues].map(item => item.id), elementIds);
   // 只有一个元素的场次不可拆分。
@@ -212,8 +218,9 @@ test('步骤二概览统计场次数、核心角色与对白句数', () => {
 
 test('推进分镜前可从当前结构补齐角色与地点候选', () => {
   const structure = parseScriptStructure(raw);
+  structure.episodes[0].scenes[0].characterNames = ['黑衣人甲'];
   const facts = buildStructureFactCandidate(structure);
-  assert.deepEqual(facts.characters.map(item => item.name).sort(), ['林澈', '老周']);
+  assert.deepEqual(facts.characters.map(item => item.name).sort(), ['林澈', '老周', '黑衣人甲']);
   assert.ok(facts.characters.every(item => item.name !== '旁白'));
   assert.ok(facts.locations.some(item => item.name === '旧钟表店'));
   assert.deepEqual(facts.props, []);

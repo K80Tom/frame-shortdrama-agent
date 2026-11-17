@@ -43,7 +43,7 @@ test('asset-requirements：无已采用事实返回零值 200；未知项目 404
   const body = JSON.parse(response.body);
   assert.equal(body.planRevisionId, null);
   assert.equal(body.ruleVersion, 'production-asset-match/5');
-  assert.deepEqual(body.summary, { total: 0, matched: 0, missing: 0, ambiguous: 0 });
+  assert.deepEqual(body.summary, { total: 0, matched: 0, missing: 0, ambiguous: 0, placeholder: 0 });
 
   response = await request('GET', '/api/projects/project_nope/asset-requirements');
   assert.equal(response.statusCode, 404, response.body);

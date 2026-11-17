@@ -281,7 +281,7 @@ export class ProjectWorkspaceReadModel {
   async assetRequirements(projectId: string): Promise<ProjectAssetRequirementsResponse> {
     const project = await this.options.breakdown.getProject(projectId);
     if (!project.activePlanRevisionId) {
-      return { projectId: project.id, planRevisionId: null, ruleVersion: MATCH_RULE_VERSION as typeof PROJECT_ASSET_MATCH_RULE_VERSION, summary: { total: 0, matched: 0, missing: 0, ambiguous: 0 }, requirements: [] };
+      return { projectId: project.id, planRevisionId: null, ruleVersion: MATCH_RULE_VERSION as typeof PROJECT_ASSET_MATCH_RULE_VERSION, summary: { total: 0, matched: 0, missing: 0, ambiguous: 0, placeholder: 0 }, requirements: [] };
     }
     const plan = await this.options.breakdown.getPlanRevision(project.activePlanRevisionId);
     const assetsLibrary = this.options.assets ? await this.options.assets.list() : [];
@@ -295,6 +295,7 @@ export class ProjectWorkspaceReadModel {
       sceneIds: sceneIdsOf(plan, match.entityId, match.kind),
       match: {
         assetId: match.asset?.id ?? null,
+        placeholderAssetId: match.replaceAssetId ?? null,
         matchedBy: match.matchedBy,
         matchedTerm: match.matchedTerm,
         ambiguous: match.ambiguous,
@@ -306,7 +307,9 @@ export class ProjectWorkspaceReadModel {
         ? { kind: 'none' as const, label: '已绑定资产' }
         : match.ambiguous
           ? { kind: 'choose' as const, label: '在候选中选择' }
-          : { kind: 'create' as const, label: '新建资产' },
+          : match.replaceAssetId
+            ? { kind: 'none' as const, label: '已登记占位，待正式素材' }
+            : { kind: 'create' as const, label: '新建资产' },
     }));
     return {
       projectId: project.id,
@@ -317,6 +320,7 @@ export class ProjectWorkspaceReadModel {
         matched: requirements.filter(item => item.match.assetId).length,
         missing: requirements.filter(item => !item.match.assetId && !item.match.ambiguous).length,
         ambiguous: requirements.filter(item => item.match.ambiguous).length,
+        placeholder: requirements.filter(item => !item.match.assetId && item.match.placeholderAssetId).length,
       },
       requirements,
     };

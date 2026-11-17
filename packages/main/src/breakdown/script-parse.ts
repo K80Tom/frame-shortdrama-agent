@@ -5,6 +5,7 @@ import type { ScriptDialogueExclusion, ScriptParseAttempt, ScriptParseCharacter,
 import { ModelError, SCRIPT_DIALOGUE_REPAIR_PROMPT_VERSION, SCRIPT_PARSE_PROMPT_VERSION } from '@lyra/shared';
 import {
   isNarrationCharacterName,
+  normalizeScriptCharacterName,
   planEpisodeEntityCandidates,
   repairModelJsonPayload,
   renameEntityInEpisode,
@@ -74,6 +75,7 @@ const sceneSchema = Type.Object({
   timeOfDay: Type.Optional(Type.String({ maxLength: 160 })),
   intExt: Type.Optional(Type.Union([Type.Literal(''), Type.Literal('内'), Type.Literal('外'), Type.Literal('内/外')])),
   sceneDescription: Type.Optional(Type.String({ maxLength: 3000 })),
+  characterNames: Type.Optional(Type.Array(Type.String({ maxLength: 160 }), { maxItems: 200 })),
   elements: Type.Array(elementSchema, { minItems: 1, maxItems: 200 }),
 }, { additionalProperties: false });
 const rawSchema = Type.Object({
@@ -103,12 +105,13 @@ const validateRepairOutput = new Ajv({ allErrors: false }).compile<RepairOutput>
 const SYSTEM_PROMPT = `你是中文短剧剧本结构解析器。输入是用户提供的一整段中文故事或剧本，没有任何分集、场次标题或编号。
 请把它解析为恰好 1 集，并按地点、时间、连续动作或对话单元自动分场。只返回 JSON，不输出 Markdown。
 输出结构：
-{"title":"第1集","synopsis":"一句话剧情梗概","characters":[{"name":"人物名","aliases":["别名"],"description":"简短人物说明","role":"protagonist|supporting|background","confidence":0.8}],"locations":[{"name":"地点名","aliases":["别名"],"description":"简短地点说明","role":"supporting","confidence":0.7}],"props":[{"name":"道具名","aliases":["别名"],"description":"简短道具说明","role":"background","confidence":0.5}],"scenes":[{"sceneHeading":"场次标题","location":"地点","timeOfDay":"日/夜/黄昏等","intExt":"内/外/内/外/空","sceneDescription":"本场整体描述","elements":[{"type":1,"characterName":"说话人","parenthetical":"语气提示，可空","content":"台词或文本"}]}]}
+{"title":"第1集","synopsis":"一句话剧情梗概","characters":[{"name":"人物名","aliases":["别名"],"description":"简短人物说明","role":"protagonist|supporting|background","confidence":0.8}],"locations":[{"name":"地点名","aliases":["别名"],"description":"简短地点说明","role":"supporting","confidence":0.7}],"props":[{"name":"道具名","aliases":["别名"],"description":"简短道具说明","role":"background","confidence":0.5}],"scenes":[{"sceneHeading":"场次标题","location":"地点","timeOfDay":"日/夜/黄昏等","intExt":"内/外/内/外/空","sceneDescription":"本场整体描述","characterNames":["本场实际出现的人物，含无对白人物"],"elements":[{"type":1,"characterName":"说话人","parenthetical":"语气提示，可空","content":"台词或文本"}]}]}
 规则：
 - 元素 type：1=对白，2=动作，3=旁白，4=镜头/特写/运镜，5=环境/氛围。
 - 必须保留原文事实与语句，不得新增情节、人物或对白；可以写简短的场次标题和地点，但元素 content 不得改写。
 - 每场至少 1 个元素；对白尽量识别说话人并写入 characterName；旁白也可以带说话人，但“旁白”只是叙事标签，不是人物，不得放入 characters。
 - characters 必须列出文本中出现的所有有名字人物（包含只被提到的人）；aliases 可为空；不要编造人物。
+- scenes.characterNames 只列本场动作、环境、镜头或对白中实际出现的人物，包含没有对白的人；仅被提及但未出现的人不得列入，名称应与 characters 中的规范名或别名一致。
 - 每个实体必须给 role：protagonist=主角，supporting=配角，background=路人；confidence 取 0..1 的数字，把握不足时给低分，不要把主角或主要配角标成 background。
 - locations 必须列出剧情实际发生的地点，名称尽量与 scenes.location 一致；没有明确地点时返回空数组。
 - props 必须列出原文明确出现且对动作、对白或镜头有作用的物件，不得编造；没有明确道具时返回空数组。
@@ -130,6 +133,10 @@ function normalize(raw: RawParse): ScriptParseResult {
         timeOfDay: (scene.timeOfDay ?? '').trim(),
         intExt: scene.intExt ?? '',
         sceneDescription: (scene.sceneDescription ?? '').trim(),
+        ...(scene.characterNames === undefined ? {} : {
+          characterNames: [...new Set(scene.characterNames.map(name => name.trim())
+            .filter(name => name && !isNarrationCharacterName(name)))],
+        }),
         dialogues: scene.elements.filter(element => element.content.trim()).map(element => {
           const type = element.type as ScriptElementType;
           return {
@@ -607,12 +614,14 @@ reason 必须简短说明判断依据。不要输出正文 content，不要输�
     if (characters.length + locationEntities.length + props.length === 0) {
       throw new BreakdownError(400, 'SCRIPT_PARSE_CHARACTERS_REQUIRED', '至少保留一个人物、地点或道具。');
     }
-    const episode = script.structure?.episodes[0] ?? null;
+    const episodes = script.structure?.episodes ?? [];
     const run = await this.breakdown.createDraftRun(projectId, {
       scriptVersionId: script.id, requirements: {}, maxModelCalls: 1, maxOutputTokens: 4096,
     });
-    const candidate = factsCandidate(script, episode, characters, locationEntities, props, dialogueExclusions);
-    return this.breakdown.createExtractFactsCandidate(run.id, candidate);
+    const candidates = episodes.length
+      ? episodes.map(episode => factsCandidate(script, episode, characters, locationEntities, props, dialogueExclusions))
+      : [factsCandidate(script, null, characters, locationEntities, props, dialogueExclusions)];
+    return this.breakdown.createExtractFactsCandidate(run.id, mergeFactsCandidates(candidates));
   }
 
   /**
@@ -633,8 +642,10 @@ reason 必须简短说明判断依据。不要输出正文 content，不要输�
     const existing = await this.listExistingMatches();
     const candidates = structure.episodes.map(episode => {
       const episodeText = serializeScriptStructure({ ...structure, episodes: [episode] });
-      const names = [...new Set(episode.scenes.flatMap(scene => scene.dialogues
-        .map(element => element.characterName?.trim() ?? '').filter(name => name && name !== '旁白')))];
+      const names = [...new Set(episode.scenes.flatMap(scene => [
+        ...(scene.characterNames ?? []),
+        ...scene.dialogues.filter(element => element.type === 1).map(element => element.characterName?.trim() ?? ''),
+      ]).map(name => name.trim()).filter(name => name && !isNarrationCharacterName(name)))];
       const characters = names.map(name => ({ name, aliases: [] as string[], description: null }));
       // 道具没有独立的结构字段，只恢复在当前集原文中有直接证据的既有资产；不猜测新道具。
       const props = existing.filter(item => item.kind === 'prop' && episodeText.includes(item.name))
@@ -869,6 +880,21 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
     codePointRef(script.rawText, quote, script.id, searchStart, episodeEnd);
   const episodeFirstRef = () => episodeRef(Array.from(episodeText).slice(0, 200).join(''))
     ?? firstRef(script.rawText, script.id);
+  const episodeEvidenceRefs = (terms: string[]) => {
+    const needles = [...new Set(terms.map(term => term.trim()).filter(Boolean))];
+    const refs: NonNullable<ReturnType<typeof codePointRef>>[] = [];
+    let cursor = episodeStart;
+    while (cursor < episodeEnd && refs.length < 1_000) {
+      const matches = needles.map(term => episodeRef(term, cursor))
+        .filter((ref): ref is NonNullable<ReturnType<typeof codePointRef>> => Boolean(ref))
+        .sort((left, right) => left.start - right.start || right.end - left.end);
+      const next = matches[0];
+      if (!next) break;
+      refs.push(next);
+      cursor = Math.max(cursor + 1, next.end);
+    }
+    return refs;
+  };
   const characterTempIds = new Map<string, string>();
   const characterEntities = characters
     .map(character => character.name.trim())
@@ -887,6 +913,19 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
         sourceRefs: [ref],
       };
     });
+
+  const characterIdsByName = new Map<string, string>();
+  for (const character of characterEntities) {
+    const tempId = characterTempIds.get(character.name.value.trim());
+    if (!tempId) continue;
+    const source = characters.find(item => item.name.trim() === character.name.value.trim());
+    for (const name of [character.name.value, ...(source?.aliases ?? [])]) {
+      const key = normalizeScriptCharacterName(name);
+      if (key) characterIdsByName.set(key, tempId);
+    }
+  }
+  const characterIdFor = (name: string) => characterTempIds.get(name)
+    ?? characterIdsByName.get(normalizeScriptCharacterName(name));
 
   const locationTempIds = new Map<string, string>();
   const locationInputs = [
@@ -915,14 +954,15 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
     .filter(prop => prop.name)
     .filter((prop, index, all) => all.findIndex(item => item.name === prop.name) === index)
     .map((prop, index) => {
-      const ref = episodeRef(prop.name) ?? episodeFirstRef();
+      const evidenceRefs = episodeEvidenceRefs([prop.name, ...prop.aliases]);
+      const ref = episodeRef(prop.name) ?? evidenceRefs[0] ?? episodeFirstRef();
       return {
         tempId: `prop_candidate_${index + 1}`,
         name: sourced(prop.name, ref),
         aliases: prop.aliases.map(alias => alias.trim()).filter(Boolean)
           .map(alias => sourced(alias, episodeRef(alias) ?? ref)),
         description: prop.description ? sourced(prop.description, ref) : null,
-        sourceRefs: [ref],
+        sourceRefs: evidenceRefs.length ? evidenceRefs : [ref],
       };
     });
 
@@ -955,11 +995,12 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
     const titleRef = episodeRef(title)
       ?? episodeRef(scene.location)
       ?? elementRefs[0] ?? episodeFirstRef();
-    const presentNames = scene.dialogues
-      .map(element => element.characterName?.trim() ?? '')
-      .filter(Boolean);
+    const presentNames = [
+      ...(scene.characterNames ?? []),
+      ...scene.dialogues.filter(element => element.type === 1).map(element => element.characterName?.trim() ?? ''),
+    ].map(name => name.trim()).filter(name => name && !isNarrationCharacterName(name));
     const presentCharacterTempIds = presentNames
-      .map(name => characterTempIds.get(name))
+      .map(name => characterIdFor(name))
       .filter((id): id is string => Boolean(id))
       .filter((id, index, all) => all.indexOf(id) === index);
     const timeRef = scene.timeOfDay.trim() ? episodeRef(scene.timeOfDay.trim()) : null;
@@ -984,7 +1025,7 @@ function factsCandidate(script: { id: string; rawText: string; structure: Script
         const ref = elementRefById.get(element.id) ?? null;
         if (!ref) return null;
         const speaker = element.characterName?.trim() ?? '';
-        const speakerTempId = speaker ? characterTempIds.get(speaker) ?? null : null;
+        const speakerTempId = speaker && !isNarrationCharacterName(speaker) ? characterIdFor(speaker) ?? null : null;
         const speakerRef = speaker ? episodeRef(speaker) : null;
         return {
           tempId: `dialogue_candidate_${scene.id}_${index + 1}`,
@@ -1021,7 +1062,8 @@ function mergeFactsCandidates(candidates: CreateExtractFactsCandidateRequest[]):
     synopsis: candidates.find(candidate => candidate.synopsis !== null)?.synopsis ?? null,
     characters: [], locations: [], props: [], scenes: [], dialogues: [], dialogueExclusions: [],
   };
-  const mergeEntities = <T extends { tempId: string; name: { value: string } }>(
+  const mergeEntities = <T extends { tempId: string; name: { value: string };
+    sourceRefs: CreateExtractFactsCandidateRequest['characters'][number]['sourceRefs'] }>(
     target: T[], entities: T[], prefix: string,
   ) => {
     const byName = new Map(target.map(entity => [entity.name.value.trim(), entity.tempId]));
@@ -1033,6 +1075,11 @@ function mergeFactsCandidates(candidates: CreateExtractFactsCandidateRequest[]):
         tempId = `${prefix}_${target.length + 1}`;
         target.push({ ...entity, tempId });
         byName.set(key, tempId);
+      } else {
+        const existing = target.find(item => item.tempId === tempId)!;
+        existing.sourceRefs = [...existing.sourceRefs, ...entity.sourceRefs]
+          .filter((ref, index, all) => all.findIndex(item => item.scriptVersionId === ref.scriptVersionId
+            && item.start === ref.start && item.end === ref.end) === index);
       }
       idMap.set(entity.tempId, tempId);
     }
